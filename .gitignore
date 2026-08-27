@@ -1,0 +1,33 @@
+# npm
+node_modules/
+
+# Compiled output — Obsidian plugin convention: the binary lives in the vault
+# (<vault>/.obsidian/plugins/trello-vault-sync/), not in this source repo.
+# `npm run build` regenerates main.js locally for manual copy; none of it is
+# versioned here.
+/main.js
+*.js.map
+
+# Obsidian runtime data (user settings written by saveData()) — never source,
+# must never be committed.
+data.json
+.hotreload
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+*.log
+
+# Internal working notes (tool memory → project duplicate, per the vault's own
+# CLAUDE.md convention): this repo lives under a separate GitHub account
+# (aznan-triks) from the vault it was extracted from, precisely to keep them
+# distinct. CONTEXT.md / NEXT_SESSION.md document that link and personal
+# machine paths — never publishable here. They stay local only.
+CONTEXT.md
+NEXT_SESSION.md
+
+# Tool-specific caches — machine-specific, never versioned.
+.claude/
+.impeccable/

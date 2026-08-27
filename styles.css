@@ -1,0 +1,206 @@
+/* Trello Vault Sync — progress panel. One stylesheet for every command. */
+
+.tvs-panel {
+	position: fixed;
+	right: 24px;
+	bottom: 24px;
+	z-index: var(--layer-notice, 9999);
+	display: flex;
+	flex-direction: column;
+	width: 360px;
+	max-height: min(70vh, 520px);
+	overflow: hidden;
+	font-family: var(--font-interface);
+	font-size: var(--font-ui-small);
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m, 10px);
+	box-shadow: var(--shadow-l, 0 8px 32px rgba(0, 0, 0, 0.18));
+}
+
+.tvs-panel__header {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	padding: 10px 12px;
+	background: var(--background-secondary);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.tvs-panel__title {
+	flex: 1;
+	overflow: hidden;
+	font-weight: var(--font-semibold, 600);
+	color: var(--text-normal);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tvs-panel__status {
+	padding: 2px 8px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-on-accent);
+	background: var(--interactive-accent);
+	border-radius: 999px;
+}
+
+.tvs-panel--done .tvs-panel__status {
+	background: var(--color-green);
+}
+
+.tvs-panel--aborted .tvs-panel__status,
+.tvs-panel--error .tvs-panel__status {
+	background: var(--color-red);
+}
+
+.tvs-panel__close {
+	padding: 0 4px;
+	color: var(--text-muted);
+	cursor: pointer;
+	background: transparent;
+	border: none;
+	box-shadow: none;
+}
+
+.tvs-panel__progress {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	padding: 8px 12px 4px;
+}
+
+.tvs-panel__progress-label {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+}
+
+.tvs-panel__track {
+	flex: 1;
+	height: 4px;
+	overflow: hidden;
+	background: var(--background-modifier-border);
+	border-radius: 2px;
+}
+
+/* Scaled, not resized: the bar advances once per note and must not force a
+   layout pass on every step of a large batch. */
+.tvs-panel__bar {
+	width: 100%;
+	height: 100%;
+	background: var(--interactive-accent);
+	border-radius: 2px;
+	transform: scaleX(0);
+	transform-origin: left center;
+	transition: transform 0.2s ease;
+}
+
+.tvs-panel--done .tvs-panel__bar {
+	background: var(--color-green);
+}
+
+.tvs-panel--aborted .tvs-panel__bar,
+.tvs-panel--error .tvs-panel__bar {
+	background: var(--color-red);
+}
+
+.tvs-panel__counts {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 6px;
+	padding: 8px 12px;
+}
+
+.tvs-panel__count {
+	padding: 4px 0;
+	text-align: center;
+	background: var(--background-secondary);
+	border-radius: var(--radius-s, 6px);
+}
+
+.tvs-panel__count-value {
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold, 600);
+	color: var(--text-accent);
+	font-variant-numeric: tabular-nums;
+}
+
+.tvs-panel__count-label {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	text-transform: capitalize;
+}
+
+.tvs-panel__log {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 2px;
+	min-height: 60px;
+	padding: 4px 12px;
+	overflow-y: auto;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.tvs-panel__row {
+	display: flex;
+	gap: 6px;
+	align-items: baseline;
+	line-height: 1.5;
+}
+
+.tvs-panel__icon {
+	flex-shrink: 0;
+	width: 12px;
+	color: var(--text-muted);
+	text-align: center;
+}
+
+.tvs-panel__row--pull .tvs-panel__icon,
+.tvs-panel__row--adopt .tvs-panel__icon {
+	color: var(--text-accent);
+}
+
+.tvs-panel__row--push .tvs-panel__icon,
+.tvs-panel__row--create .tvs-panel__icon {
+	color: var(--color-green);
+}
+
+.tvs-panel__row--rename .tvs-panel__icon,
+.tvs-panel__row--warn .tvs-panel__icon {
+	color: var(--color-orange);
+}
+
+.tvs-panel__row--error .tvs-panel__icon,
+.tvs-panel__row--delete .tvs-panel__icon {
+	color: var(--color-red);
+}
+
+.tvs-panel__message {
+	flex: 1;
+	overflow: hidden;
+	color: var(--text-normal);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tvs-panel__current {
+	padding: 6px 12px;
+	overflow: hidden;
+	color: var(--text-muted);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	background: var(--background-secondary);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+/* Settings — folder mapping rows */
+
+.tvs-mapping {
+	padding: 8px 0;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.tvs-secret input {
+	font-family: var(--font-monospace);
+}
