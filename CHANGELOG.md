@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] — 2026-08-28
+
+### Fixed
+
+- Three progress-panel counters (`reportLinks`/`reportLocations`) used a French string as
+  their internal key instead of the English key the rest of the codebase uses to look up
+  a display label — harmless in practice, but inconsistent.
+- `TrelloClient` and `ObsidianVault` — the transport and file-access layers, meant to stay
+  independent of any display language — threw French error messages. They now throw in
+  English. Trade-off accepted: a network failure or a missing credential now surfaces an
+  English Notice inside an otherwise French UI; every other user-facing string (commands,
+  settings, progress panel, audit reports) stays French.
+
 ## [1.0.0] — 2026-08-27
 
 First release. Replaces eight Templater user scripts (`trello_sync`,
@@ -45,16 +58,3 @@ First release. Replaces eight Templater user scripts (`trello_sync`,
 - Credentials are stored only in the plugin's `data.json`, never in a vault note, and
   are redacted from error messages and logs — including from a transport-level failure,
   whose message would otherwise carry the full URL with the key and token in it.
-
-## [1.0.1] — 2026-08-28
-
-### Fixed
-
-- Three progress-panel counters (`reportLinks`/`reportLocations`) used a French string as
-  their internal key instead of the English key the rest of the codebase uses to look up
-  a display label — harmless in practice, but inconsistent.
-- `TrelloClient` and `ObsidianVault` — the transport and file-access layers, meant to stay
-  independent of any display language — threw French error messages. They now throw in
-  English. Trade-off accepted: a network failure or a missing credential now surfaces an
-  English Notice inside an otherwise French UI; every other user-facing string (commands,
-  settings, progress panel, audit reports) stays French.
