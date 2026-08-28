@@ -5,7 +5,7 @@ import { linkActiveNote } from "../src/features/linkNote";
 import { TrelloClient } from "../src/trello/client";
 import { FakeVault, card, routedTransport } from "./fakes";
 
-const linked = (cardId: string) => `---\ntrello_board_card_id: "board;${cardId}"\n---\n\ncorps`;
+const linked = (cardId: string) => `---\ntrello_board_card_id: "board;${cardId}"\n---\n\nbody`;
 
 function clientFor(cards: unknown[], lists: unknown[] = [{ id: "l1", name: "Idées" }]) {
 	const { transport, requests } = routedTransport({
@@ -44,7 +44,7 @@ describe("auditLinks", () => {
 	});
 
 	test("writes the report into the configured note", async () => {
-		const vault = new FakeVault({ [REPORT]: { content: "Mes notes" } });
+		const vault = new FakeVault({ [REPORT]: { content: "My notes" } });
 		const { client } = clientFor([card({ id: "c2", name: "Orpheline", idList: "l1" })]);
 
 		await auditLinks(vault, client, {
@@ -54,13 +54,13 @@ describe("auditLinks", () => {
 			timestamp: "t",
 		});
 
-		expect(vault.contentOf(REPORT)).toContain("Mes notes");
+		expect(vault.contentOf(REPORT)).toContain("My notes");
 		expect(vault.contentOf(REPORT)).toContain("Orpheline");
 	});
 
 	test("keeps the boxes the user had ticked in the previous report", async () => {
 		const previous =
-			"# 📊 Rapport de liens Trello\n> ancien\n\n- [x] [Orpheline](https://trello.com/c/c2)\n";
+			"# 📊 Trello Link Report\n> old\n\n- [x] [Orpheline](https://trello.com/c/c2)\n";
 		const vault = new FakeVault({ [REPORT]: { content: previous } });
 		const { client } = clientFor([card({ id: "c2", name: "Orpheline", idList: "l1" })]);
 
@@ -144,7 +144,7 @@ describe("linkActiveNote", () => {
 	const cards = [card({ id: "c1", name: "Sagondo" }), card({ id: "c2", name: "Le monde" })];
 
 	test("writes the frontmatter id of the closest matching card", async () => {
-		const vault = new FakeVault({ "WoT/Sagondo.md": { content: "---\ntype: idée\n---\n\ncorps" } });
+		const vault = new FakeVault({ "WoT/Sagondo.md": { content: "---\ntype: idée\n---\n\nbody" } });
 		const { client } = clientFor(cards);
 
 		const result = await linkActiveNote(vault, client, vault.note("WoT/Sagondo.md"), {
@@ -157,7 +157,7 @@ describe("linkActiveNote", () => {
 	});
 
 	test("refuses to link when no card is close enough", async () => {
-		const vault = new FakeVault({ "WoT/zzzzzz.md": { content: "corps" } });
+		const vault = new FakeVault({ "WoT/zzzzzz.md": { content: "body" } });
 		const { client } = clientFor(cards);
 
 		const result = await linkActiveNote(vault, client, vault.note("WoT/zzzzzz.md"), {
@@ -166,7 +166,7 @@ describe("linkActiveNote", () => {
 		});
 
 		expect(result.linked).toBe(false);
-		expect(vault.contentOf("WoT/zzzzzz.md")).toBe("corps");
+		expect(vault.contentOf("WoT/zzzzzz.md")).toBe("body");
 	});
 
 	test("refuses to relink a note that already carries a card id", async () => {
@@ -190,6 +190,6 @@ describe("auditLinks — configuration", () => {
 
 		await expect(
 			auditLinks(vault, client, { scope: "", boardId: "board", reportPath: "", timestamp: "t" }),
-		).rejects.toThrow(/pas configurée/i);
+		).rejects.toThrow(/not configured/i);
 	});
 });

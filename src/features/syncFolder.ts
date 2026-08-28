@@ -80,7 +80,7 @@ export async function syncFolder(
 ): Promise<FolderSyncStats> {
 	const stats = emptyStats();
 	const cards = await client.getListCards(mapping.listId);
-	reporter.log("info", `${cards.length} carte(s) dans la liste`);
+	reporter.log("info", `${cards.length} card(s) in the list`);
 
 	const handles = vault.listNotes(mapping.folder);
 	const planned: PlannedNote[] = handles.map((note) => ({
@@ -128,7 +128,7 @@ export async function syncFolder(
 				reporter.log("push", pair.card.name);
 			} else if (result.direction === "conflict") {
 				stats.conflicts++;
-				reporter.log("warn", `Conflit : ${pair.card.name}`);
+				reporter.log("warn", `Conflict: ${pair.card.name}`);
 			} else {
 				stats.skipped++;
 			}
@@ -171,12 +171,12 @@ export async function syncFolder(
 		const note = byPath.get(phantom.path);
 		if (!note) continue;
 		if (!options.allowDelete) {
-			reporter.log("warn", `Carte absente de la liste : ${phantom.basename} (conservé)`);
+			reporter.log("warn", `Card missing from the list: ${phantom.basename} (kept)`);
 			continue;
 		}
 		if (phantom.cardId !== null && aliveElsewhere.has(phantom.cardId)) {
 			stats.moved++;
-			reporter.log("warn", `Carte déplacée ailleurs sur le tableau : ${phantom.basename} (conservé)`);
+			reporter.log("warn", `Card moved elsewhere on the board: ${phantom.basename} (kept)`);
 			continue;
 		}
 		reporter.step(phantom.basename);

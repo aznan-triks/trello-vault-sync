@@ -54,7 +54,7 @@ export async function syncVault(
 
 	const cards = await client.getBoardCards(target.boardId);
 	const byId = new Map(cards.map((card) => [card.id, card]));
-	reporter.log("info", `${cards.length} carte(s) sur le tableau, ${linked.length} note(s) liée(s)`);
+	reporter.log("info", `${cards.length} card(s) on the board, ${linked.length} linked note(s)`);
 	reporter.setTotal(linked.length);
 
 	for (const { note, ref } of linked) {
@@ -62,7 +62,7 @@ export async function syncVault(
 		const card = byId.get(ref.cardId);
 		if (!card) {
 			stats.phantoms++;
-			reporter.log("warn", `Carte introuvable : ${note.basename}`);
+			reporter.log("warn", `Card not found: ${note.basename}`);
 			continue;
 		}
 
@@ -77,7 +77,7 @@ export async function syncVault(
 				reporter.log("push", note.basename);
 			} else if (result.direction === "conflict") {
 				stats.conflicts++;
-				reporter.log("warn", `Conflit : ${note.basename}`);
+				reporter.log("warn", `Conflict: ${note.basename}`);
 			} else {
 				stats.skipped++;
 			}

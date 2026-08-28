@@ -55,9 +55,9 @@ describe("buildLinkReport", () => {
 
 	test("counts each category in its section title", () => {
 		const md = buildLinkReport(input);
-		expect(md).toContain("Cartes Trello non liées (1)");
-		expect(md).toContain("Notes fantômes (1)");
-		expect(md).toContain("Notes non liées (1)");
+		expect(md).toContain("Unlinked Trello cards (1)");
+		expect(md).toContain("Phantom notes (1)");
+		expect(md).toContain("Unlinked notes (1)");
 	});
 
 	test("groups orphan cards under their Trello list name", () => {
@@ -75,7 +75,7 @@ describe("buildLinkReport", () => {
 
 	test("says so explicitly when a category is empty", () => {
 		const md = buildLinkReport({ ...input, orphanCards: [] });
-		expect(md).toContain("Aucune carte orpheline");
+		expect(md).toContain("No orphan card");
 	});
 });
 
@@ -104,18 +104,18 @@ describe("buildLocationReport", () => {
 
 describe("mergeReport", () => {
 	test("replaces a previous report and keeps whatever came before it", () => {
-		const existing = `Mes notes\n\n${LINK_REPORT_HEADING}\nvieux contenu`;
-		const merged = mergeReport(existing, `${LINK_REPORT_HEADING}\nneuf`, LINK_REPORT_HEADING);
-		expect(merged).toBe(`Mes notes\n\n${LINK_REPORT_HEADING}\nneuf`);
+		const existing = `My notes\n\n${LINK_REPORT_HEADING}\nold content`;
+		const merged = mergeReport(existing, `${LINK_REPORT_HEADING}\nnew`, LINK_REPORT_HEADING);
+		expect(merged).toBe(`My notes\n\n${LINK_REPORT_HEADING}\nnew`);
 	});
 
 	test("appends the report when the note has none yet", () => {
-		const merged = mergeReport("Mes notes", `${LINK_REPORT_HEADING}\nneuf`, LINK_REPORT_HEADING);
-		expect(merged).toBe(`Mes notes\n\n${LINK_REPORT_HEADING}\nneuf`);
+		const merged = mergeReport("My notes", `${LINK_REPORT_HEADING}\nnew`, LINK_REPORT_HEADING);
+		expect(merged).toBe(`My notes\n\n${LINK_REPORT_HEADING}\nnew`);
 	});
 
 	test("writes the report alone into an empty note", () => {
-		const merged = mergeReport("", `${LINK_REPORT_HEADING}\nneuf`, LINK_REPORT_HEADING);
-		expect(merged).toBe(`${LINK_REPORT_HEADING}\nneuf`);
+		const merged = mergeReport("", `${LINK_REPORT_HEADING}\nnew`, LINK_REPORT_HEADING);
+		expect(merged).toBe(`${LINK_REPORT_HEADING}\nnew`);
 	});
 });

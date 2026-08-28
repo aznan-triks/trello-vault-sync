@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-08-28
+
+### Changed
+
+- The entire plugin is now English-only. Every user-facing string — command names,
+  ribbon tooltips, the settings tab, the progress panel, Notices, and the Markdown
+  audit reports written into notes — is English. The vault this plugin was originally
+  built for is French, and an earlier release kept those strings in French; that
+  design call is reversed here.
+- Report timestamps switch from a French date format to an unambiguous `en-CA`
+  (`YYYY-MM-DD, HH:mm:ss`) one.
+
 ## [1.0.1] — 2026-08-28
 
 ### Fixed

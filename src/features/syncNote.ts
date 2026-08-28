@@ -90,7 +90,7 @@ export async function syncNote(
 ): Promise<NoteSyncResult> {
 	const ref = vault.getCardRef(note);
 	if (!ref) {
-		return { direction: "unlinked", renamed: false, note, reason: "aucun identifiant de carte" };
+		return { direction: "unlinked", renamed: false, note, reason: "no card id" };
 	}
 	const card = await client.getCard(ref.cardId);
 	return syncNoteWithCard(vault, client, note, card, options);

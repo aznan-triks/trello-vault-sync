@@ -8,19 +8,10 @@ worldbuilding vault where every note mirrors a card on a single board.
 It replaces a set of Templater user scripts driven by ribbon buttons: one plugin,
 one credential pair, native commands, and a test suite.
 
-## ⚠️ The UI is (mostly) in French
-
-This plugin was built for one specific vault. The **code, comments, and this README
-are English**, but most of what a human actually reads inside Obsidian — command
-names, the progress panel, the settings tab, and the Markdown audit reports the
-plugin writes into your notes — is in **French**, on purpose, for that vault's owner.
-
-One deliberate exception: errors coming from the Trello connection or from a missing
-file (e.g. "Missing Trello credentials", "Trello responded with 429") surface in
-**English**, because those two layers are written to stay independent of any display
-language. Every other Notice is French.
-
-There is no language setting. Forking is the way to get a fully English UI.
+This plugin was built for one specific vault, but the entire plugin — code, comments,
+and everything you see inside Obsidian (commands, settings, the progress panel,
+Notices, and the Markdown audit reports it writes into your notes) — is in English.
+There is no language setting.
 
 ## Features
 

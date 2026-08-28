@@ -46,14 +46,14 @@ export async function auditLocations(
 		const card = byId.get(ref.cardId);
 		if (!card) continue;
 
-		const listName = listNames.get(card.idList ?? "") ?? "Liste inconnue";
+		const listName = listNames.get(card.idList ?? "") ?? "Unknown list";
 		rows.push({ listName, cardName: card.name, folder: note.folder, notePath: note.path });
 
 		const folderSlug = slug(note.folder.split("/").pop() ?? "");
 		const listSlug = slug(listName);
 		if (listSlug !== "" && !folderSlug.includes(listSlug)) {
 			misplaced++;
-			reporter.log("warn", `${note.basename} → ${note.folder} (liste : ${listName})`);
+			reporter.log("warn", `${note.basename} → ${note.folder} (list: ${listName})`);
 		}
 	}
 

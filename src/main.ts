@@ -60,7 +60,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 
 	private panel(title: string): Reporter & { destroy?: () => void } {
 		if (!this.settings.showPanel) return silentReporter;
-		const suffix = this.settings.dryRun ? " (simulation)" : "";
+		const suffix = this.settings.dryRun ? " (dry run)" : "";
 		return new ProgressPanel({
 			title: title + suffix,
 			autoCloseMs: this.settings.panelAutoCloseSeconds * 1000,
@@ -70,7 +70,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 	private activeNote(): NoteHandle | null {
 		const file = this.app.workspace.getActiveFile();
 		if (!(file instanceof TFile) || file.extension !== "md") {
-			new Notice("Aucune note active.");
+			new Notice("No active note.");
 			return null;
 		}
 		return this.vault.noteAt(file.path);
@@ -80,11 +80,11 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 	private ready(needsBoard = false): TrelloClient | null {
 		const client = this.client();
 		if (!client.configured) {
-			new Notice("Trello Vault Sync : renseigne la clé et le token dans les réglages.");
+			new Notice("Trello Vault Sync: set the key and token in the plugin settings.");
 			return null;
 		}
 		if (needsBoard && this.settings.boardId.trim() === "") {
-			new Notice("Trello Vault Sync : renseigne l'identifiant du tableau dans les réglages.");
+			new Notice("Trello Vault Sync: set the board id in the plugin settings.");
 			return null;
 		}
 		return client;
@@ -112,78 +112,74 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 	private registerCommands(): void {
 		this.addCommand({
 			id: "sync-active-note",
-			name: "Synchroniser la note active",
+			name: "Sync active note",
 			callback: () => this.syncActive(),
 		});
 
 		this.addCommand({
 			id: "pull-active-note",
-			name: "Importer depuis Trello (note active)",
+			name: "Pull from Trello (active note)",
 			callback: () => this.syncActive("pull"),
 		});
 
 		this.addCommand({
 			id: "push-active-note",
-			name: "Envoyer vers Trello (note active)",
+			name: "Push to Trello (active note)",
 			callback: () => this.syncActive("push"),
 		});
 
 		this.addCommand({
 			id: "link-active-note",
-			name: "Associer la note active à une carte",
+			name: "Link active note to a card",
 			callback: () => this.linkActive(),
 		});
 
 		this.addCommand({
 			id: "sync-vault",
-			name: "Synchroniser toutes les notes liées",
+			name: "Sync all linked notes",
 			callback: () => this.syncAllLinked(),
 		});
 
 		this.addCommand({
 			id: "sync-mapping",
-			name: "Synchroniser une liste avec son dossier",
+			name: "Sync a list with its folder",
 			callback: () => this.syncOneMapping(),
 		});
 
 		this.addCommand({
 			id: "sync-all-mappings",
-			name: "Synchroniser toutes les listes avec leurs dossiers",
+			name: "Sync every list with its folder",
 			callback: () => this.syncAllMappings(),
 		});
 
 		this.addCommand({
 			id: "audit-links",
-			name: "Auditer les liens (cartes et notes orphelines)",
+			name: "Audit links (orphan cards and notes)",
 			callback: () => this.runLinkAudit(),
 		});
 
 		this.addCommand({
 			id: "audit-locations",
-			name: "Comparer les emplacements avec les listes Trello",
+			name: "Compare locations against Trello lists",
 			callback: () => this.runLocationAudit(),
 		});
 
 		this.addCommand({
 			id: "toggle-dry-run",
-			name: "Basculer le mode simulation",
+			name: "Toggle dry-run mode",
 			callback: async () => {
 				this.settings.dryRun = !this.settings.dryRun;
 				await this.saveSettings();
-				new Notice(`Mode simulation ${this.settings.dryRun ? "activé" : "désactivé"}.`);
+				new Notice(`Dry-run mode ${this.settings.dryRun ? "enabled" : "disabled"}.`);
 			},
 		});
 	}
 
 	private registerRibbon(): void {
-		this.addRibbonIcon("refresh-cw", "Synchroniser la note active", () => this.syncActive());
-		this.addRibbonIcon("kanban-square", "Synchroniser toutes les notes liées", () =>
-			this.syncAllLinked(),
-		);
-		this.addRibbonIcon("folder-sync", "Synchroniser une liste avec son dossier", () =>
-			this.syncOneMapping(),
-		);
-		this.addRibbonIcon("search", "Auditer les liens Trello", () => this.runLinkAudit());
+		this.addRibbonIcon("refresh-cw", "Sync active note", () => this.syncActive());
+		this.addRibbonIcon("kanban-square", "Sync all linked notes", () => this.syncAllLinked());
+		this.addRibbonIcon("folder-sync", "Sync a list with its folder", () => this.syncOneMapping());
+		this.addRibbonIcon("search", "Audit Trello links", () => this.runLinkAudit());
 	}
 
 	private async syncActive(force?: "pull" | "push"): Promise<void> {
@@ -191,7 +187,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		const note = this.activeNote();
 		if (!client || !note) return;
 
-		await this.run(`Synchro — ${note.basename}`, async (reporter) => {
+		await this.run(`Sync — ${note.basename}`, async (reporter) => {
 			reporter.setTotal(1);
 			reporter.step(note.basename);
 			const result = await syncNote(this.vault, client, note, this.noteOptions(force));
@@ -199,15 +195,15 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 
 			switch (result.direction) {
 				case "pull":
-					return `Importé depuis Trello${result.renamed ? " et renommé" : ""}.`;
+					return `Pulled from Trello${result.renamed ? " and renamed" : ""}.`;
 				case "push":
-					return "Envoyé vers Trello.";
+					return "Pushed to Trello.";
 				case "conflict":
-					return "Conflit : note et carte modifiées en même temps, rien n'a été écrit.";
+					return "Conflict: note and card changed at the same time, nothing was written.";
 				case "unlinked":
-					return "Note non liée — utilise « Associer la note active à une carte ».";
+					return "Note not linked — use \"Link active note to a card\".";
 				default:
-					return "Déjà à jour.";
+					return "Already up to date.";
 			}
 		});
 	}
@@ -217,14 +213,14 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		const note = this.activeNote();
 		if (!client || !note) return;
 
-		await this.run(`Association — ${note.basename}`, async () => {
+		await this.run(`Link — ${note.basename}`, async () => {
 			const result = await linkActiveNote(this.vault, client, note, {
 				boardId: this.settings.boardId,
 				threshold: this.settings.similarityThreshold,
 			});
-			if (result.reason === "already-linked") return "Cette note est déjà liée à une carte.";
-			if (!result.linked) return "Aucune carte assez proche du titre de la note.";
-			return `Liée à « ${result.card?.name} » (${Math.round(result.score * 100)} %).`;
+			if (result.reason === "already-linked") return "This note is already linked to a card.";
+			if (!result.linked) return "No card close enough to the note's title.";
+			return `Linked to "${result.card?.name}" (${Math.round(result.score * 100)}%).`;
 		});
 	}
 
@@ -232,7 +228,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		const client = this.ready(true);
 		if (!client) return;
 
-		await this.run("Synchro du coffre", async (reporter) => {
+		await this.run("Vault sync", async (reporter) => {
 			const stats = await syncVault(
 				this.vault,
 				client,
@@ -249,7 +245,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		const client = this.ready();
 		if (!client) return;
 		if (this.settings.mappings.length === 0) {
-			new Notice("Aucune correspondance liste ↔ dossier définie dans les réglages.");
+			new Notice("No list ↔ folder mapping defined in the plugin settings.");
 			return;
 		}
 		new MappingSuggest(this.app, this.settings.mappings, (mapping) => {
@@ -258,7 +254,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 	}
 
 	private async runMapping(client: TrelloClient, mapping: FolderMapping): Promise<void> {
-		await this.run(`Synchro — ${mapping.folder}`, async (reporter) => {
+		await this.run(`Sync — ${mapping.folder}`, async (reporter) => {
 			const stats = await syncFolder(this.vault, client, mapping, this.folderOptions(), reporter);
 			for (const [key, value] of Object.entries(stats)) reporter.count(key, value);
 			return `+ ${stats.created} · 🔗 ${stats.adopted} · ↓ ${stats.pulled} · ↑ ${stats.pushed} · 🗑 ${stats.deleted} · ✕ ${stats.errors}`;
@@ -269,24 +265,24 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		const client = this.ready();
 		if (!client) return;
 		if (this.settings.mappings.length === 0) {
-			new Notice("Aucune correspondance liste ↔ dossier définie dans les réglages.");
+			new Notice("No list ↔ folder mapping defined in the plugin settings.");
 			return;
 		}
 
-		await this.run("Synchro de toutes les listes", async (reporter) => {
+		await this.run("Sync all mappings", async (reporter) => {
 			let created = 0;
 			let pulled = 0;
 			let pushed = 0;
 			let errors = 0;
 			for (const mapping of this.settings.mappings) {
-				reporter.log("info", `Dossier : ${mapping.folder}`);
+				reporter.log("info", `Folder: ${mapping.folder}`);
 				const stats = await syncFolder(this.vault, client, mapping, this.folderOptions(), reporter);
 				created += stats.created;
 				pulled += stats.pulled;
 				pushed += stats.pushed;
 				errors += stats.errors;
 			}
-			return `${this.settings.mappings.length} dossier(s) · + ${created} · ↓ ${pulled} · ↑ ${pushed} · ✕ ${errors}`;
+			return `${this.settings.mappings.length} folder(s) · + ${created} · ↓ ${pulled} · ↑ ${pushed} · ✕ ${errors}`;
 		});
 	}
 
@@ -295,7 +291,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 			scope: this.settings.scope,
 			boardId: this.settings.boardId,
 			reportPath: this.settings.reportPath,
-			timestamp: new Date().toLocaleString("fr-FR"),
+			timestamp: new Date().toLocaleString("en-CA", { hour12: false }),
 		};
 	}
 
@@ -303,12 +299,12 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		const client = this.ready(true);
 		if (!client) return;
 
-		await this.run("Audit des liens", async (reporter) => {
+		await this.run("Link audit", async (reporter) => {
 			const result = await auditLinks(this.vault, client, this.auditOptions(), reporter);
 			reporter.count("orphanCards", result.orphanCards);
 			reporter.count("phantoms", result.phantomNotes);
 			reporter.count("unlinkedNotes", result.unlinkedNotes);
-			return `${result.orphanCards} carte(s) sans note · ${result.phantomNotes} lien(s) brisé(s) · ${result.unlinkedNotes} note(s) non liée(s)`;
+			return `${result.orphanCards} card(s) without a note · ${result.phantomNotes} broken link(s) · ${result.unlinkedNotes} unlinked note(s)`;
 		});
 	}
 
@@ -316,11 +312,11 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		const client = this.ready(true);
 		if (!client) return;
 
-		await this.run("Comparatif des emplacements", async (reporter) => {
+		await this.run("Location audit", async (reporter) => {
 			const result = await auditLocations(this.vault, client, this.auditOptions(), reporter);
 			reporter.count("comparedNotes", result.rows);
 			reporter.count("misplaced", result.misplaced);
-			return `${result.rows} note(s) comparée(s) · ${result.misplaced} hors de la liste attendue`;
+			return `${result.rows} note(s) compared · ${result.misplaced} outside their expected list`;
 		});
 	}
 }

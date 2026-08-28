@@ -7,9 +7,9 @@
  */
 
 /** Stable heading used to locate and replace a previous link report. */
-export const LINK_REPORT_HEADING = "# 📊 Rapport de liens Trello";
+export const LINK_REPORT_HEADING = "# 📊 Trello Link Report";
 /** Stable heading used to locate and replace a previous location report. */
-export const LOCATION_REPORT_HEADING = "# 📍 Comparatif des emplacements";
+export const LOCATION_REPORT_HEADING = "# 📍 Location Comparison";
 
 const CHECKED_LINE = /^[-*]\s\[x\]\s(.*)$/gim;
 const TRELLO_URL = /\((https:\/\/trello\.com\/[^)]+)\)/;
@@ -66,44 +66,44 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, 
 /** Report of cards without notes, notes with broken links, and notes without cards. */
 export function buildLinkReport(input: LinkReportInput): string {
 	const tick = (key: string) => (input.checked.has(key) ? "x" : " ");
-	const scope = input.scope === "" ? "tout le coffre" : `\`${input.scope}\``;
+	const scope = input.scope === "" ? "the whole vault" : `\`${input.scope}\``;
 
 	const out: string[] = [
 		LINK_REPORT_HEADING,
-		`> ${input.timestamp} · Périmètre : ${scope}`,
+		`> ${input.timestamp} · Scope: ${scope}`,
 		"",
-		`## 🚨 Cartes Trello non liées (${input.orphanCards.length})`,
+		`## 🚨 Unlinked Trello cards (${input.orphanCards.length})`,
 		"",
 	];
 
 	if (input.orphanCards.length === 0) {
-		out.push("✅ Aucune carte orpheline.", "");
+		out.push("✅ No orphan card.", "");
 	} else {
 		for (const [listId, cards] of groupBy(input.orphanCards, (c) => c.idList)) {
-			out.push(`### 📋 ${input.listNames.get(listId) ?? "Liste inconnue"}`);
+			out.push(`### 📋 ${input.listNames.get(listId) ?? "Unknown list"}`);
 			for (const card of cards) out.push(`- [${tick(card.url)}] [${card.name}](${card.url})`);
 			out.push("");
 		}
 	}
 
-	out.push("---", `## 👻 Notes fantômes (${input.phantomNotes.length})`, "");
+	out.push("---", `## 👻 Phantom notes (${input.phantomNotes.length})`, "");
 	if (input.phantomNotes.length === 0) {
-		out.push("✅ Aucun lien brisé.", "");
+		out.push("✅ No broken link.", "");
 	} else {
-		for (const [folder, notes] of groupBy(input.phantomNotes, (n) => n.folder || "Racine")) {
+		for (const [folder, notes] of groupBy(input.phantomNotes, (n) => n.folder || "Root")) {
 			out.push(`### 🏚️ ${folder}`);
 			for (const note of notes) {
-				out.push(`- [${tick(note.path)}] [[${note.path}|${note.basename}]] — carte \`${note.cardId}\` introuvable`);
+				out.push(`- [${tick(note.path)}] [[${note.path}|${note.basename}]] — card \`${note.cardId}\` not found`);
 			}
 			out.push("");
 		}
 	}
 
-	out.push("---", `## 📝 Notes non liées (${input.unlinkedNotes.length})`, "");
+	out.push("---", `## 📝 Unlinked notes (${input.unlinkedNotes.length})`, "");
 	if (input.unlinkedNotes.length === 0) {
-		out.push("✅ Toutes les notes sont liées.", "");
+		out.push("✅ Every note is linked.", "");
 	} else {
-		for (const [folder, notes] of groupBy(input.unlinkedNotes, (n) => n.folder || "Racine")) {
+		for (const [folder, notes] of groupBy(input.unlinkedNotes, (n) => n.folder || "Root")) {
 			out.push(`### 📁 ${folder}`);
 			for (const note of notes) out.push(`- [${tick(note.path)}] [[${note.path}|${note.basename}]]`);
 			out.push("");
@@ -128,15 +128,15 @@ export interface LocationReportInput {
 
 /** Table of where each linked card's note actually lives, grouped by Trello list. */
 export function buildLocationReport(input: LocationReportInput): string {
-	const scope = input.scope === "" ? "tout le coffre" : `\`${input.scope}\``;
-	const out: string[] = [LOCATION_REPORT_HEADING, `> ${input.timestamp} · Périmètre : ${scope}`, ""];
+	const scope = input.scope === "" ? "the whole vault" : `\`${input.scope}\``;
+	const out: string[] = [LOCATION_REPORT_HEADING, `> ${input.timestamp} · Scope: ${scope}`, ""];
 
 	if (input.rows.length === 0) {
-		out.push("✅ Aucune note liée à comparer.", "");
+		out.push("✅ No linked note to compare.", "");
 	}
 
 	for (const [listName, rows] of groupBy(input.rows, (r) => r.listName)) {
-		out.push(`### 📋 ${listName}`, "", "| Carte Trello | Dossier actuel |", "| :--- | :--- |");
+		out.push(`### 📋 ${listName}`, "", "| Trello card | Current folder |", "| :--- | :--- |");
 		for (const row of rows) {
 			out.push(`| ${row.cardName.replace(/\|/g, "-")} | 📂 ${row.folder} |`);
 		}

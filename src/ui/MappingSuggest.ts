@@ -9,7 +9,7 @@ export class MappingSuggest extends SuggestModal<FolderMapping> {
 		private readonly onPick: (mapping: FolderMapping) => void,
 	) {
 		super(app);
-		this.setPlaceholder("Quelle correspondance synchroniser ?");
+		this.setPlaceholder("Which mapping do you want to sync?");
 	}
 
 	getSuggestions(query: string): FolderMapping[] {
@@ -18,8 +18,8 @@ export class MappingSuggest extends SuggestModal<FolderMapping> {
 	}
 
 	renderSuggestion(mapping: FolderMapping, el: HTMLElement): void {
-		el.createDiv({ text: mapping.folder || "(dossier non défini)" });
-		el.createEl("small", { text: `liste ${mapping.listId || "?"} · modèle ${mapping.templateName || "aucun"}` });
+		el.createDiv({ text: mapping.folder || "(no folder set)" });
+		el.createEl("small", { text: `list ${mapping.listId || "?"} · template ${mapping.templateName || "none"}` });
 	}
 
 	onChooseSuggestion(mapping: FolderMapping): void {

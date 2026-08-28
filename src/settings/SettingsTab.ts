@@ -3,9 +3,9 @@ import type TrelloVaultSyncPlugin from "../main";
 import type { ConflictPolicy } from "../core/syncDecision";
 
 const POLICY_LABELS: Record<ConflictPolicy, string> = {
-	"newer-wins": "Le plus récent gagne",
-	"prefer-local": "Obsidian gagne toujours",
-	"prefer-remote": "Trello gagne toujours",
+	"newer-wins": "Newer side wins",
+	"prefer-local": "Obsidian always wins",
+	"prefer-remote": "Trello always wins",
 };
 
 export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
@@ -34,22 +34,22 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	private renderCredentials(root: HTMLElement): void {
-		new Setting(root).setName("Connexion Trello").setHeading();
+		new Setting(root).setName("Trello connection").setHeading();
 
 		root.createEl("p", {
 			cls: "setting-item-description",
 			text:
-				"Une seule paire clé/token pour toutes les commandes. Elle est stockée dans les " +
-				"réglages du plugin (data.json) — ne la recopie jamais dans une note du coffre.",
+				"A single key/token pair for every command. It is stored in the plugin's own " +
+				"settings (data.json) — never copy it into a vault note.",
 		});
 
 		new Setting(root)
-			.setName("Clé d'API")
+			.setName("API key")
 			.setDesc("https://trello.com/app-key")
 			.setClass("tvs-secret")
 			.addText((text) =>
 				text
-					.setPlaceholder("clé d'API")
+					.setPlaceholder("API key")
 					.setValue(this.plugin.settings.apiKey)
 					.onChange(async (value) => {
 						this.plugin.settings.apiKey = value.trim();
@@ -59,7 +59,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Token")
-			.setDesc("Jeton personnel généré depuis la page ci-dessus.")
+			.setDesc("Personal token generated from the page above.")
 			.setClass("tvs-secret")
 			.addText((text) => {
 				text.inputEl.type = "password";
@@ -73,8 +73,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(root)
-			.setName("Identifiant du tableau")
-			.setDesc("L'id qui apparaît dans l'URL du tableau Trello.")
+			.setName("Board id")
+			.setDesc("The id that appears in the Trello board's URL.")
 			.addText((text) =>
 				text
 					.setPlaceholder("idBoard")
@@ -86,15 +86,15 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Tester la connexion")
-			.setDesc("Vérifie la clé, le token et l'accès au tableau.")
+			.setName("Test connection")
+			.setDesc("Checks the key, the token, and access to the board.")
 			.addButton((button) =>
-				button.setButtonText("Tester").onClick(async () => {
+				button.setButtonText("Test").onClick(async () => {
 					button.setDisabled(true);
 					try {
 						const lists = await this.plugin.client().getBoardLists(this.plugin.settings.boardId);
 						this.listNames = new Map(lists.map((list) => [list.id, list.name]));
-						new Notice(`✅ Connexion OK — ${lists.length} liste(s) sur le tableau.`);
+						new Notice(`✅ Connected — ${lists.length} list(s) on the board.`);
 						this.display();
 					} catch (error) {
 						new Notice(`❌ ${(error as Error).message}`);
@@ -106,11 +106,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	private renderScope(root: HTMLElement): void {
-		new Setting(root).setName("Périmètre").setHeading();
+		new Setting(root).setName("Scope").setHeading();
 
 		new Setting(root)
-			.setName("Dossier synchronisé")
-			.setDesc("Limite les commandes globales à ce dossier. Vide = tout le coffre.")
+			.setName("Synced folder")
+			.setDesc("Restricts the vault-wide commands to this folder. Empty = the whole vault.")
 			.addText((text) =>
 				text
 					.setPlaceholder("WoT")
@@ -122,8 +122,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Note de rapport")
-			.setDesc("Chemin de la note où les audits écrivent leur rapport. Elle doit exister.")
+			.setName("Report note")
+			.setDesc("Path of the note the audits write their report into. It must already exist.")
 			.addText((text) =>
 				text
 					.setPlaceholder("WoT/00_Metatrois (Gestion)/Synchro.md")
@@ -136,11 +136,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	private renderBehaviour(root: HTMLElement): void {
-		new Setting(root).setName("Comportement de synchronisation").setHeading();
+		new Setting(root).setName("Sync behaviour").setHeading();
 
 		new Setting(root)
-			.setName("Arbitrage")
-			.setDesc("Qui gagne quand la note et la carte ont toutes deux changé.")
+			.setName("Arbitration")
+			.setDesc("Who wins when both the note and the card changed.")
 			.addDropdown((dropdown) => {
 				for (const [value, label] of Object.entries(POLICY_LABELS)) dropdown.addOption(value, label);
 				dropdown.setValue(this.plugin.settings.policy).onChange(async (value) => {
@@ -150,10 +150,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(root)
-			.setName("Marge d'horloge (secondes)")
+			.setName("Clock margin (seconds)")
 			.setDesc(
-				"En dessous de cet écart, les deux côtés sont considérés simultanés : la divergence " +
-					"est signalée comme conflit au lieu d'être tranchée au hasard.",
+				"Below this gap, both sides are considered simultaneous: the divergence is " +
+					"reported as a conflict instead of being resolved by a coin flip.",
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.marginSeconds)).onChange(async (value) => {
@@ -164,8 +164,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Synchroniser les titres")
-			.setDesc("Renomme la note d'après la carte, et inversement.")
+			.setName("Sync titles")
+			.setDesc("Renames the note from the card's title, and vice versa.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.syncTitle).onChange(async (value) => {
 					this.plugin.settings.syncTitle = value;
@@ -174,8 +174,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Mode simulation")
-			.setDesc("Calcule et affiche tout ce qui serait fait, sans rien écrire nulle part.")
+			.setName("Dry run")
+			.setDesc("Computes and shows everything that would be done, without writing anything.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.dryRun).onChange(async (value) => {
 					this.plugin.settings.dryRun = value;
@@ -184,8 +184,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Créer les notes manquantes")
-			.setDesc("Crée une note pour chaque carte sans équivalent local, lors d'une synchro de liste.")
+			.setName("Create missing notes")
+			.setDesc("Creates a note for every card with no local match, during a list sync.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.allowCreate).onChange(async (value) => {
 					this.plugin.settings.allowCreate = value;
@@ -194,10 +194,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Supprimer les notes orphelines")
+			.setName("Delete orphan notes")
 			.setDesc(
-				"⚠️ Destructif : met à la corbeille la note dont la carte a quitté la liste. " +
-					"Désactivé par défaut — les notes sont simplement signalées.",
+				"⚠️ Destructive: trashes the note whose card left the list. Off by default — " +
+					"such notes are simply reported.",
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.allowDelete).onChange(async (value) => {
@@ -208,24 +208,24 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	private renderMappings(root: HTMLElement): void {
-		new Setting(root).setName("Liste Trello ↔ dossier").setHeading();
+		new Setting(root).setName("Trello list ↔ folder").setHeading();
 
 		root.createEl("p", {
 			cls: "setting-item-description",
 			text:
-				"Chaque ligne relie une liste du tableau à un dossier du coffre, avec le modèle de note " +
-				"utilisé pour les créations. Remplace les scripts dédiés par dossier.",
+				"Each row pairs a board list with a vault folder, and the note template used for " +
+				"creations. Replaces the dedicated per-folder scripts.",
 		});
 
 		this.plugin.settings.mappings.forEach((mapping, index) => {
 			const row = root.createDiv({ cls: "tvs-mapping" });
 
 			new Setting(row)
-				.setName(`Correspondance ${index + 1}`)
+				.setName(`Mapping ${index + 1}`)
 				.addExtraButton((button) =>
 					button
 						.setIcon("trash")
-						.setTooltip("Supprimer")
+						.setTooltip("Remove")
 						.onClick(async () => {
 							this.plugin.settings.mappings.splice(index, 1);
 							await this.save();
@@ -233,7 +233,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						}),
 				);
 
-			new Setting(row).setName("Liste Trello").addText((text) =>
+			new Setting(row).setName("Trello list").addText((text) =>
 				text
 					.setPlaceholder(this.listNames.get(mapping.listId) ?? "idList")
 					.setValue(mapping.listId)
@@ -243,7 +243,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					}),
 			);
 
-			new Setting(row).setName("Dossier").addText((text) =>
+			new Setting(row).setName("Folder").addText((text) =>
 				text
 					.setPlaceholder("WoT/85_Idées")
 					.setValue(mapping.folder)
@@ -253,7 +253,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					}),
 			);
 
-			new Setting(row).setName("Modèle de note").addText((text) =>
+			new Setting(row).setName("Note template").addText((text) =>
 				text
 					.setPlaceholder("idée (script)")
 					.setValue(mapping.templateName)
@@ -266,7 +266,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root).addButton((button) =>
 			button
-				.setButtonText("Ajouter une correspondance")
+				.setButtonText("Add a mapping")
 				.setCta()
 				.onClick(async () => {
 					this.plugin.settings.mappings.push({ listId: "", folder: "", templateName: "" });
@@ -277,11 +277,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	private renderAdvanced(root: HTMLElement): void {
-		new Setting(root).setName("Avancé").setHeading();
+		new Setting(root).setName("Advanced").setHeading();
 
 		new Setting(root)
-			.setName("Seuil de ressemblance")
-			.setDesc("Score minimal (0 à 1) pour associer automatiquement une note à une carte.")
+			.setName("Similarity threshold")
+			.setDesc("Minimum score (0 to 1) to automatically match a note to a card.")
 			.addSlider((slider) =>
 				slider
 					.setLimits(0.1, 1, 0.05)
@@ -294,8 +294,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Nouvelles tentatives")
-			.setDesc("Nombre de réessais après une réponse 429 ou une erreur serveur.")
+			.setName("Retries")
+			.setDesc("Number of retries after a 429 response or a server error.")
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.maxRetries)).onChange(async (value) => {
 					const parsed = Number.parseInt(value, 10);
@@ -305,8 +305,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Délai initial (ms)")
-			.setDesc("Attente avant le premier réessai ; elle double à chaque tentative.")
+			.setName("Initial delay (ms)")
+			.setDesc("Wait before the first retry; it doubles on every subsequent attempt.")
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.baseDelayMs)).onChange(async (value) => {
 					const parsed = Number.parseInt(value, 10);
@@ -316,7 +316,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Afficher le panneau de progression")
+			.setName("Show the progress panel")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.showPanel).onChange(async (value) => {
 					this.plugin.settings.showPanel = value;
@@ -325,8 +325,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Fermeture automatique (secondes)")
-			.setDesc("0 pour garder le panneau ouvert jusqu'à fermeture manuelle.")
+			.setName("Auto-close (seconds)")
+			.setDesc("0 keeps the panel open until closed manually.")
 			.addText((text) =>
 				text
 					.setValue(String(this.plugin.settings.panelAutoCloseSeconds))

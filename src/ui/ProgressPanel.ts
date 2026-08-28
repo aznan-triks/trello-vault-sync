@@ -19,22 +19,22 @@ const MAX_LOG_ROWS = 60;
 
 /** Human labels for the counters the sync engines emit. */
 const COUNT_LABELS: Record<string, string> = {
-	created: "créés",
-	adopted: "adoptés",
-	pulled: "importés",
-	pushed: "envoyés",
-	skipped: "inchangés",
-	renamed: "renommés",
-	conflicts: "conflits",
-	phantoms: "fantômes",
-	moved: "déplacés",
-	deleted: "supprimés",
-	unlinked: "non liés",
-	errors: "erreurs",
-	orphanCards: "cartes orphelines",
-	unlinkedNotes: "non liées",
+	created: "created",
+	adopted: "adopted",
+	pulled: "pulled",
+	pushed: "pushed",
+	skipped: "skipped",
+	renamed: "renamed",
+	conflicts: "conflicts",
+	phantoms: "phantoms",
+	moved: "moved",
+	deleted: "deleted",
+	unlinked: "unlinked",
+	errors: "errors",
+	orphanCards: "orphan cards",
+	unlinkedNotes: "unlinked notes",
 	comparedNotes: "notes",
-	misplaced: "mal rangées",
+	misplaced: "misplaced",
 };
 
 export interface PanelOptions {
@@ -70,9 +70,9 @@ export class ProgressPanel implements Reporter {
 
 		const header = this.root.createDiv({ cls: "tvs-panel__header" });
 		header.createSpan({ cls: "tvs-panel__title", text: options.title });
-		this.statusEl = header.createSpan({ cls: "tvs-panel__status", text: "En cours…" });
+		this.statusEl = header.createSpan({ cls: "tvs-panel__status", text: "Running…" });
 		const close = header.createEl("button", { cls: "tvs-panel__close", text: "×" });
-		close.setAttr("aria-label", "Fermer");
+		close.setAttr("aria-label", "Close");
 		close.addEventListener("click", () => this.destroy());
 
 		const progress = this.root.createDiv({ cls: "tvs-panel__progress" });
@@ -82,7 +82,7 @@ export class ProgressPanel implements Reporter {
 
 		this.countsEl = this.root.createDiv({ cls: "tvs-panel__counts" });
 		this.logEl = this.root.createDiv({ cls: "tvs-panel__log" });
-		this.currentEl = this.root.createDiv({ cls: "tvs-panel__current", text: "Initialisation…" });
+		this.currentEl = this.root.createDiv({ cls: "tvs-panel__current", text: "Starting…" });
 	}
 
 	setTotal(total: number): void {
@@ -118,7 +118,7 @@ export class ProgressPanel implements Reporter {
 
 	finish(outcome: "done" | "aborted" | "error", summary: string): void {
 		this.statusEl.setText(
-			outcome === "done" ? "Terminé" : outcome === "aborted" ? "Interrompu" : "Erreur",
+			outcome === "done" ? "Done" : outcome === "aborted" ? "Aborted" : "Error",
 		);
 		this.root.addClass(`tvs-panel--${outcome}`);
 		this.barEl.style.transform = "scaleX(1)";

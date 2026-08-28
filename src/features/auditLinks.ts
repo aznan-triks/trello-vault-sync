@@ -28,11 +28,11 @@ export interface LinkAuditResult {
 /** Find the report note, or explain precisely what is missing. */
 export function requireReportNote(vault: VaultGateway, reportPath: string) {
 	if (reportPath.trim() === "") {
-		throw new Error("La note de rapport n'est pas configurée — renseigne-la dans les réglages.");
+		throw new Error("The report note is not configured — set it in the plugin settings.");
 	}
 	const note = vault.listNotes("").find((candidate) => candidate.path === reportPath);
 	if (!note) {
-		throw new Error(`Note de rapport introuvable : ${reportPath} — crée-la ou change le réglage.`);
+		throw new Error(`Report note not found: ${reportPath} — create it or change the setting.`);
 	}
 	return note;
 }
