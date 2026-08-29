@@ -7,6 +7,7 @@ import {
 import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { requireReportNote, type AuditOptions } from "./auditLinks";
+import { fetchBoardIndex } from "./boardIndex";
 
 export interface LocationAuditResult {
 	rows: number;
@@ -26,11 +27,7 @@ export async function auditLocations(
 ): Promise<LocationAuditResult> {
 	const reportNote = requireReportNote(vault, options.reportPath);
 
-	const [lists, cards] = await Promise.all([
-		client.getBoardLists(options.boardId),
-		client.getBoardCards(options.boardId),
-	]);
-	const listNames = new Map(lists.map((list) => [list.id, list.name]));
+	const { cards, listNames } = await fetchBoardIndex(client, options.boardId);
 	const byId = new Map(cards.map((card) => [card.id, card]));
 
 	const notes = vault.listNotes(options.scope);

@@ -24,21 +24,13 @@ describe("planFolderMatch", () => {
 	test("pairs a note with the card its frontmatter points at", () => {
 		const plan = planFolderMatch([card("c1", "Sagondo")], [note(`${FOLDER}/Sagondo.md`, "c1")], FOLDER);
 		expect(plan.pairs).toHaveLength(1);
-		expect(plan.pairs[0]).toMatchObject({ adopted: false, needsLocalRename: false });
+		expect(plan.pairs[0]).toMatchObject({ adopted: false });
 		expect(plan.missingCards).toEqual([]);
 	});
 
-	test("keeps the pairing when the card was renamed, and asks for a local rename", () => {
+	test("keeps the pairing when the card was renamed elsewhere", () => {
 		const plan = planFolderMatch([card("c1", "Sagondo v2")], [note(`${FOLDER}/Sagondo.md`, "c1")], FOLDER);
-		expect(plan.pairs[0]).toMatchObject({
-			needsLocalRename: true,
-			targetPath: `${FOLDER}/Sagondo v2.md`,
-		});
-	});
-
-	test("sanitises the card title when computing the target path", () => {
-		const plan = planFolderMatch([card("c1", "A/B: C?")], [note(`${FOLDER}/x.md`, "c1")], FOLDER);
-		expect(plan.pairs[0]?.targetPath).toBe(`${FOLDER}/A-B- C-.md`);
+		expect(plan.pairs[0]).toMatchObject({ adopted: false, note: { path: `${FOLDER}/Sagondo.md` } });
 	});
 
 	test("adopts an unlinked note whose file name already matches the card", () => {

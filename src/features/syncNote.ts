@@ -1,5 +1,5 @@
 import { parseCardRef } from "../core/cardRef";
-import { joinPath, sanitizeFileName, uniqueNotePath } from "../core/fileName";
+import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { extractBody, replaceBody } from "../core/noteBody";
 import { decideSync, type ConflictPolicy, type SyncDirection } from "../core/syncDecision";
 import type { NoteHandle, VaultGateway } from "../obsidian/gateway";
@@ -34,13 +34,20 @@ export async function syncNoteWithCard(
 	const content = await vault.read(note);
 	const localBody = extractBody(content);
 
+	const remoteMtime = new Date(card.dateLastActivity).getTime();
+	if (!Number.isFinite(remoteMtime)) {
+		throw new Error(
+			`Card "${card.name}" (${card.id}) has an unreadable dateLastActivity: "${card.dateLastActivity}" — refusing to guess a sync direction.`,
+		);
+	}
+
 	const decision = decideSync({
 		localTitle: note.basename,
 		localBody,
 		localMtime: note.mtime,
 		remoteTitle: card.name,
 		remoteBody: card.desc ?? "",
-		remoteMtime: new Date(card.dateLastActivity).getTime(),
+		remoteMtime,
 		policy: options.policy,
 		marginMs: options.marginMs,
 	});
@@ -94,11 +101,6 @@ export async function syncNote(
 	}
 	const card = await client.getCard(ref.cardId);
 	return syncNoteWithCard(vault, client, note, card, options);
-}
-
-/** Path a note should occupy for a given card title, inside `folder`. */
-export function targetPathFor(folder: string, cardName: string): string {
-	return joinPath(folder, `${sanitizeFileName(cardName)}.md`);
 }
 
 /** Re-export so callers do not need to reach into core for the common case. */

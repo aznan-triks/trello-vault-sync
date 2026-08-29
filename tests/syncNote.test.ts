@@ -146,6 +146,16 @@ describe("syncNoteWithCard", () => {
 		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "local");
 	});
 
+	test("fails loudly instead of guessing when the card has no readable timestamp", async () => {
+		const { vault, client } = setup("old", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "new", dateLastActivity: "" });
+
+		await expect(syncNoteWithCard(vault, client, vault.note(PATH), remote, options)).rejects.toThrow(
+			/dateLastActivity/,
+		);
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "old");
+	});
+
 	test("reports the direction but writes nothing in dry-run mode", async () => {
 		const { vault, client, requests } = setup("old", at("2026-01-01"));
 		const remote = card({ id: "c1", name: "Sagondo v2", desc: "new", dateLastActivity: "2026-02-01" });

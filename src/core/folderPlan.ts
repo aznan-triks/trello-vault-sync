@@ -25,9 +25,6 @@ export interface FolderPair {
 	card: PlannedCard;
 	/** True when the note was matched by file name rather than by frontmatter id. */
 	adopted: boolean;
-	/** Where the note should live once the card title is applied. */
-	targetPath: string;
-	needsLocalRename: boolean;
 }
 
 export interface FolderPlan {
@@ -96,13 +93,7 @@ export function planFolderMatch(
 			continue;
 		}
 
-		pairs.push({
-			note,
-			card,
-			adopted,
-			targetPath,
-			needsLocalRename: note.path !== targetPath,
-		});
+		pairs.push({ note, card, adopted });
 	}
 
 	const phantomNotes = [...byCardId.values()].filter((note) => !claimed.has(note.cardId as string));
