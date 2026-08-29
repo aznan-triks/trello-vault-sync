@@ -1,6 +1,7 @@
 import { formatCardRef } from "../core/cardRef";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
+import { tallyNoteResult } from "../core/syncTally";
 import { renderTemplate } from "../core/template";
 import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient } from "../trello/client";
@@ -34,10 +35,15 @@ export interface FolderSyncStats {
 	/** Notes spared because their card is alive elsewhere on the board. */
 	moved: number;
 	deleted: number;
+	/** Extra notes in the folder claiming a card another note already claimed. */
+	duplicates: number;
+	/** Notes in the folder carrying no card id at all. */
+	unlinked: number;
 	errors: number;
 }
 
-const emptyStats = (): FolderSyncStats => ({
+/** A stats object with every counter at zero — also the shape callers accumulate into. */
+export const emptyStats = (): FolderSyncStats => ({
 	created: 0,
 	adopted: 0,
 	pulled: 0,
@@ -48,6 +54,8 @@ const emptyStats = (): FolderSyncStats => ({
 	phantoms: 0,
 	moved: 0,
 	deleted: 0,
+	duplicates: 0,
+	unlinked: 0,
 	errors: 0,
 });
 
@@ -92,6 +100,16 @@ export async function syncFolder(
 	}));
 
 	const plan = planFolderMatch(cards, planned, mapping.folder);
+
+	stats.duplicates = plan.duplicateNotes.length;
+	for (const duplicate of plan.duplicateNotes) {
+		reporter.log(
+			"warn",
+			`Duplicate note claiming an already-linked card: ${duplicate.basename} (kept, not synced)`,
+		);
+	}
+	stats.unlinked = plan.unlinkedNotes.length;
+
 	reporter.setTotal(
 		plan.pairs.length +
 			(options.allowCreate ? plan.missingCards.length : 0) +
@@ -116,21 +134,12 @@ export async function syncFolder(
 				...(pair.adopted ? { force: "pull" as const } : {}),
 			});
 
-			if (result.renamed) stats.renamed++;
 			if (pair.adopted) {
+				if (result.renamed) stats.renamed++;
 				stats.adopted++;
 				reporter.log("adopt", pair.card.name);
-			} else if (result.direction === "pull") {
-				stats.pulled++;
-				reporter.log("pull", pair.card.name);
-			} else if (result.direction === "push") {
-				stats.pushed++;
-				reporter.log("push", pair.card.name);
-			} else if (result.direction === "conflict") {
-				stats.conflicts++;
-				reporter.log("warn", `Conflict: ${pair.card.name}`);
 			} else {
-				stats.skipped++;
+				tallyNoteResult(stats, result, (level, message) => reporter.log(level, message), pair.card.name);
 			}
 		} catch (error) {
 			stats.errors++;

@@ -62,6 +62,12 @@
 	box-shadow: none;
 }
 
+/* Hidden while a sync is running — there is no cancellation, so the button only
+   shows once closing it can no longer be mistaken for stopping the work. */
+.tvs-panel__close--hidden {
+	visibility: hidden;
+}
+
 .tvs-panel__progress {
 	display: flex;
 	gap: 8px;

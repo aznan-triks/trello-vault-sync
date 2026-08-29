@@ -26,6 +26,17 @@ describe("sanitizeFileName", () => {
 	test("drops a trailing dot, which Windows refuses", () => {
 		expect(sanitizeFileName("name.")).toBe("name");
 	});
+
+	test("prefixes a Windows-reserved device name so the file system does not choke on it", () => {
+		expect(sanitizeFileName("CON")).toBe("_CON");
+		expect(sanitizeFileName("com1")).toBe("_com1");
+		expect(sanitizeFileName("Lpt9")).toBe("_Lpt9");
+	});
+
+	test("leaves a name that merely contains a reserved word alone", () => {
+		expect(sanitizeFileName("Console")).toBe("Console");
+		expect(sanitizeFileName("Comfort")).toBe("Comfort");
+	});
 });
 
 describe("joinPath", () => {

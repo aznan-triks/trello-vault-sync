@@ -1,8 +1,14 @@
 import { Notice, Plugin, TFile } from "obsidian";
+import { addCounts } from "./core/syncTally";
 import { auditLinks } from "./features/auditLinks";
 import { auditLocations } from "./features/auditLocations";
 import { linkActiveNote } from "./features/linkNote";
-import { syncFolder, type FolderMapping, type FolderSyncOptions } from "./features/syncFolder";
+import {
+	emptyStats,
+	syncFolder,
+	type FolderMapping,
+	type FolderSyncOptions,
+} from "./features/syncFolder";
 import { syncNote, type NoteSyncOptions } from "./features/syncNote";
 import { syncVault } from "./features/syncVault";
 import { ObsidianVault } from "./obsidian/ObsidianVault";
@@ -17,6 +23,8 @@ import { ProgressPanel } from "./ui/ProgressPanel";
 export default class TrelloVaultSyncPlugin extends Plugin {
 	override settings: TrelloVaultSyncSettings = { ...DEFAULT_SETTINGS };
 	private vault!: ObsidianVault;
+	/** Guards every command in `run()` — two commands writing to the vault at once can race. */
+	private syncing = false;
 
 	override async onload(): Promise<void> {
 		this.settings = normalizeSettings(await this.loadData());
@@ -95,6 +103,11 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		title: string,
 		body: (reporter: Reporter) => Promise<string>,
 	): Promise<void> {
+		if (this.syncing) {
+			new Notice("Trello Vault Sync: a sync is already running — wait for it to finish.");
+			return;
+		}
+		this.syncing = true;
 		const reporter = this.panel(title);
 		try {
 			const summary = await body(reporter);
@@ -106,6 +119,8 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 			reporter.finish("error", message);
 			new Notice(`❌ ${message}`);
 			console.error("[trello-vault-sync]", error);
+		} finally {
+			this.syncing = false;
 		}
 	}
 
@@ -270,19 +285,14 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		}
 
 		await this.run("Sync all mappings", async (reporter) => {
-			let created = 0;
-			let pulled = 0;
-			let pushed = 0;
-			let errors = 0;
+			const total = emptyStats();
 			for (const mapping of this.settings.mappings) {
 				reporter.log("info", `Folder: ${mapping.folder}`);
 				const stats = await syncFolder(this.vault, client, mapping, this.folderOptions(), reporter);
-				created += stats.created;
-				pulled += stats.pulled;
-				pushed += stats.pushed;
-				errors += stats.errors;
+				addCounts(total, stats);
 			}
-			return `${this.settings.mappings.length} folder(s) · + ${created} · ↓ ${pulled} · ↑ ${pushed} · ✕ ${errors}`;
+			for (const [key, value] of Object.entries(total)) reporter.count(key, value);
+			return `${this.settings.mappings.length} folder(s) · + ${total.created} · ↓ ${total.pulled} · ↑ ${total.pushed} · ✕ ${total.errors}`;
 		});
 	}
 

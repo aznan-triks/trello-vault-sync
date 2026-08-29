@@ -1,6 +1,8 @@
 /** Characters Obsidian refuses inside a note file name. */
 const FORBIDDEN = new RegExp(String.raw`[*"\\/<>:|?]`, "g");
 const CONTROL = /[\u0000-\u001F\u007F]/g;
+/** Windows device names — illegal as a full file base name regardless of case. */
+const RESERVED_WINDOWS_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 /** Longest base name we will produce, leaving room for a folder prefix. */
 export const MAX_BASENAME_LENGTH = 120;
@@ -14,7 +16,8 @@ export function sanitizeFileName(name: string): string {
 		.trim()
 		.slice(0, MAX_BASENAME_LENGTH)
 		.trim();
-	return cleaned === "" ? "Untitled" : cleaned;
+	if (cleaned === "") return "Untitled";
+	return RESERVED_WINDOWS_NAME.test(cleaned) ? `_${cleaned}` : cleaned;
 }
 
 /** Join a vault folder and a file name, treating "" and "/" as the vault root. */

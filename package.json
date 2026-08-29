@@ -1,27 +1,33 @@
 {
-  "name": "trello-vault-sync",
-  "version": "1.1.0",
-  "description": "Two-way Trello sync and link auditing for Obsidian worldbuilding vaults.",
-  "main": "main.js",
-  "type": "module",
-  "private": true,
-  "scripts": {
-    "dev": "node esbuild.config.mjs",
-    "build": "tsc --noEmit && node esbuild.config.mjs production",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "check": "npm run typecheck && npm run test && node esbuild.config.mjs production"
-  },
-  "keywords": ["obsidian", "obsidian-plugin", "trello", "sync", "worldbuilding"],
-  "author": "aznan-triks",
-  "license": "MIT",
-  "devDependencies": {
-    "@types/node": "^22.10.2",
-    "builtin-modules": "^4.0.0",
-    "esbuild": "^0.24.2",
-    "obsidian": "^1.7.2",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
-  }
+	"name": "trello-vault-sync",
+	"version": "1.2.0",
+	"description": "Two-way Trello sync and link auditing for Obsidian worldbuilding vaults.",
+	"main": "main.js",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc --noEmit && node esbuild.config.mjs production",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"check": "npm run typecheck && npm run test && node esbuild.config.mjs production"
+	},
+	"keywords": [
+		"obsidian",
+		"obsidian-plugin",
+		"trello",
+		"sync",
+		"worldbuilding"
+	],
+	"author": "aznan-triks",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^22.10.2",
+		"builtin-modules": "^4.0.0",
+		"esbuild": "^0.24.2",
+		"obsidian": "^1.7.2",
+		"typescript": "^5.7.2",
+		"vitest": "^2.1.8"
+	}
 }

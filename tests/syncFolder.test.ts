@@ -265,6 +265,41 @@ describe("syncFolder — deletion safety", () => {
 	});
 });
 
+describe("syncFolder — duplicates & unlinked notes", () => {
+	test("counts and warns about a duplicate note claiming an already-linked card", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/a.md`]: { content: linked("c1", "x") },
+			[`${FOLDER}/b.md`]: { content: linked("c1", "y") },
+		});
+		const { client } = clientFor([card({ id: "c1", name: "a" })]);
+		const warnings: string[] = [];
+		const reporter = {
+			setTotal: () => {},
+			step: () => {},
+			count: () => {},
+			log: (level: string, message: string) => {
+				if (level === "warn") warnings.push(message);
+			},
+			finish: () => {},
+		};
+
+		const stats = await syncFolder(vault, client, MAPPING, options, reporter);
+
+		expect(stats.duplicates).toBe(1);
+		expect(warnings.some((message) => message.includes("Duplicate note"))).toBe(true);
+	});
+
+	test("counts a note with no card id without touching it", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Libre.md`]: { content: "no frontmatter" } });
+		const { client } = clientFor([]);
+
+		const stats = await syncFolder(vault, client, MAPPING, options);
+
+		expect(stats.unlinked).toBe(1);
+		expect(vault.contentOf(`${FOLDER}/Libre.md`)).toBe("no frontmatter");
+	});
+});
+
 describe("syncFolder — progress", () => {
 	test("does not count creations it will not perform in the progress total", async () => {
 		const vault = new FakeVault();

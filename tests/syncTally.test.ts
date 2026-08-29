@@ -1,0 +1,64 @@
+import { describe, expect, test, vi } from "vitest";
+import { addCounts, tallyNoteResult, type NoteTallyStats } from "../src/core/syncTally";
+
+function emptyStats(): NoteTallyStats {
+	return { pulled: 0, pushed: 0, skipped: 0, renamed: 0, conflicts: 0 };
+}
+
+describe("tallyNoteResult", () => {
+	test("counts a pull and logs it", () => {
+		const stats = emptyStats();
+		const log = vi.fn();
+		tallyNoteResult(stats, { renamed: false, direction: "pull" }, log, "Sagondo");
+		expect(stats.pulled).toBe(1);
+		expect(log).toHaveBeenCalledWith("pull", "Sagondo");
+	});
+
+	test("counts a push and logs it", () => {
+		const stats = emptyStats();
+		const log = vi.fn();
+		tallyNoteResult(stats, { renamed: false, direction: "push" }, log, "Sagondo");
+		expect(stats.pushed).toBe(1);
+		expect(log).toHaveBeenCalledWith("push", "Sagondo");
+	});
+
+	test("counts a conflict and logs a warning", () => {
+		const stats = emptyStats();
+		const log = vi.fn();
+		tallyNoteResult(stats, { renamed: false, direction: "conflict" }, log, "Sagondo");
+		expect(stats.conflicts).toBe(1);
+		expect(log).toHaveBeenCalledWith("warn", "Conflict: Sagondo");
+	});
+
+	test("counts a skip silently", () => {
+		const stats = emptyStats();
+		const log = vi.fn();
+		tallyNoteResult(stats, { renamed: false, direction: "skip" }, log, "Sagondo");
+		expect(stats.skipped).toBe(1);
+		expect(log).not.toHaveBeenCalled();
+	});
+
+	test("counts a rename alongside whatever direction it came with", () => {
+		const stats = emptyStats();
+		tallyNoteResult(stats, { renamed: true, direction: "pull" }, vi.fn(), "Sagondo");
+		expect(stats.renamed).toBe(1);
+		expect(stats.pulled).toBe(1);
+	});
+
+	test("an unlinked result touches no counter", () => {
+		const stats = emptyStats();
+		const log = vi.fn();
+		tallyNoteResult(stats, { renamed: false, direction: "unlinked" }, log, "Sagondo");
+		expect(stats).toEqual(emptyStats());
+		expect(log).not.toHaveBeenCalled();
+	});
+});
+
+describe("addCounts", () => {
+	test("sums matching fields in place and returns the target", () => {
+		const target = { a: 1, b: 2 };
+		const result = addCounts(target, { a: 10, b: 20 });
+		expect(target).toEqual({ a: 11, b: 22 });
+		expect(result).toBe(target);
+	});
+});

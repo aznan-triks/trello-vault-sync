@@ -29,6 +29,7 @@ const COUNT_LABELS: Record<string, string> = {
 	phantoms: "phantoms",
 	moved: "moved",
 	deleted: "deleted",
+	duplicates: "duplicates",
 	unlinked: "unlinked",
 	errors: "errors",
 	orphanCards: "orphan cards",
@@ -57,6 +58,7 @@ export class ProgressPanel implements Reporter {
 	private readonly countsEl: HTMLElement;
 	private readonly logEl: HTMLElement;
 	private readonly currentEl: HTMLElement;
+	private readonly closeEl: HTMLElement;
 	private readonly counters = new Map<string, HTMLElement>();
 
 	private total = 0;
@@ -71,9 +73,14 @@ export class ProgressPanel implements Reporter {
 		const header = this.root.createDiv({ cls: "tvs-panel__header" });
 		header.createSpan({ cls: "tvs-panel__title", text: options.title });
 		this.statusEl = header.createSpan({ cls: "tvs-panel__status", text: "Running…" });
-		const close = header.createEl("button", { cls: "tvs-panel__close", text: "×" });
-		close.setAttr("aria-label", "Close");
-		close.addEventListener("click", () => this.destroy());
+		// Hidden while a sync is in flight: closing the panel cannot stop it, so the
+		// button only appears once there is nothing left to hide.
+		this.closeEl = header.createEl("button", {
+			cls: "tvs-panel__close tvs-panel__close--hidden",
+			text: "×",
+		});
+		this.closeEl.setAttr("aria-label", "Close");
+		this.closeEl.addEventListener("click", () => this.destroy());
 
 		const progress = this.root.createDiv({ cls: "tvs-panel__progress" });
 		this.progressEl = progress.createSpan({ cls: "tvs-panel__progress-label", text: "0 / 0" });
@@ -109,6 +116,8 @@ export class ProgressPanel implements Reporter {
 
 	log(level: LogLevel, message: string): void {
 		// Newest first, so the panel never needs scrolling to show what just happened.
+		// Built detached (global `createDiv`, not `this.logEl.createDiv`) because it is
+		// prepended below, not appended.
 		const row = createDiv({ cls: `tvs-panel__row tvs-panel__row--${level}` });
 		row.createSpan({ cls: "tvs-panel__icon", text: ICONS[level] });
 		row.createSpan({ cls: "tvs-panel__message", text: message });
@@ -123,6 +132,7 @@ export class ProgressPanel implements Reporter {
 		this.root.addClass(`tvs-panel--${outcome}`);
 		this.barEl.style.transform = "scaleX(1)";
 		this.currentEl.setText(summary);
+		this.closeEl.removeClass("tvs-panel__close--hidden");
 		if (outcome === "done" && this.options.autoCloseMs > 0) {
 			this.timer = window.setTimeout(() => this.destroy(), this.options.autoCloseMs);
 		}
