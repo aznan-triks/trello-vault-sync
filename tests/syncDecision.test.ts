@@ -98,4 +98,37 @@ describe("decideSync", () => {
 	test("still skips identical content under a forcing policy", () => {
 		expect(decideSync({ ...base, policy: "prefer-local" }).direction).toBe("skip");
 	});
+
+	test("flags a conflict on an exact timestamp tie even when the margin is zero", () => {
+		const decision = decideSync({
+			...base,
+			localBody: "mine",
+			remoteBody: "theirs",
+			marginMs: 0,
+		});
+		expect(decision.direction).toBe("conflict");
+		expect(decision.reason).toBe("within-margin");
+	});
+
+	test("compares titles against the sanitized form of the card title, not the raw one", () => {
+		const decision = decideSync({
+			...base,
+			localTitle: "Idea- split front-back",
+			remoteTitle: "Idea: split front/back",
+			localMtime: 2_000_000,
+		});
+		expect(decision.titleChanged).toBe(false);
+		expect(decision.direction).toBe("skip");
+	});
+
+	test("still detects a genuine title edit after sanitizing the card title", () => {
+		const decision = decideSync({
+			...base,
+			localTitle: "Old title",
+			remoteTitle: "New: title",
+			remoteMtime: 2_000_000,
+		});
+		expect(decision.titleChanged).toBe(true);
+		expect(decision.direction).toBe("pull");
+	});
 });

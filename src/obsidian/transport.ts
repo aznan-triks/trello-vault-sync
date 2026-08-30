@@ -17,5 +17,5 @@ export const obsidianTransport: Transport = async (
 			: { headers: { "Content-Type": request.contentType } }),
 		throw: false,
 	});
-	return { status: response.status, text: response.text };
+	return { status: response.status, text: response.text, headers: response.headers };
 };

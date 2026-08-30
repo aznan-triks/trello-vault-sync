@@ -7,19 +7,15 @@ export const CARD_REF_KEY = "trello_board_card_id";
 
 /** The real vault, behind the interface the engines depend on. */
 export class ObsidianVault implements VaultGateway {
-	private readonly handles = new WeakMap<TFile, NoteHandle>();
-
 	constructor(private readonly app: App) {}
 
 	private toHandle(file: TFile): NoteHandle {
-		const handle: NoteHandle = {
+		return {
 			path: file.path,
 			basename: file.basename,
 			folder: file.parent?.path === "/" ? "" : (file.parent?.path ?? ""),
 			mtime: file.stat.mtime,
 		};
-		this.handles.set(file, handle);
-		return handle;
 	}
 
 	private toFile(note: NoteHandle): TFile {

@@ -7,15 +7,21 @@ const RESERVED_WINDOWS_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 /** Longest base name we will produce, leaving room for a folder prefix. */
 export const MAX_BASENAME_LENGTH = 120;
 
+/** Truncates by Unicode code point, so an emoji's surrogate pair is never split in two. */
+function truncateCodePoints(value: string, maxLength: number): string {
+	// UTF-16 code units are always >= code points, so staying under the limit
+	// there means staying under it in code points too — skips the allocation
+	// for the common case of a plain-ASCII title.
+	if (value.length <= maxLength) return value;
+	return Array.from(value).slice(0, maxLength).join("");
+}
+
 /** Turn an arbitrary Trello card title into a legal note base name. */
 export function sanitizeFileName(name: string): string {
-	const cleaned = name
-		.replace(CONTROL, "")
-		.replace(FORBIDDEN, "-")
-		.replace(/\.+$/, "")
-		.trim()
-		.slice(0, MAX_BASENAME_LENGTH)
-		.trim();
+	const cleaned = truncateCodePoints(
+		name.replace(CONTROL, "").replace(FORBIDDEN, "-").replace(/\.+$/, "").trim(),
+		MAX_BASENAME_LENGTH,
+	).trim();
 	if (cleaned === "") return "Untitled";
 	return RESERVED_WINDOWS_NAME.test(cleaned) ? `_${cleaned}` : cleaned;
 }

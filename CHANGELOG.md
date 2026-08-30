@@ -4,6 +4,122 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] — 2026-08-30
+
+A second structured pass in the same audit style as 1.2.0 — a five-persona
+council (UX/UI, Obsidian API, QA/reliability, performance, security) filed
+findings independently, a synthesis pass deduped and ranked them, and each
+surviving item was re-verified against the actual code before being fixed.
+16 findings survived verification; all 16 are fixed here, plus a few small
+extras folded in along the way.
+
+### Fixed
+
+- A note's frontmatter could be silently destroyed on the next pull: the
+  parser only recognized a closing `---` fence with no trailing characters,
+  so a fence with trailing whitespace (common from editor auto-formatting)
+  made the whole file — YAML included — look like a bodyless note. The next
+  pull then overwrote the entire file with the card's description, losing
+  the `trello_board_card_id` link and every other frontmatter field with no
+  error and no trash/undo path. Fences with trailing spaces or tabs are now
+  recognized correctly.
+- A card whose title contains a character Obsidian forbids in file names
+  (`* " \ / < > : | ?`), a trailing period, or is over 120 characters would
+  never match its own note's sanitized file name — so on every push, the
+  plugin overwrote the *real* Trello card title with the sanitized filename,
+  permanently mangling it. Title comparison is now sanitization-aware.
+- An exact timestamp tie between a note and its card (both changed, same
+  millisecond) was mislabeled `local-newer` instead of being reported as a
+  conflict.
+- A card title or description landing inside a custom template's frontmatter
+  fence could corrupt or inject into the YAML block (a colon-space, a
+  leading `#`, an embedded quote or newline). `{{TITLE}}`/`{{DESCRIPTION}}`
+  are now YAML-escaped when they land inside the frontmatter fence;
+  `{{CARD_ID}}`/`{{BOARD_ID}}`/`{{URL}}` are untouched since they're
+  Trello's own safe fixed-format ids and the shipped default template
+  hand-quotes them together.
+- Archiving a card on Trello (not deleting it) got its note trashed the same
+  as a genuinely deleted card, when "delete phantom notes" was on — the
+  board-cards check only asked for visible cards, which excludes archived
+  ones by default. Archived cards are now fetched and kept, logged
+  separately from a genuine deletion.
+- A vault path typed or pasted with a leading slash or a backslash (scope,
+  report note path, a mapping's folder) silently matched zero notes instead
+  of failing — "sync every list with its folder" would then mass-create
+  duplicate notes for every card with no warning. Paths are now normalized
+  both live in the settings tab and when settings are loaded.
+- "Sync every list with its folder" issued one full board-cards request per
+  mapping instead of one for the whole run, when "delete phantom notes" was
+  on — wasteful against Trello's rate limit on larger mapping sets. The
+  board is now fetched once and shared across every mapping in the run.
+- "Sync active note" showed a raw internal token (`within-margin`,
+  `remote-newer`…) in the panel log instead of a human-readable line, and a
+  genuine conflict logged at the same level as routine info instead of a
+  warning. It now goes through the same formatting the bulk sync commands
+  already use.
+- A rate-limit or server-error retry wait was invisible in the progress
+  panel — the sync just appeared to stall for however long the backoff
+  took. Each retry now logs what's happening and how long the wait is.
+- The retry backoff delay had no ceiling of its own: a corrupted or
+  aggressively-tuned `maxRetries`/`baseDelayMs` combination could produce a
+  single wait of several hours, and — combined with the concurrent-sync
+  guard added in 1.2.0 — would wedge every other command in the plugin for
+  that whole duration. A backoff wait is now capped independently of
+  `maxRetries`/`baseDelayMs`. Trello's `Retry-After` response header is now
+  read and honored when present, instead of always falling back to the
+  exponential formula.
+- A transport-level failure (a DNS hiccup, a dropped connection) was fatal
+  on the very first attempt, while the same underlying transience showed as
+  an HTTP 5xx/429 got retried up to `maxRetries` times. Both now go through
+  the same retry budget.
+- A corrupted `data.json` with a non-string value in a text setting (API
+  key, token, board id, scope, report path, or a mapping's list id/folder/
+  template name) passed straight through to crash later, deep in unrelated
+  code, with an unclear error. Every string setting now falls back to a
+  safe default instead.
+- The Retries and Initial-delay-ms fields in the settings tab accepted any
+  value while the plugin was running, bypassing the same ceiling
+  `normalizeSettings` already enforces at load — a live edit could produce
+  the multi-hour-wedge scenario above without even restarting the plugin.
+  The settings tab now enforces the identical bound live.
+- Auto-linking a note to a card ("Link active note to a card") could
+  spuriously match a short or generic note name against any card whose
+  title merely contained that word as a substring, reporting a false 90%
+  confidence. The containment heuristic now requires a whole-word match —
+  the legitimate "Sagondo (brouillon)" → "Sagondo" case still works.
+- The floating progress panel lived entirely outside Obsidian's plugin
+  lifecycle: disabling or reloading the plugin while a panel was still open
+  (or configured to stay open) left an orphaned DOM node behind with no
+  owner left to remove it. The panel is now torn down on unload.
+- A mapping's Trello-list field never actually showed the list name
+  resolved by "Test connection" — the placeholder it relied on is invisible
+  whenever the field already has a value, which is the only case where
+  showing a name would help. The resolved name is now shown as a caption
+  under the field.
+- `sanitizeFileName` truncated a very long title by UTF-16 code unit rather
+  than Unicode code point, which could split an emoji's surrogate pair in
+  two and produce an unwritable file name. It now truncates on a code-point
+  boundary.
+- The "created" log line for a new note showed the raw card title even when
+  the actual file written used a sanitized name (e.g. a Windows-reserved
+  device name prefixed with `_`) — the panel and the file on disk disagreed
+  silently. The log line now shows the name actually written when it
+  differs.
+
+### Changed
+
+- Renamed the "Delete orphan notes" toggle to "Delete phantom notes" — it
+  controls `allowDelete`/`phantomNotes`, not orphan cards; the old name
+  named the wrong side of the relationship.
+- "Unlinked Trello cards" in the link-audit report is now "Orphan Trello
+  cards", matching the vocabulary the progress panel and the rest of the
+  report already use — "unlinked" was naming both directions of the
+  card/note relationship in the same document.
+- Removed an unused `WeakMap<TFile, NoteHandle>` cache from `ObsidianVault`
+  — write-only, nothing ever read it.
+- The API key field's help link is now a real clickable link instead of
+  plain text.
+
 ## [1.2.0] — 2026-08-30
 
 A structured pass — five independent reviews (security/fail-fast, architecture,

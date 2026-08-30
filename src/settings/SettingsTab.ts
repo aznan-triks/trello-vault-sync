@@ -1,6 +1,12 @@
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
 import type { ConflictPolicy } from "../core/syncDecision";
+import {
+	BASE_DELAY_MS_CEILING,
+	MAX_RETRIES_CEILING,
+	normalizeVaultPath,
+	safeNonNegativeNumber,
+} from "./types";
 
 const POLICY_LABELS: Record<ConflictPolicy, string> = {
 	"newer-wins": "Newer side wins",
@@ -45,7 +51,15 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("API key")
-			.setDesc("https://trello.com/app-key")
+			.setDesc(
+				createFragment((el) => {
+					el.createEl("a", {
+						text: "https://trello.com/app-key",
+						href: "https://trello.com/app-key",
+						attr: { target: "_blank", rel: "noopener" },
+					});
+				}),
+			)
 			.setClass("tvs-secret")
 			.addText((text) =>
 				text
@@ -116,7 +130,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					.setPlaceholder("WoT")
 					.setValue(this.plugin.settings.scope)
 					.onChange(async (value) => {
-						this.plugin.settings.scope = value.trim().replace(/\/$/, "");
+						this.plugin.settings.scope = normalizeVaultPath(value.trim());
 						await this.save();
 					}),
 			);
@@ -129,7 +143,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					.setPlaceholder("WoT/00_Metatrois (Gestion)/Synchro.md")
 					.setValue(this.plugin.settings.reportPath)
 					.onChange(async (value) => {
-						this.plugin.settings.reportPath = value.trim();
+						this.plugin.settings.reportPath = normalizeVaultPath(value.trim());
 						await this.save();
 					}),
 			);
@@ -194,7 +208,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Delete orphan notes")
+			.setName("Delete phantom notes")
 			.setDesc(
 				"⚠️ Destructive: trashes the note whose card left the list. Off by default — " +
 					"such notes are simply reported.",
@@ -233,22 +247,30 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						}),
 				);
 
-			new Setting(row).setName("Trello list").addText((text) =>
-				text
-					.setPlaceholder(this.listNames.get(mapping.listId) ?? "idList")
-					.setValue(mapping.listId)
-					.onChange(async (value) => {
-						mapping.listId = value.trim();
-						await this.save();
-					}),
-			);
+			const resolvedName = this.listNames.get(mapping.listId);
+			new Setting(row)
+				.setName("Trello list")
+				.setDesc(
+					resolvedName
+						? `→ ${resolvedName}`
+						: "Paste the list id from the Trello board URL, or click Test connection above to resolve names.",
+				)
+				.addText((text) =>
+					text
+						.setPlaceholder("idList")
+						.setValue(mapping.listId)
+						.onChange(async (value) => {
+							mapping.listId = value.trim();
+							await this.save();
+						}),
+				);
 
 			new Setting(row).setName("Folder").addText((text) =>
 				text
 					.setPlaceholder("WoT/85_Idées")
 					.setValue(mapping.folder)
 					.onChange(async (value) => {
-						mapping.folder = value.trim().replace(/\/$/, "");
+						mapping.folder = normalizeVaultPath(value.trim());
 						await this.save();
 					}),
 			);
@@ -299,7 +321,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.maxRetries)).onChange(async (value) => {
 					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.maxRetries = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+					this.plugin.settings.maxRetries = safeNonNegativeNumber(parsed, 0, MAX_RETRIES_CEILING);
 					await this.save();
 				}),
 			);
@@ -310,7 +332,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.baseDelayMs)).onChange(async (value) => {
 					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.baseDelayMs = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+					this.plugin.settings.baseDelayMs = safeNonNegativeNumber(parsed, 0, BASE_DELAY_MS_CEILING);
 					await this.save();
 				}),
 			);

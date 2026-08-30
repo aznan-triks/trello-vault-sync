@@ -36,4 +36,13 @@ describe("renderTemplate", () => {
 	test("returns an empty string for an empty template", () => {
 		expect(renderTemplate("", vars)).toBe("");
 	});
+
+	test("YAML-escapes a placeholder value landing inside a real frontmatter fence", () => {
+		const out = renderTemplate("---\ntitle: {{TITLE}}\n---\n{{DESCRIPTION}}", {
+			...vars,
+			TITLE: 'Idea: "quoted", tricky',
+			DESCRIPTION: "Body text: still raw, unescaped",
+		});
+		expect(out).toBe('---\ntitle: "Idea: \\"quoted\\", tricky"\n---\nBody text: still raw, unescaped');
+	});
 });

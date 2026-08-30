@@ -21,12 +21,12 @@ export interface SplitNote {
 export function splitFrontmatter(content: string): SplitNote {
 	const offset = content.startsWith(BOM) ? BOM.length : 0;
 	const rest = content.slice(offset);
-	if (!/^---\r?\n/.test(rest)) return { frontmatter: null, body: content };
+	if (!/^---[ \t]*\r?\n/.test(rest)) return { frontmatter: null, body: content };
 
 	const lines = rest.split("\n");
 	for (let i = 1; i < lines.length; i++) {
 		const line = lines[i] ?? "";
-		if (line.replace(/\r$/, "") !== "---") continue;
+		if (line.replace(/[ \t]*\r?$/, "") !== "---") continue;
 		// The fence text itself, stripped of the CR that a CRLF file leaves behind.
 		const consumed = lines.slice(0, i + 1).join("\n").replace(/\r$/, "");
 		return {

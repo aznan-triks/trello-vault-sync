@@ -1,3 +1,4 @@
+import { sanitizeFileName } from "./fileName";
 import { normalizeBody } from "./noteBody";
 
 /** How to resolve a note and a card that both changed. */
@@ -35,7 +36,11 @@ export interface SyncDecision {
  */
 export function decideSync(input: SyncInput): SyncDecision {
 	const bodyChanged = normalizeBody(input.localBody) !== normalizeBody(input.remoteBody);
-	const titleChanged = input.localTitle.trim() !== input.remoteTitle.trim();
+	// Compare against the sanitized form of the remote title: the note's own
+	// title is always filesystem-sanitized, so comparing against the raw card
+	// title would flag every special-character title as "changed" forever and
+	// push the sanitized filename back to Trello as if it were a real rename.
+	const titleChanged = input.localTitle.trim() !== sanitizeFileName(input.remoteTitle).trim();
 
 	if (!bodyChanged && !titleChanged) {
 		return { direction: "skip", bodyChanged, titleChanged, reason: "identical" };
@@ -49,7 +54,10 @@ export function decideSync(input: SyncInput): SyncDecision {
 	}
 
 	const delta = input.remoteMtime - input.localMtime;
-	if (Math.abs(delta) <= input.marginMs && input.marginMs > 0) {
+	// An exact tie is a conflict regardless of the configured margin — there is
+	// no clock-skew tolerance to apply, and picking a direction here would just
+	// misreport an arbitrary side as "newer" when neither is.
+	if (delta === 0 || (Math.abs(delta) <= input.marginMs && input.marginMs > 0)) {
 		return { direction: "conflict", bodyChanged, titleChanged, reason: "within-margin" };
 	}
 	return delta > 0

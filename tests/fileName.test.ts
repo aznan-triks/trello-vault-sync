@@ -23,6 +23,14 @@ describe("sanitizeFileName", () => {
 		expect(sanitizeFileName("x".repeat(300)).length).toBe(120);
 	});
 
+	test("truncates on a code-point boundary instead of splitting an emoji's surrogate pair", () => {
+		const title = "x".repeat(119) + "🎺".repeat(5);
+		const result = sanitizeFileName(title);
+		const lastUnit = result.charCodeAt(result.length - 1);
+		const endsInLoneHighSurrogate = lastUnit >= 0xd800 && lastUnit <= 0xdbff;
+		expect(endsInLoneHighSurrogate).toBe(false);
+	});
+
 	test("drops a trailing dot, which Windows refuses", () => {
 		expect(sanitizeFileName("name.")).toBe("name");
 	});

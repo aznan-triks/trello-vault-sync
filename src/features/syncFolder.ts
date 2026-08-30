@@ -85,6 +85,8 @@ export async function syncFolder(
 	mapping: FolderMapping,
 	options: FolderSyncOptions,
 	reporter: Reporter = silentReporter,
+	/** Pre-fetched (filter "all") board cards — lets a multi-mapping run share one fetch. */
+	boardCards?: TrelloCard[],
 ): Promise<FolderSyncStats> {
 	const stats = emptyStats();
 	const cards = await client.getListCards(mapping.listId);
@@ -152,11 +154,13 @@ export async function syncFolder(
 			reporter.step(card.name);
 			try {
 				stats.created++;
-				reporter.log("create", card.name);
-				if (options.dryRun) continue;
-				const path = uniqueNotePath(mapping.folder, sanitizeFileName(card.name), (p) =>
-					vault.exists(p),
+				const safeName = sanitizeFileName(card.name);
+				reporter.log(
+					"create",
+					safeName === card.name ? card.name : `${card.name} → saved as "${safeName}"`,
 				);
+				if (options.dryRun) continue;
+				const path = uniqueNotePath(mapping.folder, safeName, (p) => vault.exists(p));
 				await vault.create(path, newNoteContent(card, template));
 			} catch (error) {
 				stats.created--;
@@ -168,12 +172,14 @@ export async function syncFolder(
 
 	stats.phantoms = plan.phantomNotes.length;
 
-	// A card that left this list has usually just been dragged to another column;
-	// only a card gone from the whole board justifies touching the note.
-	let aliveElsewhere = new Set<string>();
+	// A card that left this list has usually just been dragged to another column,
+	// or archived — only a card gone from the whole board justifies touching the
+	// note. "all" (not the default "visible") is required here or an archived
+	// card would be indistinguishable from a genuinely deleted one.
+	let aliveElsewhere = new Map<string, boolean>(); // cardId -> closed
 	if (options.allowDelete && plan.phantomNotes.length > 0) {
-		const boardCards = await client.getBoardCards(options.boardId);
-		aliveElsewhere = new Set(boardCards.map((card) => card.id));
+		const cards = boardCards ?? (await client.getBoardCards(options.boardId, "all"));
+		aliveElsewhere = new Map(cards.map((card) => [card.id, card.closed === true]));
 	}
 
 	for (const phantom of plan.phantomNotes) {
@@ -185,7 +191,13 @@ export async function syncFolder(
 		}
 		if (phantom.cardId !== null && aliveElsewhere.has(phantom.cardId)) {
 			stats.moved++;
-			reporter.log("warn", `Card moved elsewhere on the board: ${phantom.basename} (kept)`);
+			const archived = aliveElsewhere.get(phantom.cardId);
+			reporter.log(
+				"warn",
+				archived
+					? `Card archived on Trello: ${phantom.basename} (kept)`
+					: `Card moved elsewhere on the board: ${phantom.basename} (kept)`,
+			);
 			continue;
 		}
 		reporter.step(phantom.basename);
