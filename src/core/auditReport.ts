@@ -72,7 +72,7 @@ export function buildLinkReport(input: LinkReportInput): string {
 		LINK_REPORT_HEADING,
 		`> ${input.timestamp} · Scope: ${scope}`,
 		"",
-		`## 🚨 Unlinked Trello cards (${input.orphanCards.length})`,
+		`## 🚨 Orphan Trello cards (${input.orphanCards.length})`,
 		"",
 	];
 

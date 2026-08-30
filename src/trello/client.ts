@@ -21,6 +21,7 @@ export interface HttpRequest {
 export interface HttpResponse {
 	status: number;
 	text: string;
+	headers?: Record<string, string>;
 }
 
 export type Transport = (request: HttpRequest) => Promise<HttpResponse>;
@@ -52,10 +53,24 @@ export class TrelloError extends Error {
 	}
 }
 
+/** Details of one retry, reported before the wait so a caller can surface it live. */
+export interface RetryInfo {
+	/** 1-based index of the attempt about to run. */
+	attempt: number;
+	maxAttempts: number;
+	delayMs: number;
+	/** 0 for a transport-level failure (no HTTP response was received). */
+	status: number;
+}
+
 export interface TrelloClientOptions {
 	maxRetries?: number;
 	baseDelayMs?: number;
+	/** Ceiling on a single retry wait, independent of maxRetries/baseDelayMs or a Retry-After header. */
+	maxBackoffDelayMs?: number;
 	sleep?: (ms: number) => Promise<void>;
+	/** Called right before each retry's wait — lets the caller show live progress. */
+	onRetry?: (info: RetryInfo) => void;
 }
 
 const API_ROOT = "https://api.trello.com/1";
@@ -76,7 +91,9 @@ export function redactSecrets(text: string, secrets: readonly string[]): string 
 export class TrelloClient {
 	private readonly maxRetries: number;
 	private readonly baseDelayMs: number;
+	private readonly maxBackoffDelayMs: number;
 	private readonly sleep: (ms: number) => Promise<void>;
+	private readonly onRetry?: (info: RetryInfo) => void;
 
 	constructor(
 		private readonly credentials: TrelloCredentials,
@@ -85,7 +102,9 @@ export class TrelloClient {
 	) {
 		this.maxRetries = options.maxRetries ?? 3;
 		this.baseDelayMs = options.baseDelayMs ?? 800;
+		this.maxBackoffDelayMs = options.maxBackoffDelayMs ?? 30_000;
 		this.sleep = options.sleep ?? defaultSleep;
+		this.onRetry = options.onRetry;
 	}
 
 	/** True when both halves of the single configured credential pair are present. */
@@ -97,9 +116,11 @@ export class TrelloClient {
 		return this.json<TrelloCard>(`/cards/${encodeURIComponent(cardId)}`, { fields: CARD_FIELDS });
 	}
 
-	async getBoardCards(boardId: string): Promise<TrelloCard[]> {
+	/** `filter: "all"` includes archived (closed) cards, which "visible" (the default) excludes. */
+	async getBoardCards(boardId: string, filter: "visible" | "all" = "visible"): Promise<TrelloCard[]> {
 		return this.json<TrelloCard[]>(`/boards/${encodeURIComponent(boardId)}/cards`, {
 			fields: CARD_FIELDS,
+			filter,
 		});
 	}
 
@@ -160,19 +181,48 @@ export class TrelloClient {
 		let lastError: TrelloError | null = null;
 		// `maxRetries` counts the retries that follow the first attempt.
 		for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-			// The credentials travel in the query string, so a transport-level failure
-			// (DNS, offline, TLS) can carry the whole URL into a Notice or the console.
-			const response = await this.transport(request).catch((cause: unknown) => {
-				throw new TrelloError(this.redact((cause as Error).message), 0, false);
-			});
-			if (response.status >= 200 && response.status < 300) return response;
+			let response: HttpResponse | undefined;
+			try {
+				// The credentials travel in the query string, so a transport-level failure
+				// (DNS, offline, TLS) can carry the whole URL into a Notice or the console.
+				response = await this.transport(request);
+			} catch (cause) {
+				// A transport-level failure is transient in the same way a 5xx/429 is —
+				// retry it through the same backoff budget instead of failing on attempt 1.
+				lastError = new TrelloError(this.redact((cause as Error).message), 0, true);
+			}
 
-			const retryable = RETRYABLE.has(response.status);
-			lastError = new TrelloError(this.describe(response), response.status, retryable);
-			if (!retryable) throw lastError;
-			if (attempt < this.maxRetries) await this.sleep(this.baseDelayMs * 2 ** attempt);
+			if (response) {
+				if (response.status >= 200 && response.status < 300) return response;
+				const retryable = RETRYABLE.has(response.status);
+				lastError = new TrelloError(this.describe(response), response.status, retryable);
+				if (!retryable) throw lastError;
+			}
+
+			if (attempt < this.maxRetries) {
+				const delayMs = this.computeDelay(attempt, response);
+				this.onRetry?.({
+					// `attempt` is the 0-based index of the call that just failed —
+					// +2 converts to the 1-based index of the call about to run.
+					attempt: attempt + 2,
+					maxAttempts: this.maxRetries + 1,
+					delayMs,
+					status: response?.status ?? 0,
+				});
+				await this.sleep(delayMs);
+			}
 		}
 		throw lastError ?? new TrelloError("Trello request failed.", 0, false);
+	}
+
+	/** Trello's own Retry-After header, when present and valid, wins over the exponential formula. */
+	private computeDelay(attempt: number, response?: HttpResponse): number {
+		const retryAfter = Number(response?.headers?.["retry-after"]);
+		const delayMs =
+			Number.isFinite(retryAfter) && retryAfter >= 0
+				? retryAfter * 1000
+				: this.baseDelayMs * 2 ** attempt;
+		return Math.min(delayMs, this.maxBackoffDelayMs);
 	}
 
 	private redact(text: string): string {

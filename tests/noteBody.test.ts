@@ -35,6 +35,34 @@ describe("splitFrontmatter", () => {
 		const content = "---\ntype: idée\nstill open";
 		expect(splitFrontmatter(content)).toEqual({ frontmatter: null, body: content });
 	});
+
+	test("tolerates trailing spaces on the closing fence", () => {
+		const content = "---\ntype: idée\n---  \n\nHello world\n";
+		const result = splitFrontmatter(content);
+		expect(result.frontmatter).toBe("---\ntype: idée\n---  ");
+		expect(result.body).toBe("\n\nHello world\n");
+	});
+
+	test("tolerates a trailing tab on the closing fence", () => {
+		const content = "---\ntype: idée\n---\t\nBody\n";
+		const result = splitFrontmatter(content);
+		expect(result.frontmatter).toBe("---\ntype: idée\n---\t");
+		expect(result.body).toBe("\nBody\n");
+	});
+
+	test("tolerates a trailing space on the closing fence of a CRLF file", () => {
+		const content = "---\r\ntype: idée\r\n---  \r\nBody";
+		const result = splitFrontmatter(content);
+		expect(result.frontmatter).toBe("---\r\ntype: idée\r\n---  ");
+		expect(result.body).toBe("\r\nBody");
+	});
+
+	test("tolerates trailing spaces on the opening fence", () => {
+		const content = "---  \ntype: idée\n---\nBody";
+		const result = splitFrontmatter(content);
+		expect(result.frontmatter).toBe("---  \ntype: idée\n---");
+		expect(result.body).toBe("\nBody");
+	});
 });
 
 describe("extractBody", () => {

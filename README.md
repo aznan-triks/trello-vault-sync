@@ -72,6 +72,13 @@ A mapping's template may use `{{TITLE}}`, `{{DESCRIPTION}}`, `{{URL}}`, `{{CARD_
 and `{{BOARD_ID}}`. Unknown placeholders are left untouched. With no template, a new
 note gets a minimal frontmatter and the card description.
 
+`{{TITLE}}` and `{{DESCRIPTION}}` carry arbitrary Trello card text, so when either one
+lands inside the frontmatter fence it is rendered as an auto-quoted, YAML-escaped
+string — write `title: {{TITLE}}`, not `title: "{{TITLE}}"`, or the value ends up
+double-quoted. `{{CARD_ID}}`/`{{BOARD_ID}}`/`{{URL}}` are Trello's own fixed-format
+ids and are never escaped, so the default `"{{BOARD_ID}};{{CARD_ID}}"` pattern still
+works as written.
+
 ## Architecture
 
 ```

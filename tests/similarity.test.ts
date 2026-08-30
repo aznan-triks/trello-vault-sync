@@ -54,4 +54,20 @@ describe("bestMatch", () => {
 	test("returns null for an empty candidate list", () => {
 		expect(bestMatch("anything", [], byName, 0.45)).toBeNull();
 	});
+
+	test("does not boost a substring match that crosses a word boundary", () => {
+		const wideCards = [
+			{ id: "1", name: "Article Cleanup" },
+			{ id: "2", name: "Some other card" },
+		];
+		const hit = bestMatch("art", wideCards, byName, 0.45);
+		expect(hit).toBeNull();
+	});
+
+	test("still boosts a whole-word match at either end of the title", () => {
+		const wideCards = [{ id: "1", name: "Fix the Bug" }];
+		const hit = bestMatch("bug", wideCards, byName, 0.45);
+		expect(hit?.item.id).toBe("1");
+		expect(hit?.score).toBeGreaterThanOrEqual(0.9);
+	});
 });

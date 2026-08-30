@@ -55,7 +55,7 @@ describe("buildLinkReport", () => {
 
 	test("counts each category in its section title", () => {
 		const md = buildLinkReport(input);
-		expect(md).toContain("Unlinked Trello cards (1)");
+		expect(md).toContain("Orphan Trello cards (1)");
 		expect(md).toContain("Phantom notes (1)");
 		expect(md).toContain("Unlinked notes (1)");
 	});

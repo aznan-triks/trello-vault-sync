@@ -89,6 +89,18 @@ describe("TrelloClient requests", () => {
 		expect(calls[0]?.url).toContain("/boards/b1/cards");
 	});
 
+	test("defaults the board endpoint to visible (non-archived) cards only", async () => {
+		const { api, calls } = client([ok([])]);
+		await api.getBoardCards("b1");
+		expect(calls[0]?.url).toContain("filter=visible");
+	});
+
+	test("can ask the board endpoint to include archived cards", async () => {
+		const { api, calls } = client([ok([])]);
+		await api.getBoardCards("b1", "all");
+		expect(calls[0]?.url).toContain("filter=all");
+	});
+
 	test("reads a list's cards from the list endpoint", async () => {
 		const { api, calls } = client([ok([])]);
 		await api.getListCards("l1");
@@ -144,6 +156,75 @@ describe("TrelloClient rate limiting", () => {
 	test("raises a TrelloError when the payload is not valid JSON", async () => {
 		const { api } = client([{ status: 200, text: "<html>nope</html>" }]);
 		await expect(api.getCard("c1")).rejects.toBeInstanceOf(TrelloError);
+	});
+});
+
+describe("TrelloClient backoff correctness", () => {
+	test("caps the computed delay instead of growing unbounded", async () => {
+		const { transport } = stubTransport([{ status: 429, text: "" }, ok({ id: "c1" })]);
+		const sleep = vi.fn(async () => {});
+		const api = new TrelloClient(CREDENTIALS, transport, {
+			maxRetries: 1,
+			baseDelayMs: 60_000,
+			sleep,
+		});
+		await api.getCard("c1");
+		expect(sleep).toHaveBeenCalledTimes(1);
+		const delays = (sleep.mock.calls as unknown as number[][]).map((call) => call[0] as number);
+		expect(delays[0]).toBeLessThanOrEqual(30_000);
+	});
+
+	test("retries a transport-level failure instead of throwing on the first attempt", async () => {
+		let calls = 0;
+		const flaky = async (): Promise<HttpResponse> => {
+			calls++;
+			if (calls < 2) throw new Error("network blip");
+			return ok({ id: "c1" });
+		};
+		const sleep = vi.fn(async () => {});
+		const api = new TrelloClient(CREDENTIALS, flaky, { maxRetries: 2, baseDelayMs: 10, sleep });
+		await expect(api.getCard("c1")).resolves.toMatchObject({ id: "c1" });
+		expect(calls).toBe(2);
+		expect(sleep).toHaveBeenCalledTimes(1);
+	});
+
+	test("still throws when a transport failure never recovers", async () => {
+		const dead = async (): Promise<HttpResponse> => {
+			throw new Error("offline");
+		};
+		const api = new TrelloClient(CREDENTIALS, dead, { maxRetries: 1, baseDelayMs: 10 });
+		await expect(api.getCard("c1")).rejects.toMatchObject({ status: 0 });
+	});
+
+	test("honors a Retry-After header instead of the exponential formula", async () => {
+		const { transport } = stubTransport([
+			{ status: 429, text: "", headers: { "retry-after": "2" } },
+			ok({ id: "c1" }),
+		]);
+		const sleep = vi.fn(async () => {});
+		const api = new TrelloClient(CREDENTIALS, transport, { maxRetries: 1, baseDelayMs: 10, sleep });
+		await api.getCard("c1");
+		expect(sleep).toHaveBeenCalledWith(2000);
+	});
+
+	test("reports each retry through onRetry before sleeping", async () => {
+		const { transport } = stubTransport([{ status: 429, text: "" }, ok({ id: "c1" })]);
+		const order: string[] = [];
+		const sleep = vi.fn(async () => {
+			order.push("sleep");
+		});
+		const onRetry = vi.fn(() => {
+			order.push("onRetry");
+		});
+		const api = new TrelloClient(CREDENTIALS, transport, {
+			maxRetries: 1,
+			baseDelayMs: 10,
+			sleep,
+			onRetry,
+		});
+		await api.getCard("c1");
+		expect(onRetry).toHaveBeenCalledWith({ attempt: 2, maxAttempts: 2, delayMs: 10, status: 429 });
+		expect(order).toEqual(["onRetry", "sleep"]);
 	});
 });
 

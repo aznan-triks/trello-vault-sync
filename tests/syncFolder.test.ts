@@ -214,6 +214,25 @@ describe("syncFolder — resilience", () => {
 		expect(stats.pushed).toBe(1);
 	});
 
+	test("logs the sanitized file name actually written when it differs from the card title", async () => {
+		const vault = new FakeVault();
+		const { client } = clientFor([card({ id: "c1", name: "CON" })]);
+		const creates: string[] = [];
+		const reporter = {
+			setTotal: () => {},
+			step: () => {},
+			count: () => {},
+			log: (level: string, message: string) => {
+				if (level === "create") creates.push(message);
+			},
+			finish: () => {},
+		};
+
+		await syncFolder(vault, client, MAPPING, options, reporter);
+
+		expect(creates).toEqual(['CON → saved as "_CON"']);
+	});
+
 	test("ignores notes outside the mapped folder", async () => {
 		const vault = new FakeVault({
 			"WoT/90_Fins/Autre.md": { content: linked("c1", "x") },
@@ -261,6 +280,46 @@ describe("syncFolder — deletion safety", () => {
 
 		await syncFolder(vault, client, MAPPING, options);
 
+		expect(requests.filter((r) => r.url.includes("/boards/"))).toHaveLength(0);
+	});
+
+	test("spares a note whose card was archived rather than deleted", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
+		const { transport } = routedTransport({
+			"/lists/l1/cards": [],
+			"/boards/board/cards": [card({ id: "c9", name: "Archivée", closed: true })],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true });
+
+		expect(stats.deleted).toBe(0);
+		expect(stats.moved).toBe(1);
+		expect(vault.trashed).toEqual([]);
+	});
+
+	test("requests archived cards too so the archive check actually works", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
+		const { transport, requests } = routedTransport({
+			"/lists/l1/cards": [],
+			"/boards/board/cards": [card({ id: "c9", name: "Archivée", closed: true })],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true });
+
+		const boardRequest = requests.find((r) => r.url.includes("/boards/"));
+		expect(boardRequest?.url).toContain("filter=all");
+	});
+
+	test("accepts a pre-fetched board card list instead of issuing its own request", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Disparue.md`]: { content: linked("c9", "x") } });
+		const { transport, requests } = routedTransport({ "/lists/l1/cards": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true }, undefined, []);
+
+		expect(stats.deleted).toBe(1);
 		expect(requests.filter((r) => r.url.includes("/boards/"))).toHaveLength(0);
 	});
 });

@@ -37,6 +37,13 @@ export function similarity(a: string, b: string): number {
 	return (longer.length - levenshtein(longer, shorter)) / longer.length;
 }
 
+/** True when `word` appears in `text` as a whole word, not merely as a substring. */
+function containsWholeWord(text: string, word: string): boolean {
+	if (word === "") return false;
+	const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return new RegExp(`(^|\\W)${escaped}(\\W|$)`).test(text);
+}
+
 export interface Match<T> {
 	item: T;
 	score: number;
@@ -55,7 +62,7 @@ export function bestMatch<T>(
 	for (const item of candidates) {
 		const name = label(item).trim().toLowerCase();
 		let score = similarity(needle, name);
-		const contained = name !== "" && (needle.includes(name) || name.includes(needle));
+		const contained = name !== "" && (containsWholeWord(needle, name) || containsWholeWord(name, needle));
 		if (contained) score = Math.max(score, CONTAINMENT_SCORE);
 		if (!best || score > best.score) best = { item, score };
 	}

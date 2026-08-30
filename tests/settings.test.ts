@@ -33,4 +33,29 @@ describe("normalizeSettings", () => {
 	test("clamps baseDelayMs to a sane ceiling", () => {
 		expect(normalizeSettings({ baseDelayMs: 10_000_000 }).baseDelayMs).toBe(60_000);
 	});
+
+	test("falls back to the default when a string field is not a string", () => {
+		const settings = normalizeSettings({ apiKey: 12345 as unknown as string });
+		expect(settings.apiKey).toBe(DEFAULT_SETTINGS.apiKey);
+	});
+
+	test("falls back a mapping's non-string fields individually", () => {
+		const settings = normalizeSettings({
+			mappings: [{ listId: 42, folder: null, templateName: {} } as never],
+		});
+		expect(settings.mappings[0]).toEqual({ listId: "", folder: "", templateName: "" });
+	});
+
+	test("strips a leading slash from scope/reportPath so a folder match is never silently empty", () => {
+		const settings = normalizeSettings({ scope: "/WoT", reportPath: "/WoT/Report.md" });
+		expect(settings.scope).toBe("WoT");
+		expect(settings.reportPath).toBe("WoT/Report.md");
+	});
+
+	test("normalizes a mapping's folder the same way", () => {
+		const settings = normalizeSettings({
+			mappings: [{ listId: "l1", folder: "\\WoT\\85_Idées\\", templateName: "" }],
+		});
+		expect(settings.mappings[0]?.folder).toBe("WoT/85_Idées");
+	});
 });
