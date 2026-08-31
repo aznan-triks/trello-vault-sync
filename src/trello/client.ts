@@ -42,6 +42,11 @@ export interface TrelloList {
 	name: string;
 }
 
+export interface TrelloBoard {
+	id: string;
+	name: string;
+}
+
 export class TrelloError extends Error {
 	constructor(
 		message: string,
@@ -122,6 +127,16 @@ export class TrelloClient {
 			fields: CARD_FIELDS,
 			filter,
 		});
+	}
+
+	/**
+	 * Open boards the current token's owner is a member of — lets the settings
+	 * tab offer a picker instead of a raw id field. `filter: "open"` because the
+	 * Trello API defaults this endpoint to "all", which includes closed boards
+	 * a user picking a board to sync almost never wants to see.
+	 */
+	async getMyBoards(): Promise<TrelloBoard[]> {
+		return this.json<TrelloBoard[]>("/members/me/boards", { fields: "name", filter: "open" });
 	}
 
 	async getBoardLists(boardId: string): Promise<TrelloList[]> {

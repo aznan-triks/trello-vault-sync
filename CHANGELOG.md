@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-08-31
+
+### Added
+
+- The board id and each mapping's Trello list id can now be picked from a
+  live, searchable list instead of typed by hand — a picker button next to
+  each field fetches the current boards (or, for a list, the selected
+  board's lists) fresh from Trello and lets you fuzzy-search by name.
+  Finding a raw board/list id in Trello's UI was tedious; the raw id field
+  is still there and still works on its own, this is additive.
+
+### Changed
+
+- Settings-tab placeholder examples that used to be the developer's own
+  personal Obsidian vault folder and file names (meaningless to anyone else
+  using the plugin) are now generic (`Projects`, `Projects/Ideas`,
+  `Trello Card`, `Projects/Trello Sync Report.md`).
+
 ## [1.2.1] — 2026-08-30
 
 A second structured pass in the same audit style as 1.2.0 — a five-persona

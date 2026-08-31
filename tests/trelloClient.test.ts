@@ -101,6 +101,14 @@ describe("TrelloClient requests", () => {
 		expect(calls[0]?.url).toContain("filter=all");
 	});
 
+	test("asks the current member's boards endpoint, open boards only", async () => {
+		const { api, calls } = client([ok([{ id: "b1", name: "Test Board" }])]);
+		const boards = await api.getMyBoards();
+		expect(boards).toEqual([{ id: "b1", name: "Test Board" }]);
+		expect(calls[0]?.url).toContain("/members/me/boards");
+		expect(calls[0]?.url).toContain("filter=open");
+	});
+
 	test("reads a list's cards from the list endpoint", async () => {
 		const { api, calls } = client([ok([])]);
 		await api.getListCards("l1");
