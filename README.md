@@ -55,13 +55,15 @@ Everything lives in the plugin settings — **never in a vault note**.
 
 - **API key / token** — a single pair, from <https://trello.com/app-key>. Stored in
   the plugin's own `data.json`, redacted from every error message and log line.
-- **Board id** — the id in the board URL.
+- **Board id** — the id in the board URL, or use the picker button next to the field to
+  fuzzy-search your boards by name instead of hunting for the id.
 - **Scope** — folder the vault-wide commands walk; empty means the whole vault.
 - **Report note** — existing note the audits write into.
 - **Arbitration** — newer wins (default), Obsidian always wins, or Trello always wins.
 - **Clock margin** — below this gap the two sides count as simultaneous, and a real
   divergence is reported as a conflict instead of being resolved by a coin flip.
 - **List ↔ folder mappings** — one row per pair, with the template used for new notes.
+  Each list id also has a picker button to search the selected board's lists by name.
 - **Create / delete** — creation is on by default. Deletion is off by default, only ever
   uses Obsidian's trash, and only fires for a card that left the *board*: a card dragged
   to another list leaves its note untouched and is reported as moved.
