@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] — 2026-09-02
+
+### Changed
+
+- The board/list picker button (a separate click that opened a searchable
+  list) is now inline autocomplete: matching names drop down as you type
+  directly in the id field, fetched once per field-focus. Applies to board
+  id and each mapping's Trello list id.
+- The same inline-autocomplete pattern now also covers every vault-path
+  field — synced folder, report note, mapping folder, mapping note
+  template — suggesting existing folders/notes as you type.
+- The settings tab no longer jumps back to the top on every change (picking
+  a board/list, adding or removing a mapping); it restores the scroll
+  position after redrawing.
+
 ## [1.3.0] — 2026-08-31
 
 ### Added
