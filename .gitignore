@@ -31,3 +31,7 @@ NEXT_SESSION.md
 # Tool-specific caches — machine-specific, never versioned.
 .claude/
 .impeccable/
+
+# Disposable test vault (real credentials for a dedicated test Trello board
+# live in its data.json) — local only, never committed. See NEXT_SESSION.md.
+/test-vault/
