@@ -1,7 +1,8 @@
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
 import type { ConflictPolicy } from "../core/syncDecision";
-import { IdNameSuggest, type IdName } from "../ui/IdNameSuggest";
+import { TrelloPickerSuggest } from "../ui/TrelloPickerSuggest";
+import { VaultPathSuggest } from "../ui/VaultPathSuggest";
 import {
 	BASE_DELAY_MS_CEILING,
 	MAX_RETRIES_CEILING,
@@ -28,6 +29,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 	override display(): void {
 		const { containerEl } = this;
+		// Every action that changes a setting (picking a board/list, adding or
+		// removing a mapping, testing the connection) rebuilds the whole tab from
+		// scratch, which would otherwise reset the scroll position to the top —
+		// jarring once there are enough mappings to scroll at all.
+		const scrollTop = containerEl.scrollTop;
 		containerEl.empty();
 
 		this.renderCredentials(containerEl);
@@ -35,24 +41,16 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		this.renderBehaviour(containerEl);
 		this.renderMappings(containerEl);
 		this.renderAdvanced(containerEl);
+
+		containerEl.scrollTop = scrollTop;
 	}
 
 	private save(): Promise<void> {
 		return this.plugin.saveSettings();
 	}
 
-	/** Opens a fresh live fuzzy-pick over `fetchItems()`, showing a Notice on failure. */
-	private async openPicker(placeholder: string, fetchItems: () => Promise<IdName[]>, onPick: (item: IdName) => void): Promise<void> {
-		try {
-			const items = await fetchItems();
-			if (items.length === 0) {
-				new Notice("Nothing to choose from — check the credentials/board id above.");
-				return;
-			}
-			new IdNameSuggest(this.app, items, placeholder, onPick).open();
-		} catch (error) {
-			new Notice(`❌ ${(error as Error).message}`);
-		}
+	private folderCandidates(): string[] {
+		return this.app.vault.getAllFolders(false).map((folder) => folder.path);
 	}
 
 	private renderCredentials(root: HTMLElement): void {
@@ -107,9 +105,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.setDesc(
 				this.boardName
 					? `→ ${this.boardName}`
-					: "The id that appears in the Trello board's URL, or use the picker button to browse your boards by name.",
+					: "The id that appears in the Trello board's URL. Start typing to see your boards by name.",
 			)
-			.addText((text) =>
+			.addText((text) => {
 				text
 					.setPlaceholder("idBoard")
 					.setValue(this.plugin.settings.boardId)
@@ -117,21 +115,19 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.boardId = value.trim();
 						this.boardName = null;
 						await this.save();
-					}),
-			)
-			.addExtraButton((button) =>
-				button
-					.setIcon("list")
-					.setTooltip("Choose from my boards")
-					.onClick(() =>
-						this.openPicker("Which Trello board?", () => this.plugin.client().getMyBoards(), async (board) => {
-							this.plugin.settings.boardId = board.id;
-							this.boardName = board.name;
-							await this.save();
-							this.display();
-						}),
-					),
-			);
+					});
+				new TrelloPickerSuggest(
+					this.app,
+					text.inputEl,
+					() => this.plugin.client().getMyBoards(),
+					async (board) => {
+						this.plugin.settings.boardId = board.id;
+						this.boardName = board.name;
+						await this.save();
+						this.display();
+					},
+				);
+			});
 
 		new Setting(root)
 			.setName("Test connection")
@@ -159,28 +155,32 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Synced folder")
 			.setDesc("Restricts the vault-wide commands to this folder. Empty = the whole vault.")
-			.addText((text) =>
+			.addText((text) => {
 				text
 					.setPlaceholder("Projects")
 					.setValue(this.plugin.settings.scope)
 					.onChange(async (value) => {
 						this.plugin.settings.scope = normalizeVaultPath(value.trim());
 						await this.save();
-					}),
-			);
+					});
+				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+			});
 
 		new Setting(root)
 			.setName("Report note")
 			.setDesc("Path of the note the audits write their report into. It must already exist.")
-			.addText((text) =>
+			.addText((text) => {
 				text
 					.setPlaceholder("Projects/Trello Sync Report.md")
 					.setValue(this.plugin.settings.reportPath)
 					.onChange(async (value) => {
 						this.plugin.settings.reportPath = normalizeVaultPath(value.trim());
 						await this.save();
-					}),
-			);
+					});
+				new VaultPathSuggest(this.app, text.inputEl, () =>
+					this.app.vault.getMarkdownFiles().map((file) => file.path),
+				);
+			});
 	}
 
 	private renderBehaviour(root: HTMLElement): void {
@@ -287,61 +287,58 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				.setDesc(
 					resolvedName
 						? `→ ${resolvedName}`
-						: "Paste the list id from the Trello board URL, or use the picker button to browse this board's lists by name.",
+						: "Paste the list id from the Trello board URL. Start typing to see this board's lists by name.",
 				)
-				.addText((text) =>
+				.addText((text) => {
 					text
 						.setPlaceholder("idList")
 						.setValue(mapping.listId)
 						.onChange(async (value) => {
 							mapping.listId = value.trim();
 							await this.save();
-						}),
-				)
-				.addExtraButton((button) =>
-					button
-						.setIcon("list")
-						.setTooltip("Choose from this board's lists")
-						.onClick(() => {
+						});
+					new TrelloPickerSuggest(
+						this.app,
+						text.inputEl,
+						async () => {
 							if (this.plugin.settings.boardId.trim() === "") {
-								new Notice("Set the board id above first.");
-								return;
+								throw new Error("Set the board id above first.");
 							}
-							void this.openPicker(
-								"Which Trello list?",
-								async () => {
-									const lists = await this.plugin.client().getBoardLists(this.plugin.settings.boardId);
-									this.listNames = new Map(lists.map((list) => [list.id, list.name]));
-									return lists;
-								},
-								async (list) => {
-									mapping.listId = list.id;
-									await this.save();
-									this.display();
-								},
-							);
-						}),
-				);
+							const lists = await this.plugin.client().getBoardLists(this.plugin.settings.boardId);
+							this.listNames = new Map(lists.map((list) => [list.id, list.name]));
+							return lists;
+						},
+						async (list) => {
+							mapping.listId = list.id;
+							await this.save();
+							this.display();
+						},
+					);
+				});
 
-			new Setting(row).setName("Folder").addText((text) =>
+			new Setting(row).setName("Folder").addText((text) => {
 				text
 					.setPlaceholder("Projects/Ideas")
 					.setValue(mapping.folder)
 					.onChange(async (value) => {
 						mapping.folder = normalizeVaultPath(value.trim());
 						await this.save();
-					}),
-			);
+					});
+				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+			});
 
-			new Setting(row).setName("Note template").addText((text) =>
+			new Setting(row).setName("Note template").addText((text) => {
 				text
 					.setPlaceholder("Trello Card")
 					.setValue(mapping.templateName)
 					.onChange(async (value) => {
 						mapping.templateName = value.trim();
 						await this.save();
-					}),
-			);
+					});
+				new VaultPathSuggest(this.app, text.inputEl, () =>
+					this.app.vault.getMarkdownFiles().map((file) => file.basename),
+				);
+			});
 		});
 
 		new Setting(root).addButton((button) =>
