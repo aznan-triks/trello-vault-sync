@@ -1,3 +1,4 @@
+import { yieldPeriodically } from "../core/asyncUtil";
 import {
 	LINK_REPORT_HEADING,
 	buildLinkReport,
@@ -31,7 +32,7 @@ export function requireReportNote(vault: VaultGateway, reportPath: string) {
 	if (reportPath.trim() === "") {
 		throw new Error("The report note is not configured — set it in the plugin settings.");
 	}
-	const note = vault.listNotes("").find((candidate) => candidate.path === reportPath);
+	const note = vault.noteAt(reportPath);
 	if (!note) {
 		throw new Error(`Report note not found: ${reportPath} — create it or change the setting.`);
 	}
@@ -44,6 +45,7 @@ export async function auditLinks(
 	client: TrelloClient,
 	options: AuditOptions,
 	reporter: Reporter = silentReporter,
+	signal?: AbortSignal,
 ): Promise<LinkAuditResult> {
 	const reportNote = requireReportNote(vault, options.reportPath);
 
@@ -57,7 +59,8 @@ export async function auditLinks(
 	const phantomNotes: ReportNote[] = [];
 	const unlinkedNotes: ReportNote[] = [];
 
-	for (const note of notes) {
+	for (const [i, note] of notes.entries()) {
+		if (signal?.aborted) break;
 		reporter.step(note.basename);
 		const ref = vault.getCardRef(note);
 		const entry: ReportNote = {
@@ -69,6 +72,7 @@ export async function auditLinks(
 		if (!ref) unlinkedNotes.push(entry);
 		else if (cardIds.has(ref.cardId)) linkedCardIds.add(ref.cardId);
 		else phantomNotes.push(entry);
+		await yieldPeriodically(i);
 	}
 
 	const orphanCards: ReportCard[] = cards

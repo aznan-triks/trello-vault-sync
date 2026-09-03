@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { syncFolder, type FolderSyncOptions } from "../src/features/syncFolder";
 import { TrelloClient } from "../src/trello/client";
-import { FakeVault, at, card, routedTransport } from "./fakes";
+import { FakeVault, at, card, recordingReporter, routedTransport } from "./fakes";
 
 const FOLDER = "WoT/85_Idées";
 const MAPPING = { listId: "l1", folder: FOLDER, templateName: "idée (script)" };
@@ -43,6 +43,36 @@ describe("syncFolder — creation", () => {
 		expect(vault.contentOf(`${FOLDER}/Sagondo.md`)).toBe(
 			'---\ntype: idée\ntrello_board_card_id: "board;c1"\n---\nUne cité.',
 		);
+	});
+
+	test("warns once when the configured template has no card-ref key", async () => {
+		const vault = new FakeVault();
+		vault.templates.set("idée (script)", "---\ntype: idée\n---\n{{DESCRIPTION}}");
+		const { client } = clientFor([
+			card({ id: "c1", name: "Sagondo" }),
+			card({ id: "c2", name: "Le monde" }),
+		]);
+		const reporter = recordingReporter();
+
+		await syncFolder(vault, client, MAPPING, options, reporter);
+
+		const warnings = reporter.logs.filter((entry) => entry.message.includes("trello_board_card_id"));
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]?.level).toBe("warn");
+	});
+
+	test("stops creating notes once the signal is aborted", async () => {
+		const vault = new FakeVault();
+		const { client } = clientFor([
+			card({ id: "c1", name: "Sagondo" }),
+			card({ id: "c2", name: "Le monde" }),
+		]);
+		const controller = new AbortController();
+		controller.abort();
+
+		const stats = await syncFolder(vault, client, MAPPING, options, undefined, undefined, controller.signal);
+
+		expect(stats.created).toBe(0);
 	});
 
 	test("falls back to the bare description when the template is missing", async () => {

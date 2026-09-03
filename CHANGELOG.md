@@ -4,6 +4,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] — 2026-09-03
+
+### Added
+
+- New command: "Resolve conflict (active note), side by side" — when a note
+  and its card both changed since the last sync, this shows the local body
+  and the Trello card description next to each other and lets you pick
+  which side to keep, instead of guessing and force-pulling/force-pushing
+  blind.
+- Cancelling an in-flight multi-note sync or audit now actually stops it.
+  The progress panel's × becomes a working Cancel button once there is
+  something to cancel (any multi-item command); clicking it stops the run
+  before the next note/card/mapping, shows "Cancelling…", then reports
+  "Aborted". Single-note commands (sync/push/pull/link active note) keep no
+  cancel button — cancelling a single already-in-flight request could only
+  misreport a change that actually landed as "Cancelled".
+- The plugin now warns once per folder mapping if its configured note
+  template has no `trello_board_card_id` frontmatter key — notes created
+  from it would otherwise never link back to their card.
+
+### Changed
+
+- Audit commands ("Audit links", "Compare locations against Trello lists")
+  yield to the UI periodically while scanning, so the progress panel keeps
+  repainting on a very large vault instead of freezing until the scan ends.
+- `requireReportNote` now looks up the configured report note directly
+  instead of scanning every note in the vault to find it.
+
+### Fixed
+
+- `tests/linkNote.test.ts` split out of `tests/audit.test.ts` (no behavior
+  change, easier to find and extend).
+
 ## [1.3.1] — 2026-09-02
 
 ### Changed

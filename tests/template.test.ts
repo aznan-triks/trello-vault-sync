@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { renderTemplate } from "../src/core/template";
+import { renderTemplate, templateMissingCardRefKey } from "../src/core/template";
 
 const vars = {
 	TITLE: "Sagondo",
@@ -44,5 +44,21 @@ describe("renderTemplate", () => {
 			DESCRIPTION: "Body text: still raw, unescaped",
 		});
 		expect(out).toBe('---\ntitle: "Idea: \\"quoted\\", tricky"\n---\nBody text: still raw, unescaped');
+	});
+});
+
+describe("templateMissingCardRefKey", () => {
+	test("flags a template with no trello_board_card_id key at all", () => {
+		expect(templateMissingCardRefKey("---\ntitle: {{TITLE}}\n---\n{{DESCRIPTION}}")).toBe(true);
+	});
+
+	test("does not flag a template that declares the key", () => {
+		const template = '---\ntrello_board_card_id: "{{BOARD_ID}};{{CARD_ID}}"\n---\n{{DESCRIPTION}}';
+		expect(templateMissingCardRefKey(template)).toBe(false);
+	});
+
+	test("still flags it when the key only appears in the body, not the frontmatter", () => {
+		const template = "---\ntype: idée\n---\nSee trello_board_card_id in the legacy script.";
+		expect(templateMissingCardRefKey(template)).toBe(true);
 	});
 });

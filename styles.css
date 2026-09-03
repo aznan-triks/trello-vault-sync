@@ -62,8 +62,9 @@
 	box-shadow: none;
 }
 
-/* Hidden while a sync is running — there is no cancellation, so the button only
-   shows once closing it can no longer be mistaken for stopping the work. */
+/* Hidden while a sync is running and nothing was given to cancel it — the
+   button only shows once closing it can no longer be mistaken for stopping
+   the work (or once it doubles as a Cancel button; see ProgressPanel). */
 .tvs-panel__close--hidden {
 	visibility: hidden;
 }
@@ -209,4 +210,37 @@
 
 .tvs-secret input {
 	font-family: var(--font-monospace);
+}
+
+/* Conflict resolution modal */
+
+.tvs-conflict__hint {
+	color: var(--text-muted);
+}
+
+.tvs-conflict__columns {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+.tvs-conflict__column h4 {
+	margin: 0 0 4px;
+	color: var(--text-muted);
+}
+
+.tvs-conflict__body {
+	max-height: 40vh;
+	padding: 8px;
+	overflow-y: auto;
+	white-space: pre-wrap;
+	background: var(--background-secondary);
+	border-radius: var(--radius-s, 6px);
+}
+
+.tvs-conflict__actions {
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
 }

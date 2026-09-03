@@ -1,4 +1,5 @@
 import { Notice, Plugin, TFile } from "obsidian";
+import { extractBody } from "./core/noteBody";
 import { addCounts, tallyNoteResult } from "./core/syncTally";
 import { auditLinks } from "./features/auditLinks";
 import { auditLocations } from "./features/auditLocations";
@@ -9,7 +10,7 @@ import {
 	type FolderMapping,
 	type FolderSyncOptions,
 } from "./features/syncFolder";
-import { syncNote, type NoteSyncOptions } from "./features/syncNote";
+import { decideForCard, syncNote, type NoteSyncOptions } from "./features/syncNote";
 import { syncVault } from "./features/syncVault";
 import { ObsidianVault } from "./obsidian/ObsidianVault";
 import { obsidianTransport } from "./obsidian/transport";
@@ -17,6 +18,7 @@ import { silentReporter, type NoteHandle, type Reporter } from "./obsidian/gatew
 import { TrelloVaultSyncSettingsTab } from "./settings/SettingsTab";
 import { DEFAULT_SETTINGS, normalizeSettings, type TrelloVaultSyncSettings } from "./settings/types";
 import { TrelloClient } from "./trello/client";
+import { ConflictModal } from "./ui/ConflictModal";
 import { MappingSuggest } from "./ui/MappingSuggest";
 import { ProgressPanel } from "./ui/ProgressPanel";
 
@@ -84,12 +86,13 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		};
 	}
 
-	private panel(title: string): Reporter {
+	private panel(title: string, onCancel?: () => void): Reporter {
 		if (!this.settings.showPanel) return silentReporter;
 		const suffix = this.settings.dryRun ? " (dry run)" : "";
 		const panel = new ProgressPanel({
 			title: title + suffix,
 			autoCloseMs: this.settings.panelAutoCloseSeconds * 1000,
+			onCancel,
 		});
 		// Tracked so onunload() can tear it down: without this, a panel left open
 		// (autoCloseMs: 0, or one still mid-sync) survives a plugin disable/reload
@@ -124,22 +127,40 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		return true;
 	}
 
-	/** Run a command body with one panel, one error path and one summary notice. */
+	/**
+	 * Run a command body with one panel, one error path and one summary notice.
+	 * `cancellable: false` (single-note commands — one HTTP call, nothing to break
+	 * out of mid-flight) hides the Cancel affordance: showing one that can't stop
+	 * the already-in-flight request would let it complete and then falsely report
+	 * "Cancelled." over a change that actually landed.
+	 */
 	private async run(
 		title: string,
-		body: (reporter: Reporter) => Promise<string>,
+		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
+		{ cancellable = true }: { cancellable?: boolean } = {},
 	): Promise<void> {
 		if (this.syncing) {
 			new Notice("Trello Vault Sync: a sync is already running — wait for it to finish.");
 			return;
 		}
 		this.syncing = true;
-		const reporter = this.panel(title);
+		const controller = new AbortController();
+		const reporter = this.panel(title, cancellable ? () => controller.abort() : undefined);
 		try {
-			const summary = await body(reporter);
-			reporter.finish("done", summary);
-			new Notice(`✅ ${summary}`);
+			const summary = await body(reporter, controller.signal);
+			if (controller.signal.aborted) {
+				reporter.finish("aborted", "Cancelled.");
+				new Notice("Trello Vault Sync: sync cancelled.");
+			} else {
+				reporter.finish("done", summary);
+				new Notice(`✅ ${summary}`);
+			}
 		} catch (error) {
+			if (controller.signal.aborted) {
+				reporter.finish("aborted", "Cancelled.");
+				new Notice("Trello Vault Sync: sync cancelled.");
+				return;
+			}
 			const message = (error as Error).message;
 			reporter.log("error", message);
 			reporter.finish("error", message);
@@ -173,6 +194,12 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 			id: "link-active-note",
 			name: "Link active note to a card",
 			callback: () => this.linkActive(),
+		});
+
+		this.addCommand({
+			id: "resolve-conflict",
+			name: "Resolve conflict (active note), side by side",
+			callback: () => this.resolveConflict(),
 		});
 
 		this.addCommand({
@@ -251,7 +278,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 				default:
 					return "Already up to date.";
 			}
-		});
+		}, { cancellable: false });
 	}
 
 	private async linkActive(): Promise<void> {
@@ -266,19 +293,56 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 			if (result.reason === "already-linked") return "This note is already linked to a card.";
 			if (!result.linked) return "No card close enough to the note's title.";
 			return `Linked to "${result.card?.name}" (${Math.round(result.score * 100)}%).`;
-		});
+		}, { cancellable: false });
+	}
+
+	private async resolveConflict(): Promise<void> {
+		const note = this.activeNote();
+		if (!this.ready() || !note) return;
+
+		const ref = this.vault.getCardRef(note);
+		if (!ref) {
+			new Notice("Not linked to a Trello card.");
+			return;
+		}
+
+		let decision;
+		let localBody: string;
+		let card: Awaited<ReturnType<TrelloClient["getCard"]>>;
+		try {
+			card = await this.client().getCard(ref.cardId);
+			localBody = extractBody(await this.vault.read(note));
+			decision = decideForCard(note, card, localBody, {
+				policy: this.settings.policy,
+				marginMs: this.settings.marginSeconds * 1000,
+			});
+		} catch (error) {
+			new Notice(`Trello Vault Sync: ${(error as Error).message}`);
+			return;
+		}
+		if (decision.direction !== "conflict") {
+			new Notice("No conflict on this note — nothing to resolve.");
+			return;
+		}
+
+		new ConflictModal(
+			this.app,
+			{ noteTitle: note.basename, localBody, remoteBody: card.desc ?? "" },
+			(direction) => void this.syncActive(direction),
+		).open();
 	}
 
 	private async syncAllLinked(): Promise<void> {
 		if (!this.ready(true)) return;
 
-		await this.run("Vault sync", async (reporter) => {
+		await this.run("Vault sync", async (reporter, signal) => {
 			const stats = await syncVault(
 				this.vault,
 				this.client(reporter),
 				{ scope: this.settings.scope, boardId: this.settings.boardId },
 				this.noteOptions(),
 				reporter,
+				signal,
 			);
 			for (const [key, value] of Object.entries(stats)) reporter.count(key, value);
 			return `↓ ${stats.pulled} · ↑ ${stats.pushed} · = ${stats.skipped} · ⚠ ${stats.conflicts} · 👻 ${stats.phantoms} · ✕ ${stats.errors}`;
@@ -297,8 +361,16 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 	}
 
 	private async runMapping(mapping: FolderMapping): Promise<void> {
-		await this.run(`Sync — ${mapping.folder}`, async (reporter) => {
-			const stats = await syncFolder(this.vault, this.client(reporter), mapping, this.folderOptions(), reporter);
+		await this.run(`Sync — ${mapping.folder}`, async (reporter, signal) => {
+			const stats = await syncFolder(
+				this.vault,
+				this.client(reporter),
+				mapping,
+				this.folderOptions(),
+				reporter,
+				undefined,
+				signal,
+			);
 			for (const [key, value] of Object.entries(stats)) reporter.count(key, value);
 			return `+ ${stats.created} · 🔗 ${stats.adopted} · ↓ ${stats.pulled} · ↑ ${stats.pushed} · 🗑 ${stats.deleted} · ✕ ${stats.errors}`;
 		});
@@ -311,7 +383,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 			return;
 		}
 
-		await this.run("Sync all mappings", async (reporter) => {
+		await this.run("Sync all mappings", async (reporter, signal) => {
 			const activeClient = this.client(reporter);
 			const total = emptyStats();
 			// One board fetch feeds every mapping in this run instead of one per
@@ -320,6 +392,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 				? await activeClient.getBoardCards(this.settings.boardId, "all")
 				: undefined;
 			for (const mapping of this.settings.mappings) {
+				if (signal.aborted) break;
 				reporter.log("info", `Folder: ${mapping.folder}`);
 				const stats = await syncFolder(
 					this.vault,
@@ -328,6 +401,7 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 					this.folderOptions(),
 					reporter,
 					boardCards,
+					signal,
 				);
 				addCounts(total, stats);
 			}
@@ -348,8 +422,8 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 	private async runLinkAudit(): Promise<void> {
 		if (!this.ready(true)) return;
 
-		await this.run("Link audit", async (reporter) => {
-			const result = await auditLinks(this.vault, this.client(reporter), this.auditOptions(), reporter);
+		await this.run("Link audit", async (reporter, signal) => {
+			const result = await auditLinks(this.vault, this.client(reporter), this.auditOptions(), reporter, signal);
 			reporter.count("orphanCards", result.orphanCards);
 			reporter.count("phantoms", result.phantomNotes);
 			reporter.count("unlinkedNotes", result.unlinkedNotes);
@@ -360,8 +434,14 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 	private async runLocationAudit(): Promise<void> {
 		if (!this.ready(true)) return;
 
-		await this.run("Location audit", async (reporter) => {
-			const result = await auditLocations(this.vault, this.client(reporter), this.auditOptions(), reporter);
+		await this.run("Location audit", async (reporter, signal) => {
+			const result = await auditLocations(
+				this.vault,
+				this.client(reporter),
+				this.auditOptions(),
+				reporter,
+				signal,
+			);
 			reporter.count("comparedNotes", result.rows);
 			reporter.count("misplaced", result.misplaced);
 			return `${result.rows} note(s) compared · ${result.misplaced} outside their expected list`;

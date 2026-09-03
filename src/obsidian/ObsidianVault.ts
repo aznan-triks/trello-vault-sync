@@ -1,9 +1,6 @@
 import { TFile, type App } from "obsidian";
-import { formatCardRef, parseCardRef, type CardRef } from "../core/cardRef";
+import { CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../core/cardRef";
 import type { NoteHandle, VaultGateway } from "./gateway";
-
-/** Frontmatter key the vault has always used to point at a Trello card. */
-export const CARD_REF_KEY = "trello_board_card_id";
 
 /** The real vault, behind the interface the engines depend on. */
 export class ObsidianVault implements VaultGateway {

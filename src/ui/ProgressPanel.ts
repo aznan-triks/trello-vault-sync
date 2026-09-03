@@ -42,6 +42,8 @@ export interface PanelOptions {
 	title: string;
 	/** Delay before a successful panel disappears; 0 keeps it until dismissed. */
 	autoCloseMs: number;
+	/** Called once when the user asks to stop the sync this panel is tracking. */
+	onCancel?: () => void;
 }
 
 /**
@@ -64,6 +66,8 @@ export class ProgressPanel implements Reporter {
 	private total = 0;
 	private done = 0;
 	private timer: number | null = null;
+	private finished = false;
+	private cancelling = false;
 
 	constructor(private readonly options: PanelOptions) {
 		document.querySelectorAll(".tvs-panel").forEach((node) => node.remove());
@@ -73,14 +77,24 @@ export class ProgressPanel implements Reporter {
 		const header = this.root.createDiv({ cls: "tvs-panel__header" });
 		header.createSpan({ cls: "tvs-panel__title", text: options.title });
 		this.statusEl = header.createSpan({ cls: "tvs-panel__status", text: "Running…" });
-		// Hidden while a sync is in flight: closing the panel cannot stop it, so the
-		// button only appears once there is nothing left to hide.
+		// Hidden while running unless there is something to cancel — closing the
+		// panel otherwise cannot stop the sync, so the button has nothing to do.
 		this.closeEl = header.createEl("button", {
-			cls: "tvs-panel__close tvs-panel__close--hidden",
+			cls: `tvs-panel__close${options.onCancel ? "" : " tvs-panel__close--hidden"}`,
 			text: "×",
 		});
-		this.closeEl.setAttr("aria-label", "Close");
-		this.closeEl.addEventListener("click", () => this.destroy());
+		this.closeEl.setAttr("aria-label", options.onCancel ? "Cancel" : "Close");
+		this.closeEl.addEventListener("click", () => {
+			if (this.finished) {
+				this.destroy();
+				return;
+			}
+			if (this.cancelling || !this.options.onCancel) return;
+			this.cancelling = true;
+			this.statusEl.setText("Cancelling…");
+			this.closeEl.setAttr("aria-label", "Cancelling…");
+			this.options.onCancel();
+		});
 
 		const progress = this.root.createDiv({ cls: "tvs-panel__progress" });
 		this.progressEl = progress.createSpan({ cls: "tvs-panel__progress-label", text: "0 / 0" });
@@ -126,12 +140,14 @@ export class ProgressPanel implements Reporter {
 	}
 
 	finish(outcome: "done" | "aborted" | "error", summary: string): void {
+		this.finished = true;
 		this.statusEl.setText(
 			outcome === "done" ? "Done" : outcome === "aborted" ? "Aborted" : "Error",
 		);
 		this.root.addClass(`tvs-panel--${outcome}`);
 		this.barEl.style.transform = "scaleX(1)";
 		this.currentEl.setText(summary);
+		this.closeEl.setAttr("aria-label", "Close");
 		this.closeEl.removeClass("tvs-panel__close--hidden");
 		if (outcome === "done" && this.options.autoCloseMs > 0) {
 			this.timer = window.setTimeout(() => this.destroy(), this.options.autoCloseMs);
