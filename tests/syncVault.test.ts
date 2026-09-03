@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { syncVault } from "../src/features/syncVault";
+import { silentReporter } from "../src/obsidian/gateway";
 import { TrelloClient } from "../src/trello/client";
 import { FakeVault, at, card, routedTransport } from "./fakes";
 
@@ -110,5 +111,26 @@ describe("syncVault", () => {
 
 		expect(stats.errors).toBe(1);
 		expect(stats.pushed).toBe(1);
+	});
+
+	test("stops before touching any note once the signal is aborted", async () => {
+		const vault = new FakeVault({
+			"WoT/a.md": { content: linked("c1", "old"), mtime: at("2026-01-01") },
+		});
+		const { client } = clientFor([card({ id: "c1", name: "a", desc: "new", dateLastActivity: "2026-02-01" })]);
+		const controller = new AbortController();
+		controller.abort();
+
+		const stats = await syncVault(
+			vault,
+			client,
+			{ scope: "WoT", boardId: "board" },
+			options,
+			silentReporter,
+			controller.signal,
+		);
+
+		expect(stats.pulled).toBe(0);
+		expect(vault.contentOf("WoT/a.md")).toContain("old");
 	});
 });

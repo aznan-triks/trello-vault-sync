@@ -2,7 +2,7 @@ import { formatCardRef } from "../core/cardRef";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
 import { tallyNoteResult } from "../core/syncTally";
-import { renderTemplate } from "../core/template";
+import { renderTemplate, templateMissingCardRefKey } from "../core/template";
 import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient } from "../trello/client";
 import { syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
@@ -87,6 +87,7 @@ export async function syncFolder(
 	reporter: Reporter = silentReporter,
 	/** Pre-fetched (filter "all") board cards — lets a multi-mapping run share one fetch. */
 	boardCards?: TrelloCard[],
+	signal?: AbortSignal,
 ): Promise<FolderSyncStats> {
 	const stats = emptyStats();
 	const cards = await client.getListCards(mapping.listId);
@@ -119,9 +120,16 @@ export async function syncFolder(
 	);
 
 	const template = mapping.templateName ? await vault.readTemplate(mapping.templateName) : null;
+	if (template && templateMissingCardRefKey(template)) {
+		reporter.log(
+			"warn",
+			`Template "${mapping.templateName}" has no trello_board_card_id key — new notes from it won't link back to their card.`,
+		);
+	}
 	const byPath = new Map(handles.map((note) => [note.path, note]));
 
 	for (const pair of plan.pairs) {
+		if (signal?.aborted) break;
 		reporter.step(pair.card.name);
 		const note = byPath.get(pair.note.path);
 		if (!note) continue;
@@ -151,6 +159,7 @@ export async function syncFolder(
 
 	if (options.allowCreate) {
 		for (const card of plan.missingCards) {
+			if (signal?.aborted) break;
 			reporter.step(card.name);
 			try {
 				stats.created++;
@@ -177,12 +186,13 @@ export async function syncFolder(
 	// note. "all" (not the default "visible") is required here or an archived
 	// card would be indistinguishable from a genuinely deleted one.
 	let aliveElsewhere = new Map<string, boolean>(); // cardId -> closed
-	if (options.allowDelete && plan.phantomNotes.length > 0) {
+	if (options.allowDelete && plan.phantomNotes.length > 0 && !signal?.aborted) {
 		const cards = boardCards ?? (await client.getBoardCards(options.boardId, "all"));
 		aliveElsewhere = new Map(cards.map((card) => [card.id, card.closed === true]));
 	}
 
 	for (const phantom of plan.phantomNotes) {
+		if (signal?.aborted) break;
 		const note = byPath.get(phantom.path);
 		if (!note) continue;
 		if (!options.allowDelete) {

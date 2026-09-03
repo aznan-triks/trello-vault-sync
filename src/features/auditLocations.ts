@@ -1,3 +1,4 @@
+import { yieldPeriodically } from "../core/asyncUtil";
 import {
 	LOCATION_REPORT_HEADING,
 	buildLocationReport,
@@ -24,6 +25,7 @@ export async function auditLocations(
 	client: TrelloClient,
 	options: AuditOptions,
 	reporter: Reporter = silentReporter,
+	signal?: AbortSignal,
 ): Promise<LocationAuditResult> {
 	const reportNote = requireReportNote(vault, options.reportPath);
 
@@ -36,22 +38,25 @@ export async function auditLocations(
 	const rows: LocationRow[] = [];
 	let misplaced = 0;
 
-	for (const note of notes) {
+	for (const [i, note] of notes.entries()) {
+		if (signal?.aborted) break;
 		reporter.step(note.basename);
 		const ref = vault.getCardRef(note);
-		if (!ref) continue;
-		const card = byId.get(ref.cardId);
-		if (!card) continue;
+		if (ref) {
+			const card = byId.get(ref.cardId);
+			if (card) {
+				const listName = listNames.get(card.idList ?? "") ?? "Unknown list";
+				rows.push({ listName, cardName: card.name, folder: note.folder, notePath: note.path });
 
-		const listName = listNames.get(card.idList ?? "") ?? "Unknown list";
-		rows.push({ listName, cardName: card.name, folder: note.folder, notePath: note.path });
-
-		const folderSlug = slug(note.folder.split("/").pop() ?? "");
-		const listSlug = slug(listName);
-		if (listSlug !== "" && !folderSlug.includes(listSlug)) {
-			misplaced++;
-			reporter.log("warn", `${note.basename} → ${note.folder} (list: ${listName})`);
+				const folderSlug = slug(note.folder.split("/").pop() ?? "");
+				const listSlug = slug(listName);
+				if (listSlug !== "" && !folderSlug.includes(listSlug)) {
+					misplaced++;
+					reporter.log("warn", `${note.basename} → ${note.folder} (list: ${listName})`);
+				}
+			}
 		}
+		await yieldPeriodically(i);
 	}
 
 	const markdown = buildLocationReport({

@@ -34,6 +34,7 @@ export async function syncVault(
 	target: VaultSyncScope,
 	options: NoteSyncOptions,
 	reporter: Reporter = silentReporter,
+	signal?: AbortSignal,
 ): Promise<VaultSyncStats> {
 	const stats: VaultSyncStats = {
 		pulled: 0,
@@ -59,6 +60,7 @@ export async function syncVault(
 	reporter.setTotal(linked.length);
 
 	for (const { note, ref } of linked) {
+		if (signal?.aborted) break;
 		reporter.step(note.basename);
 		const card = byId.get(ref.cardId);
 		if (!card) {

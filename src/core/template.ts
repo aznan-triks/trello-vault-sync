@@ -1,3 +1,4 @@
+import { CARD_REF_KEY } from "./cardRef";
 import { splitFrontmatter } from "./noteBody";
 
 /** Placeholders a new-note template may use, matching the legacy `(script)` templates. */
@@ -37,4 +38,18 @@ export function renderTemplate(template: string, vars: TemplateVars): string {
 		const isFreeText = FREE_TEXT_VARS.has(name as keyof TemplateVars);
 		return insideFrontmatter && isFreeText ? JSON.stringify(value) : value;
 	});
+}
+
+/**
+ * True when a new-note template never declares the card-ref frontmatter key
+ * in its frontmatter block. A template missing it produces notes with no
+ * link back to their card — the next sync then treats every one of them as
+ * a brand new, unrelated card.
+ *
+ * Scoped to the frontmatter fence so a mention of the key in body prose (a
+ * comment, an example) doesn't wrongly suppress the warning.
+ */
+export function templateMissingCardRefKey(template: string): boolean {
+	const frontmatter = splitFrontmatter(template).frontmatter ?? "";
+	return !frontmatter.includes(CARD_REF_KEY);
 }

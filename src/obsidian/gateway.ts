@@ -19,6 +19,8 @@ export interface NoteHandle {
 export interface VaultGateway {
 	/** Markdown notes under `folder` ("" = whole vault), in a stable order. */
 	listNotes(folder: string): NoteHandle[];
+	/** Handle for a single known path, without walking the whole vault. `null` if missing. */
+	noteAt(path: string): NoteHandle | null;
 	/** The card this note points at, or `null` when unlinked or unusable. */
 	getCardRef(note: NoteHandle): CardRef | null;
 	/** Write the card reference into the note's frontmatter. */

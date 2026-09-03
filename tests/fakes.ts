@@ -1,7 +1,7 @@
 import { parseCardRef, formatCardRef, type CardRef } from "../src/core/cardRef";
 import { splitFrontmatter } from "../src/core/noteBody";
-import type { NoteHandle, VaultGateway } from "../src/obsidian/gateway";
-import type { HttpRequest, HttpResponse, TrelloCard } from "../src/trello/client";
+import type { NoteHandle, Reporter, VaultGateway } from "../src/obsidian/gateway";
+import { TrelloClient, type HttpRequest, type HttpResponse, type TrelloCard } from "../src/trello/client";
 
 /** In-memory vault, faithful enough to exercise the engines end to end. */
 export class FakeVault implements VaultGateway {
@@ -32,6 +32,10 @@ export class FakeVault implements VaultGateway {
 			.filter((path) => folder === "" || path.startsWith(`${folder}/`))
 			.sort()
 			.map((path) => this.handle(path));
+	}
+
+	noteAt(path: string): NoteHandle | null {
+		return this.files.has(path) ? this.handle(path) : null;
 	}
 
 	note(path: string): NoteHandle {
@@ -128,3 +132,25 @@ export function routedTransport(routes: Record<string, unknown>) {
 }
 
 export const at = (iso: string): number => new Date(iso).getTime();
+
+/** A reporter that keeps every logged line, so a test can assert on it. */
+export function recordingReporter(): Reporter & { logs: Array<{ level: string; message: string }> } {
+	const logs: Array<{ level: string; message: string }> = [];
+	return {
+		logs,
+		setTotal: () => {},
+		step: () => {},
+		count: () => {},
+		log: (level, message) => logs.push({ level, message }),
+		finish: () => {},
+	};
+}
+
+/** A client wired to a fake board's cards and lists, plus the requests it made. */
+export function clientFor(cards: unknown[], lists: unknown[] = [{ id: "l1", name: "Idées" }]) {
+	const { transport, requests } = routedTransport({
+		"/boards/board/cards": cards,
+		"/boards/board/lists": lists,
+	});
+	return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
+}
