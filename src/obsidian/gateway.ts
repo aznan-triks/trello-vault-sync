@@ -17,8 +17,8 @@ export interface NoteHandle {
  * vault in the tests, and against Obsidian at runtime, with no branching.
  */
 export interface VaultGateway {
-	/** Markdown notes under `folder` ("" = whole vault), in a stable order. */
-	listNotes(folder: string): NoteHandle[];
+	/** Markdown notes under `folder` ("" = whole vault), minus any under `excludedFolders`, in a stable order. */
+	listNotes(folder: string, excludedFolders?: string[]): NoteHandle[];
 	/** Handle for a single known path, without walking the whole vault. `null` if missing. */
 	noteAt(path: string): NoteHandle | null;
 	/** The card this note points at, or `null` when unlinked or unusable. */

@@ -78,6 +78,29 @@ describe("auditLinks", () => {
 		expect(result.orphanCards).toBe(0);
 	});
 
+	test("does not count a linked note under an excluded folder", async () => {
+		const vault = new FakeVault({
+			[REPORT]: { content: "" },
+			"WoT/lié.md": { content: linked("c1") },
+			"WoT/Archive/ancien.md": { content: linked("c2") },
+		});
+		const { client } = clientFor([
+			card({ id: "c1", name: "Lié", idList: "l1" }),
+			card({ id: "c2", name: "Ancien", idList: "l1" }),
+		]);
+
+		const result = await auditLinks(vault, client, {
+			scope: "WoT",
+			boardId: "board",
+			reportPath: REPORT,
+			timestamp: "t",
+			excludedFolders: ["WoT/Archive"],
+		});
+
+		expect(result.orphanCards).toBe(1);
+		expect(result.unlinkedNotes).toBe(1);
+	});
+
 	test("fails clearly when the report note does not exist", async () => {
 		const vault = new FakeVault();
 		const { client } = clientFor([]);
@@ -127,6 +150,28 @@ describe("auditLocations", () => {
 		});
 
 		expect(result.misplaced).toBe(1);
+	});
+
+	test("skips a linked note under an excluded folder", async () => {
+		const vault = new FakeVault({
+			[REPORT]: { content: "" },
+			"WoT/85_Idées/Sagondo.md": { content: linked("c1") },
+			"WoT/Archive/Vieux.md": { content: linked("c2") },
+		});
+		const { client } = clientFor([
+			card({ id: "c1", name: "Sagondo", idList: "l1" }),
+			card({ id: "c2", name: "Vieux", idList: "l1" }),
+		]);
+
+		const result = await auditLocations(vault, client, {
+			scope: "WoT",
+			boardId: "board",
+			reportPath: REPORT,
+			timestamp: "t",
+			excludedFolders: ["WoT/Archive"],
+		});
+
+		expect(result.rows).toBe(1);
 	});
 });
 

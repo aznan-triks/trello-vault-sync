@@ -8,6 +8,8 @@ export interface VaultSyncScope {
 	/** Folder to restrict the run to; "" walks the whole vault. */
 	scope: string;
 	boardId: string;
+	/** Folders skipped regardless of link state. */
+	excludedFolders?: string[];
 }
 
 export interface VaultSyncStats {
@@ -48,7 +50,7 @@ export async function syncVault(
 		errors: 0,
 	};
 
-	const notes = vault.listNotes(target.scope);
+	const notes = vault.listNotes(target.scope, target.excludedFolders);
 	const linked = notes.flatMap((note) => {
 		const ref = vault.getCardRef(note);
 		return ref ? [{ note, ref }] : [];

@@ -1,4 +1,5 @@
 import { parseCardRef, formatCardRef, type CardRef } from "../src/core/cardRef";
+import { excludeFolders } from "../src/core/fileName";
 import { splitFrontmatter } from "../src/core/noteBody";
 import type { NoteHandle, Reporter, VaultGateway } from "../src/obsidian/gateway";
 import { TrelloClient, type HttpRequest, type HttpResponse, type TrelloCard } from "../src/trello/client";
@@ -27,11 +28,12 @@ export class FakeVault implements VaultGateway {
 		};
 	}
 
-	listNotes(folder: string): NoteHandle[] {
-		return [...this.files.keys()]
+	listNotes(folder: string, excludedFolders: string[] = []): NoteHandle[] {
+		const handles = [...this.files.keys()]
 			.filter((path) => folder === "" || path.startsWith(`${folder}/`))
 			.sort()
 			.map((path) => this.handle(path));
+		return excludeFolders(handles, excludedFolders);
 	}
 
 	noteAt(path: string): NoteHandle | null {

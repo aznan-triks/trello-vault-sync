@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] — 2026-09-04
+
+### Added
+
+- `excludedFolders` setting (Scope section, one folder per line): folders
+  skipped by "Sync all linked notes", "Audit links" and "Compare locations
+  against Trello", regardless of link state. Does not affect the per-folder
+  mapping commands (`syncFolder`/`syncAllMappings`), which target an explicit
+  1:1 folder chosen by the user.
+- `excludeFolders()` in `src/core/fileName.ts`, the blacklist counterpart to
+  `notesInFolder()`; `VaultGateway.listNotes()` gained an optional second
+  parameter implementing it once per gateway (`ObsidianVault`, `FakeVault`).
+
 ## [1.5.0] — 2026-09-04
 
 ### Added

@@ -1,7 +1,7 @@
 {
 	"id": "trello-vault-sync",
 	"name": "Trello Vault Sync",
-	"version": "1.5.0",
+	"version": "1.5.1",
 	"minAppVersion": "1.5.0",
 	"description": "Two-way Trello sync (note, vault and folder scope), link auditing and card matching for worldbuilding vaults.",
 	"author": "aznan-triks",
