@@ -1,6 +1,5 @@
+import type { LogLevel } from "../core/journal";
 import type { Reporter } from "../obsidian/gateway";
-
-type LogLevel = Parameters<Reporter["log"]>[0];
 
 const ICONS: Record<LogLevel, string> = {
 	info: "ℹ",
@@ -15,7 +14,20 @@ const ICONS: Record<LogLevel, string> = {
 	error: "✕",
 };
 
-const MAX_LOG_ROWS = 60;
+export const MAX_LOG_ROWS = 60;
+
+/**
+ * Renders one log row into `container`, newest first (prepended), trimmed to
+ * `maxRows`. Shared by the floating panel and the sidebar's persistent
+ * journal so both stay visually identical without duplicating the markup.
+ */
+export function renderLogRow(container: HTMLElement, level: LogLevel, message: string, maxRows: number): void {
+	const row = createDiv({ cls: `tvs-panel__row tvs-panel__row--${level}` });
+	row.createSpan({ cls: "tvs-panel__icon", text: ICONS[level] });
+	row.createSpan({ cls: "tvs-panel__message", text: message });
+	container.prepend(row);
+	while (container.children.length > maxRows) container.lastElementChild?.remove();
+}
 
 /** Human labels for the counters the sync engines emit. */
 const COUNT_LABELS: Record<string, string> = {
@@ -129,14 +141,7 @@ export class ProgressPanel implements Reporter {
 	}
 
 	log(level: LogLevel, message: string): void {
-		// Newest first, so the panel never needs scrolling to show what just happened.
-		// Built detached (global `createDiv`, not `this.logEl.createDiv`) because it is
-		// prepended below, not appended.
-		const row = createDiv({ cls: `tvs-panel__row tvs-panel__row--${level}` });
-		row.createSpan({ cls: "tvs-panel__icon", text: ICONS[level] });
-		row.createSpan({ cls: "tvs-panel__message", text: message });
-		this.logEl.prepend(row);
-		while (this.logEl.children.length > MAX_LOG_ROWS) this.logEl.lastElementChild?.remove();
+		renderLogRow(this.logEl, level, message, MAX_LOG_ROWS);
 	}
 
 	finish(outcome: "done" | "aborted" | "error", summary: string): void {

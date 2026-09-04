@@ -1,7 +1,9 @@
 import { ItemView, Setting, type App, type WorkspaceLeaf } from "obsidian";
 import type { CommandContext } from "../commands/context";
 import { COMMANDS, type CommandSection } from "../commands/registry";
+import type { LogLevel } from "../core/journal";
 import { hasCredentials } from "../settings/types";
+import { MAX_LOG_ROWS, renderLogRow } from "./ProgressPanel";
 
 /**
  * `App.setting` opens/targets the settings dialog but isn't part of Obsidian's
@@ -24,6 +26,9 @@ const SECTIONS: CommandSection[] = ["Active note", "Folders", "Vault"];
  * (same `ProgressPanel` shows up while a command runs).
  */
 export class SidebarView extends ItemView {
+	/** Set by `render()` while the view is ready — null while `renderNotReady()` shows instead. */
+	private journalEl: HTMLElement | null = null;
+
 	constructor(
 		leaf: WorkspaceLeaf,
 		private readonly ctx: CommandContext,
@@ -54,10 +59,21 @@ export class SidebarView extends ItemView {
 		this.render();
 	}
 
+	/**
+	 * Appends one journal row without rebuilding the whole view — `refresh()`
+	 * would redraw all 11 command buttons on every log line, which a large
+	 * sync fires many times a second.
+	 */
+	appendJournalEntry(level: LogLevel, message: string): void {
+		if (!this.journalEl) return;
+		renderLogRow(this.journalEl, level, message, MAX_LOG_ROWS);
+	}
+
 	private render(): void {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.addClass("tvs-sidebar");
+		this.journalEl = null;
 
 		// Same predicate ctx.ready() uses, called directly (not through ready()) to
 		// avoid its Notice side effect firing on every render.
@@ -85,6 +101,12 @@ export class SidebarView extends ItemView {
 					await this.ctx.saveSettings();
 				}),
 			);
+
+		new Setting(contentEl).setName("Activity").setHeading();
+		this.journalEl = contentEl.createDiv({ cls: "tvs-sidebar__journal" });
+		// Oldest first in storage, so hydrating in stored order — each row
+		// prepended in turn — ends up newest-first, matching appendJournalEntry().
+		for (const entry of this.ctx.journal) renderLogRow(this.journalEl, entry.level, entry.message, MAX_LOG_ROWS);
 	}
 
 	private renderNotReady(root: HTMLElement): void {
