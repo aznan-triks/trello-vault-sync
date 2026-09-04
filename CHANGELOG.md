@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] — 2026-09-04
+
+### Added
+
+- "Audit changes" command: logs Trello board activity (`/boards/{id}/actions`)
+  into the Report note, same as "Audit links" and "Audit locations". Only
+  changes since the last run are fetched (a cursor — the last processed
+  action id — is persisted internally, no new settings-tab field). Dry run
+  reports without advancing the cursor.
+- `describeAction()` (`src/core/auditAction.ts`, unit-tested): maps a Trello
+  action to a human-readable change-log entry — card renames, description
+  edits, archive/unarchive, list moves, due date changes, member changes,
+  attachments, comments, checklists. Unmapped action types are skipped to
+  keep the log readable.
+- `TrelloClient.getActions()`.
+
 ## [1.5.2] — 2026-09-04
 
 ### Added

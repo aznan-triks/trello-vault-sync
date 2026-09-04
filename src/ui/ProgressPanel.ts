@@ -48,6 +48,7 @@ const COUNT_LABELS: Record<string, string> = {
 	unlinkedNotes: "unlinked notes",
 	comparedNotes: "notes",
 	misplaced: "misplaced",
+	changes: "changes",
 };
 
 export interface PanelOptions {
