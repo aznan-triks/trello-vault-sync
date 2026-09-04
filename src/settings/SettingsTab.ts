@@ -1,5 +1,6 @@
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
+import { errorMessage } from "../core/errorMessage";
 import type { ConflictPolicy } from "../core/syncDecision";
 import { TrelloPickerSuggest } from "../ui/TrelloPickerSuggest";
 import { VaultPathSuggest } from "../ui/VaultPathSuggest";
@@ -141,7 +142,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						new Notice(`✅ Connected — ${lists.length} list(s) on the board.`);
 						this.display();
 					} catch (error) {
-						new Notice(`❌ ${(error as Error).message}`);
+						new Notice(`❌ ${errorMessage(error)}`);
 					} finally {
 						button.setDisabled(false);
 					}
