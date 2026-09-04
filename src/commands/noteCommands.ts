@@ -5,7 +5,6 @@ import { tallyNoteResult } from "../core/syncTally";
 import { linkActiveNote } from "../features/linkNote";
 import { decideForCard, syncNote } from "../features/syncNote";
 import { ConflictModal } from "../ui/ConflictModal";
-import type { TrelloClient } from "../trello/client";
 
 export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): Promise<void> {
 	const note = ctx.activeNote();
@@ -63,30 +62,22 @@ export async function resolveConflict(ctx: CommandContext): Promise<void> {
 		return;
 	}
 
-	let decision;
-	let localBody: string;
-	let card: Awaited<ReturnType<TrelloClient["getCard"]>>;
-	try {
-		card = await ctx.client().getCard(ref.cardId);
-		localBody = extractBody(await ctx.vault.read(note));
-		decision = decideForCard(note, card, localBody, {
+	await ctx.run(`Check conflict — ${note.basename}`, async (reporter) => {
+		const card = await ctx.client(reporter).getCard(ref.cardId);
+		const localBody = extractBody(await ctx.vault.read(note));
+		const decision = decideForCard(note, card, localBody, {
 			policy: ctx.settings.policy,
 			marginMs: ctx.settings.marginSeconds * 1000,
 		});
-	} catch (error) {
-		new Notice(`Trello Vault Sync: ${(error as Error).message}`);
-		return;
-	}
-	if (decision.direction !== "conflict") {
-		new Notice("No conflict on this note — nothing to resolve.");
-		return;
-	}
+		if (decision.direction !== "conflict") return "No conflict on this note — nothing to resolve.";
 
-	new ConflictModal(
-		ctx.app,
-		{ noteTitle: note.basename, localBody, remoteBody: card.desc ?? "" },
-		(direction) => void syncActive(ctx, direction),
-	).open();
+		new ConflictModal(
+			ctx.app,
+			{ noteTitle: note.basename, localBody, remoteBody: card.desc ?? "" },
+			(direction) => void syncActive(ctx, direction),
+		).open();
+		return "Conflict found — resolve it in the dialog.";
+	}, { cancellable: false });
 }
 
 export async function toggleDryRun(ctx: CommandContext): Promise<void> {
