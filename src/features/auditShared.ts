@@ -7,6 +7,8 @@ export interface AuditOptions {
 	reportPath: string;
 	/** Pre-formatted date, injected so a report is reproducible. */
 	timestamp: string;
+	/** Folders skipped regardless of link state. */
+	excludedFolders?: string[];
 }
 
 /** Find the report note, or explain precisely what is missing. */

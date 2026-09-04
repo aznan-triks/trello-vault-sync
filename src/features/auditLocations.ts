@@ -32,7 +32,7 @@ export async function auditLocations(
 	const { cards, listNames } = await fetchBoardIndex(client, options.boardId);
 	const byId = new Map(cards.map((card) => [card.id, card]));
 
-	const notes = vault.listNotes(options.scope);
+	const notes = vault.listNotes(options.scope, options.excludedFolders);
 	reporter.setTotal(notes.length);
 
 	const rows: LocationRow[] = [];

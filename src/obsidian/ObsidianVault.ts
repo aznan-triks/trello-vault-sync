@@ -1,6 +1,6 @@
 import { TFile, type App } from "obsidian";
 import { CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../core/cardRef";
-import { notesInFolder } from "../core/fileName";
+import { excludeFolders, notesInFolder } from "../core/fileName";
 import type { NoteHandle, VaultGateway } from "./gateway";
 
 /** The real vault, behind the interface the engines depend on. */
@@ -22,9 +22,11 @@ export class ObsidianVault implements VaultGateway {
 		return file;
 	}
 
-	listNotes(folder: string): NoteHandle[] {
+	listNotes(folder: string, excludedFolders: string[] = []): NoteHandle[] {
 		const handles = this.app.vault.getMarkdownFiles().map((file) => this.toHandle(file));
-		return notesInFolder(handles, folder).sort((a, b) => a.path.localeCompare(b.path));
+		return excludeFolders(notesInFolder(handles, folder), excludedFolders).sort((a, b) =>
+			a.path.localeCompare(b.path),
+		);
 	}
 
 	/** Handle for a single path, without walking the whole vault. */

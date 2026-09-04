@@ -16,7 +16,7 @@ export async function syncAllLinked(ctx: CommandContext): Promise<void> {
 		const stats = await syncVault(
 			ctx.vault,
 			ctx.client(reporter),
-			{ scope: ctx.settings.scope, boardId: ctx.settings.boardId },
+			{ scope: ctx.settings.scope, boardId: ctx.settings.boardId, excludedFolders: ctx.settings.excludedFolders },
 			ctx.noteOptions(),
 			reporter,
 			signal,

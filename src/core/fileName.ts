@@ -52,8 +52,20 @@ export function uniqueNotePath(
 	}
 }
 
+/** A folder path as the prefix every note under it starts with — the one normalization every folder-scoping rule shares. */
+function folderPrefix(folder: string): string {
+	return `${folder.replace(/\/$/, "")}/`;
+}
+
 /** Entries among `handles` living under `folder` ("" or "/" = the whole vault). The one prefix rule every vault gateway uses to scope a listing. */
 export function notesInFolder<T extends { path: string }>(handles: T[], folder: string): T[] {
-	const prefix = folder === "" || folder === "/" ? "" : `${folder.replace(/\/$/, "")}/`;
+	const prefix = folder === "" || folder === "/" ? "" : folderPrefix(folder);
 	return prefix === "" ? handles : handles.filter((handle) => handle.path.startsWith(prefix));
+}
+
+/** Entries among `handles` living under none of `excluded` — the blacklist counterpart to `notesInFolder`. */
+export function excludeFolders<T extends { path: string }>(handles: T[], excluded: string[]): T[] {
+	const prefixes = excluded.filter((folder) => folder !== "").map(folderPrefix);
+	if (prefixes.length === 0) return handles;
+	return handles.filter((handle) => !prefixes.some((prefix) => handle.path.startsWith(prefix)));
 }
