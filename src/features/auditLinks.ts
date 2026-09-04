@@ -9,34 +9,14 @@ import {
 } from "../core/auditReport";
 import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
+import { requireReportNote, type AuditOptions } from "./auditShared";
 import { fetchBoardIndex } from "./boardIndex";
-
-export interface AuditOptions {
-	scope: string;
-	boardId: string;
-	/** Note the report is written into. Must already exist. */
-	reportPath: string;
-	/** Pre-formatted date, injected so a report is reproducible. */
-	timestamp: string;
-}
 
 export interface LinkAuditResult {
 	orphanCards: number;
 	phantomNotes: number;
 	unlinkedNotes: number;
 	markdown: string;
-}
-
-/** Find the report note, or explain precisely what is missing. */
-export function requireReportNote(vault: VaultGateway, reportPath: string) {
-	if (reportPath.trim() === "") {
-		throw new Error("The report note is not configured — set it in the plugin settings.");
-	}
-	const note = vault.noteAt(reportPath);
-	if (!note) {
-		throw new Error(`Report note not found: ${reportPath} — create it or change the setting.`);
-	}
-	return note;
 }
 
 /** Cross-check the board against the vault: what is linked, dangling or missing. */

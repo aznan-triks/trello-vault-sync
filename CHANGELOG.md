@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] — 2026-09-04
+
+### Changed
+
+- `AuditOptions` and `requireReportNote` moved out of `auditLinks.ts` into a
+  new `auditShared.ts` — `auditLocations.ts` no longer imports from a
+  sibling feature file it has nothing to do with (hidden coupling flagged by
+  the 2026-09-04 audit). No behavior change.
+
 ## [1.4.2] — 2026-09-04
 
 ### Security

@@ -7,7 +7,7 @@ import {
 } from "../core/auditReport";
 import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
-import { requireReportNote, type AuditOptions } from "./auditLinks";
+import { requireReportNote, type AuditOptions } from "./auditShared";
 import { fetchBoardIndex } from "./boardIndex";
 
 export interface LocationAuditResult {
