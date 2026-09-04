@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6] — 2026-09-04
+
+### Changed
+
+- Extracted `errorMessage(e: unknown)` into `src/core/errorMessage.ts` and
+  replaced the duplicated `(error as Error).message` cast at 10 call sites
+  across 6 files (`syncFolder.ts`, `syncVault.ts`, `main.ts`,
+  `SettingsTab.ts`, `client.ts`, `TrelloPickerSuggest.ts`). No behavior
+  change for an actual `Error` instance; a non-`Error` thrown value now
+  stringifies via `String(e)` instead of reading `undefined` off the unsafe
+  cast.
+
 ## [1.4.5] — 2026-09-04
 
 ### Fixed

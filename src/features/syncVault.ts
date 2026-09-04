@@ -1,3 +1,4 @@
+import { errorMessage } from "../core/errorMessage";
 import { tallyNoteResult } from "../core/syncTally";
 import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
@@ -74,7 +75,7 @@ export async function syncVault(
 			tallyNoteResult(stats, result, (level, message) => reporter.log(level, message), note.basename);
 		} catch (error) {
 			stats.errors++;
-			reporter.log("error", `${note.basename} — ${(error as Error).message}`);
+			reporter.log("error", `${note.basename} — ${errorMessage(error)}`);
 		}
 	}
 

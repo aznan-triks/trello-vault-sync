@@ -3,6 +3,7 @@ import * as auditCommands from "./commands/auditCommands";
 import type { CommandContext } from "./commands/context";
 import * as noteCommands from "./commands/noteCommands";
 import * as syncCommands from "./commands/syncCommands";
+import { errorMessage } from "./core/errorMessage";
 import type { AuditOptions } from "./features/auditShared";
 import type { FolderSyncOptions } from "./features/syncFolder";
 import type { NoteSyncOptions } from "./features/syncNote";
@@ -162,7 +163,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				new Notice("Trello Vault Sync: sync cancelled.");
 				return;
 			}
-			const message = (error as Error).message;
+			const message = errorMessage(error);
 			reporter.log("error", message);
 			reporter.finish("error", message);
 			new Notice(`❌ ${message}`);

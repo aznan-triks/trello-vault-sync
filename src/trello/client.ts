@@ -6,6 +6,8 @@
  * it works on mobile) without this file importing Obsidian.
  */
 
+import { errorMessage } from "../core/errorMessage";
+
 export interface TrelloCredentials {
 	apiKey: string;
 	token: string;
@@ -204,7 +206,7 @@ export class TrelloClient {
 			} catch (cause) {
 				// A transport-level failure is transient in the same way a 5xx/429 is —
 				// retry it through the same backoff budget instead of failing on attempt 1.
-				lastError = new TrelloError(this.redact((cause as Error).message), 0, true);
+				lastError = new TrelloError(this.redact(errorMessage(cause)), 0, true);
 			}
 
 			if (response) {

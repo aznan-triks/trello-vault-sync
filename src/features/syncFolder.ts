@@ -1,4 +1,5 @@
 import { formatCardRef } from "../core/cardRef";
+import { errorMessage } from "../core/errorMessage";
 import { notesInFolder, sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
 import { addCounts, tallyNoteResult } from "../core/syncTally";
@@ -155,7 +156,7 @@ export async function syncFolder(
 			}
 		} catch (error) {
 			stats.errors++;
-			reporter.log("error", `${pair.card.name} — ${(error as Error).message}`);
+			reporter.log("error", `${pair.card.name} — ${errorMessage(error)}`);
 		}
 	}
 
@@ -176,7 +177,7 @@ export async function syncFolder(
 			} catch (error) {
 				stats.created--;
 				stats.errors++;
-				reporter.log("error", `${card.name} — ${(error as Error).message}`);
+				reporter.log("error", `${card.name} — ${errorMessage(error)}`);
 			}
 		}
 	}
@@ -200,7 +201,7 @@ export async function syncFolder(
 			stats.errors++;
 			reporter.log(
 				"error",
-				`Could not verify phantom notes against the board — skipping deletion this pass: ${(error as Error).message}`,
+				`Could not verify phantom notes against the board — skipping deletion this pass: ${errorMessage(error)}`,
 			);
 		}
 	}
@@ -232,7 +233,7 @@ export async function syncFolder(
 		} catch (error) {
 			stats.deleted--;
 			stats.errors++;
-			reporter.log("error", `${phantom.basename} — ${(error as Error).message}`);
+			reporter.log("error", `${phantom.basename} — ${errorMessage(error)}`);
 		}
 	}
 
@@ -276,7 +277,7 @@ export async function syncAllMappings(
 			addCounts(total, stats);
 		} catch (error) {
 			total.errors++;
-			reporter.log("error", `${mapping.folder} — ${(error as Error).message}`);
+			reporter.log("error", `${mapping.folder} — ${errorMessage(error)}`);
 		}
 	}
 
