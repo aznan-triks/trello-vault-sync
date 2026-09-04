@@ -2,6 +2,7 @@ import { Notice, Plugin, TFile } from "obsidian";
 import * as auditCommands from "./commands/auditCommands";
 import type { CommandContext } from "./commands/context";
 import * as noteCommands from "./commands/noteCommands";
+import { COMMANDS } from "./commands/registry";
 import * as syncCommands from "./commands/syncCommands";
 import { errorMessage } from "./core/errorMessage";
 import type { AuditOptions } from "./features/auditShared";
@@ -11,9 +12,10 @@ import { ObsidianVault } from "./obsidian/ObsidianVault";
 import { obsidianTransport } from "./obsidian/transport";
 import { silentReporter, type NoteHandle, type Reporter } from "./obsidian/gateway";
 import { TrelloVaultSyncSettingsTab } from "./settings/SettingsTab";
-import { DEFAULT_SETTINGS, normalizeSettings, type TrelloVaultSyncSettings } from "./settings/types";
+import { DEFAULT_SETTINGS, hasCredentials, normalizeSettings, type TrelloVaultSyncSettings } from "./settings/types";
 import { TrelloClient } from "./trello/client";
 import { ProgressPanel } from "./ui/ProgressPanel";
+import { SidebarView, VIEW_TYPE_TVS_SIDEBAR } from "./ui/SidebarView";
 
 export default class TrelloVaultSyncPlugin extends Plugin implements CommandContext {
 	override settings: TrelloVaultSyncSettings = { ...DEFAULT_SETTINGS };
@@ -27,16 +29,39 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		this.settings = normalizeSettings(await this.loadData());
 		this.vault = new ObsidianVault(this.app);
 		this.addSettingTab(new TrelloVaultSyncSettingsTab(this.app, this));
+		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
 		this.registerCommands();
 		this.registerRibbon();
 	}
 
 	override onunload(): void {
 		this.activePanel?.destroy();
+		this.app.workspace.detachLeavesOfType(VIEW_TYPE_TVS_SIDEBAR);
 	}
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
+		this.refreshSidebarViews();
+	}
+
+	/** Reflects a settings change (settings tab, or the palette's dry-run toggle) in any open sidebar. */
+	private refreshSidebarViews(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TVS_SIDEBAR)) {
+			if (leaf.view instanceof SidebarView) leaf.view.refresh();
+		}
+	}
+
+	/** Opens the sidebar view, or reveals it if already open — never a second instance. */
+	private async activateSidebarView(): Promise<void> {
+		const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_TVS_SIDEBAR);
+		if (existing.length > 0 && existing[0]) {
+			await this.app.workspace.revealLeaf(existing[0]);
+			return;
+		}
+		const leaf = this.app.workspace.getRightLeaf(false);
+		if (!leaf) return;
+		await leaf.setViewState({ type: VIEW_TYPE_TVS_SIDEBAR, active: true });
+		await this.app.workspace.revealLeaf(leaf);
 	}
 
 	/**
@@ -118,7 +143,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	 * this only checks the settings, it never constructs a client.
 	 */
 	ready(needsBoard = false): boolean {
-		if (this.settings.apiKey.trim() === "" || this.settings.token.trim() === "") {
+		if (!hasCredentials(this.settings)) {
 			new Notice("Trello Vault Sync: set the key and token in the plugin settings.");
 			return false;
 		}
@@ -174,65 +199,13 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	private registerCommands(): void {
-		this.addCommand({
-			id: "sync-active-note",
-			name: "Sync active note",
-			callback: () => noteCommands.syncActive(this),
-		});
-
-		this.addCommand({
-			id: "pull-active-note",
-			name: "Pull from Trello (active note)",
-			callback: () => noteCommands.syncActive(this, "pull"),
-		});
-
-		this.addCommand({
-			id: "push-active-note",
-			name: "Push to Trello (active note)",
-			callback: () => noteCommands.syncActive(this, "push"),
-		});
-
-		this.addCommand({
-			id: "link-active-note",
-			name: "Link active note to a card",
-			callback: () => noteCommands.linkActive(this),
-		});
-
-		this.addCommand({
-			id: "resolve-conflict",
-			name: "Resolve conflict (active note), side by side",
-			callback: () => noteCommands.resolveConflict(this),
-		});
-
-		this.addCommand({
-			id: "sync-vault",
-			name: "Sync all linked notes",
-			callback: () => syncCommands.syncAllLinked(this),
-		});
-
-		this.addCommand({
-			id: "sync-mapping",
-			name: "Sync a list with its folder",
-			callback: () => syncCommands.syncOneMapping(this),
-		});
-
-		this.addCommand({
-			id: "sync-all-mappings",
-			name: "Sync every list with its folder",
-			callback: () => syncCommands.syncAllMappings(this),
-		});
-
-		this.addCommand({
-			id: "audit-links",
-			name: "Audit links (orphan cards and notes)",
-			callback: () => auditCommands.runLinkAudit(this),
-		});
-
-		this.addCommand({
-			id: "audit-locations",
-			name: "Compare locations against Trello lists",
-			callback: () => auditCommands.runLocationAudit(this),
-		});
+		for (const command of COMMANDS) {
+			this.addCommand({
+				id: command.id,
+				name: command.name,
+				callback: () => command.run(this),
+			});
+		}
 
 		this.addCommand({
 			id: "toggle-dry-run",
@@ -242,6 +215,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	private registerRibbon(): void {
+		this.addRibbonIcon("panel-right", "Open Trello Vault Sync", () => void this.activateSidebarView());
 		this.addRibbonIcon("refresh-cw", "Sync active note", () => noteCommands.syncActive(this));
 		this.addRibbonIcon("kanban-square", "Sync all linked notes", () => syncCommands.syncAllLinked(this));
 		this.addRibbonIcon("folder-sync", "Sync a list with its folder", () => syncCommands.syncOneMapping(this));

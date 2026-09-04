@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] — 2026-09-04
+
+### Added
+
+- Persistent sidebar view (`SidebarView`, right sidebar by default, opened via
+  a new ribbon icon) with a button for every command, grouped into "Active
+  note" / "Folders" / "Vault" sections, plus a dry-run switch synced with the
+  setting in both directions. Missing credentials show a blocking message
+  with an "Open settings" button instead of buttons that would fail silently.
+- `src/commands/registry.ts`: single source of truth for command
+  id/name/icon, consumed by both the command palette (`main.ts`) and the
+  sidebar — replaces 11 separately-declared `addCommand` calls.
+- `hasCredentials()` in `src/settings/types.ts`: the pure key/token check
+  shared by `ctx.ready()` and the sidebar's render gate.
+
 ## [1.4.6] — 2026-09-04
 
 ### Changed

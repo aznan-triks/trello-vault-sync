@@ -78,6 +78,11 @@ function safeString(value: unknown, fallback = ""): string {
 	return typeof value === "string" ? value : fallback;
 }
 
+/** True once the single Trello key/token pair is filled in — the minimum every command needs. */
+export function hasCredentials(settings: Pick<TrelloVaultSyncSettings, "apiKey" | "token">): boolean {
+	return settings.apiKey.trim() !== "" && settings.token.trim() !== "";
+}
+
 /**
  * Normalizes a user-typed vault-relative path: backslashes become forward
  * slashes, duplicate/leading/trailing slashes are collapsed. A leading slash
