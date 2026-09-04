@@ -53,6 +53,11 @@ export interface LinkReportInput {
 	checked: ReadonlySet<string>;
 }
 
+/** Escape characters that would let an untrusted Trello card name break out of markdown link/table syntax. */
+function escapeMarkdown(text: string): string {
+	return text.replace(/[\\[\]()]/g, "\\$&");
+}
+
 function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
 	const groups = new Map<string, T[]>();
 	for (const item of items) {
@@ -81,7 +86,7 @@ export function buildLinkReport(input: LinkReportInput): string {
 	} else {
 		for (const [listId, cards] of groupBy(input.orphanCards, (c) => c.idList)) {
 			out.push(`### 📋 ${input.listNames.get(listId) ?? "Unknown list"}`);
-			for (const card of cards) out.push(`- [${tick(card.url)}] [${card.name}](${card.url})`);
+			for (const card of cards) out.push(`- [${tick(card.url)}] [${escapeMarkdown(card.name)}](${card.url})`);
 			out.push("");
 		}
 	}
@@ -138,7 +143,7 @@ export function buildLocationReport(input: LocationReportInput): string {
 	for (const [listName, rows] of groupBy(input.rows, (r) => r.listName)) {
 		out.push(`### 📋 ${listName}`, "", "| Trello card | Current folder |", "| :--- | :--- |");
 		for (const row of rows) {
-			out.push(`| ${row.cardName.replace(/\|/g, "-")} | 📂 ${row.folder} |`);
+			out.push(`| ${escapeMarkdown(row.cardName.replace(/\|/g, "-"))} | 📂 ${row.folder} |`);
 		}
 		out.push("");
 	}

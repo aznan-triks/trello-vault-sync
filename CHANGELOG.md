@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] — 2026-09-04
+
+### Security
+
+- Trello card names are now escaped before being embedded in generated audit
+  reports (link report, location report). A card name containing `]` or `(`
+  — editable by anyone with access to the shared Trello board — could
+  previously break the markdown link syntax the plugin builds and inject an
+  arbitrary link (hidden URL, spoofing).
+
 ## [1.4.1] — 2026-09-04
 
 ### Fixed
