@@ -138,6 +138,18 @@
 	text-transform: capitalize;
 }
 
+.tvs-panel__count-value--ok {
+	color: var(--color-green);
+}
+
+.tvs-panel__count-value--warn {
+	color: var(--color-orange);
+}
+
+.tvs-panel__count-value--error {
+	color: var(--color-red);
+}
+
 .tvs-panel__log {
 	display: flex;
 	flex: 1;
@@ -181,6 +193,14 @@
 .tvs-panel__row--error .tvs-panel__icon,
 .tvs-panel__row--delete .tvs-panel__icon {
 	color: var(--color-red);
+}
+
+.tvs-panel__row--info .tvs-panel__icon {
+	color: var(--text-normal);
+}
+
+.tvs-panel__row--skip .tvs-panel__icon {
+	color: var(--text-faint);
 }
 
 .tvs-panel__message {
