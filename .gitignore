@@ -35,3 +35,6 @@ NEXT_SESSION.md
 # Disposable test vault (real credentials for a dedicated test Trello board
 # live in its data.json) — local only, never committed. See NEXT_SESSION.md.
 /test-vault/
+
+# Obsidian workspace config at repo root (machine-specific, not source).
+.obsidian/
