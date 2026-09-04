@@ -212,6 +212,17 @@
 	font-family: var(--font-monospace);
 }
 
+/* Sidebar view */
+
+.tvs-sidebar {
+	padding: 0 4px;
+}
+
+.tvs-sidebar__empty {
+	padding: 8px 4px;
+	color: var(--text-muted);
+}
+
 /* Conflict resolution modal */
 
 .tvs-conflict__hint {
