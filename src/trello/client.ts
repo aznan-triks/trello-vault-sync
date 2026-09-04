@@ -6,6 +6,7 @@
  * it works on mobile) without this file importing Obsidian.
  */
 
+import type { TrelloAction } from "../core/auditAction";
 import { errorMessage } from "../core/errorMessage";
 
 export interface TrelloCredentials {
@@ -83,6 +84,8 @@ export interface TrelloClientOptions {
 const API_ROOT = "https://api.trello.com/1";
 const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed";
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+/** One page's worth of actions per call — no automatic multi-page walk, see PLAN_2026-09-04_feature-audit-changes.md. */
+const ACTIONS_PAGE_LIMIT = "1000";
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -151,6 +154,18 @@ export class TrelloClient {
 		return this.json<TrelloCard[]>(`/lists/${encodeURIComponent(listId)}/cards`, {
 			fields: CARD_FIELDS,
 		});
+	}
+
+	/**
+	 * Board activity (`filter=all`: every action type, not Trello's narrower
+	 * default). `since`/`before` are action ids or ISO dates, passed through
+	 * unchanged — the caller decides which.
+	 */
+	async getActions(boardId: string, options: { since?: string; before?: string } = {}): Promise<TrelloAction[]> {
+		const params: Record<string, string> = { filter: "all", limit: ACTIONS_PAGE_LIMIT };
+		if (options.since) params.since = options.since;
+		if (options.before) params.before = options.before;
+		return this.json<TrelloAction[]>(`/boards/${encodeURIComponent(boardId)}/actions`, params);
 	}
 
 	/** Update a card's title and/or description. A no-op when nothing changed. */
