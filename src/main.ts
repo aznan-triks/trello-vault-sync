@@ -110,6 +110,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			boardId: this.settings.boardId,
 			reportPath: this.settings.reportPath,
 			timestamp: new Date().toLocaleString("en-CA", { hour12: false }),
+			excludedFolders: this.settings.excludedFolders,
 		};
 	}
 

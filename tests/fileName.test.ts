@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { joinPath, notesInFolder, sanitizeFileName, uniqueNotePath } from "../src/core/fileName";
+import { excludeFolders, joinPath, notesInFolder, sanitizeFileName, uniqueNotePath } from "../src/core/fileName";
 
 describe("sanitizeFileName", () => {
 	test("replaces every character Obsidian forbids in a file name", () => {
@@ -93,5 +93,29 @@ describe("notesInFolder", () => {
 
 	test("does not match a folder name that is merely a prefix of another folder's name", () => {
 		expect(notesInFolder([{ path: "WoT/85_IdéesBis/a.md" }], "WoT/85_Idées")).toEqual([]);
+	});
+});
+
+describe("excludeFolders", () => {
+	const handles = [{ path: "WoT/85_Idées/a.md" }, { path: "WoT/90_Fins/b.md" }, { path: "Archive/c.md" }];
+
+	test("drops every handle under an excluded folder", () => {
+		expect(excludeFolders(handles, ["Archive"])).toEqual([handles[0], handles[1]]);
+	});
+
+	test("returns every handle unchanged when nothing is excluded", () => {
+		expect(excludeFolders(handles, [])).toEqual(handles);
+	});
+
+	test("has no effect when an excluded folder matches nothing", () => {
+		expect(excludeFolders(handles, ["Nowhere"])).toEqual(handles);
+	});
+
+	test("does not match a folder name that is merely a prefix of another folder's name", () => {
+		expect(excludeFolders([{ path: "Archived/a.md" }], ["Archive"])).toEqual([{ path: "Archived/a.md" }]);
+	});
+
+	test("combines with several excluded folders", () => {
+		expect(excludeFolders(handles, ["Archive", "WoT/90_Fins"])).toEqual([handles[0]]);
 	});
 });
