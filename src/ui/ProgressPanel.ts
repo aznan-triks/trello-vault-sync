@@ -1,3 +1,4 @@
+import { countSeverity } from "../core/countSeverity";
 import type { LogLevel } from "../core/journal";
 import type { Reporter } from "../obsidian/gateway";
 
@@ -139,6 +140,9 @@ export class ProgressPanel implements Reporter {
 			this.counters.set(key, cell);
 		}
 		cell.setText(String(value));
+		const severity = countSeverity(key, value);
+		cell.className =
+			severity === "neutral" ? "tvs-panel__count-value" : `tvs-panel__count-value tvs-panel__count-value--${severity}`;
 	}
 
 	log(level: LogLevel, message: string): void {
