@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] — 2026-09-04
+
+### Fixed
+
+- `resolveConflict` now runs through the same `ctx.run()` path as every
+  other command — the progress panel shows while its Trello call is in
+  flight, a failure gets logged via the shared error path
+  (`console.error`), and the rate-limit reporter is passed to the client
+  so a retry backoff shows up in the panel instead of looking stalled.
+  Previously it built its own client without a reporter and swallowed
+  errors with a bare `Notice`.
+
 ## [1.4.4] — 2026-09-04
 
 ### Changed
