@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] — 2026-09-04
+
+### Changed
+
+- "Excluded folders" setting: replaced the one-folder-per-line textarea with
+  a row per folder (autocomplete via `VaultPathSuggest`, a "Remove" button
+  per row, an "Add a folder" button) — same editing pattern already used for
+  Trello list ↔ folder mappings, instead of typing raw paths by hand.
+
 ## [1.5.4] — 2026-09-04
 
 ### Added
