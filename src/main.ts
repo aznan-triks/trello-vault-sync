@@ -5,6 +5,7 @@ import * as noteCommands from "./commands/noteCommands";
 import { COMMANDS } from "./commands/registry";
 import * as syncCommands from "./commands/syncCommands";
 import { errorMessage } from "./core/errorMessage";
+import { appendJournalEntry, type JournalEntry, type LogLevel } from "./core/journal";
 import type { AuditOptions } from "./features/auditShared";
 import type { FolderSyncOptions } from "./features/syncFolder";
 import type { NoteSyncOptions } from "./features/syncNote";
@@ -14,12 +15,13 @@ import { silentReporter, type NoteHandle, type Reporter } from "./obsidian/gatew
 import { TrelloVaultSyncSettingsTab } from "./settings/SettingsTab";
 import { DEFAULT_SETTINGS, hasCredentials, normalizeSettings, type TrelloVaultSyncSettings } from "./settings/types";
 import { TrelloClient } from "./trello/client";
-import { ProgressPanel } from "./ui/ProgressPanel";
+import { MAX_LOG_ROWS, ProgressPanel } from "./ui/ProgressPanel";
 import { SidebarView, VIEW_TYPE_TVS_SIDEBAR } from "./ui/SidebarView";
 
 export default class TrelloVaultSyncPlugin extends Plugin implements CommandContext {
 	override settings: TrelloVaultSyncSettings = { ...DEFAULT_SETTINGS };
 	vault!: ObsidianVault;
+	journal: JournalEntry[] = [];
 	/** Guards every command in `run()` — two commands writing to the vault at once can race. */
 	private syncing = false;
 	/** The panel of the sync currently running, if any — torn down on unload. */
@@ -115,7 +117,11 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	private panel(title: string, onCancel?: () => void): Reporter {
-		if (!this.settings.showPanel) return silentReporter;
+		const base = this.settings.showPanel ? this.buildPanel(title, onCancel) : silentReporter;
+		return this.withJournal(base);
+	}
+
+	private buildPanel(title: string, onCancel?: () => void): ProgressPanel {
 		const suffix = this.settings.dryRun ? " (dry run)" : "";
 		const panel = new ProgressPanel({
 			title: title + suffix,
@@ -127,6 +133,33 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		// with no owner left to remove it.
 		this.activePanel = panel;
 		return panel;
+	}
+
+	/**
+	 * Wraps a `Reporter` so every `log()` call also lands in the persistent
+	 * journal — even with `showPanel: false`, since the journal is a separate,
+	 * always-on record. Explicit method forwarding (not `{ ...base }`): `base`
+	 * can be a `ProgressPanel` instance, whose methods live on the prototype
+	 * and would be lost by a shallow spread.
+	 */
+	private withJournal(base: Reporter): Reporter {
+		return {
+			setTotal: (total) => base.setTotal(total),
+			step: (label) => base.step(label),
+			count: (key, value) => base.count(key, value),
+			log: (level, message) => {
+				base.log(level, message);
+				this.journal = appendJournalEntry(this.journal, { level, message }, MAX_LOG_ROWS);
+				this.appendJournalToSidebars(level, message);
+			},
+			finish: (outcome, summary) => base.finish(outcome, summary),
+		};
+	}
+
+	private appendJournalToSidebars(level: LogLevel, message: string): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TVS_SIDEBAR)) {
+			if (leaf.view instanceof SidebarView) leaf.view.appendJournalEntry(level, message);
+		}
 	}
 
 	activeNote(): NoteHandle | null {

@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] — 2026-09-04
+
+### Added
+
+- Persistent in-memory activity journal ("Activity" section in the sidebar
+  view): every `Reporter.log()` call is recorded even with the floating
+  panel disabled (`showPanel: false`), and survives that panel closing.
+  Hydrated from history on open, then appended row by row — no full sidebar
+  re-render on each log line. `appendJournalEntry()` (`src/core/journal.ts`,
+  unit-tested) caps the history, dropping the oldest entry first.
+- `renderLogRow()` extracted from `ProgressPanel` and shared with the
+  sidebar's journal — one row renderer, one set of CSS classes.
+
+### Fixed
+
+- The two remaining silent `catch` blocks (`TrelloPickerSuggest.ts`,
+  `SettingsTab.ts`) now also log to `console.error`, matching the pattern
+  already used everywhere else (`main.ts`).
+
 ## [1.5.1] — 2026-09-04
 
 ### Added
