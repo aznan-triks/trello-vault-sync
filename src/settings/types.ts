@@ -9,6 +9,8 @@ export interface TrelloVaultSyncSettings {
 
 	/** Folder the vault-wide commands walk; "" means the whole vault. */
 	scope: string;
+	/** Folders ignored by vault-wide sync and audits, regardless of link state. */
+	excludedFolders: string[];
 	/** Note the audit reports are written into. */
 	reportPath: string;
 
@@ -40,6 +42,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	token: "",
 	boardId: "",
 	scope: "",
+	excludedFolders: [],
 	reportPath: "",
 	policy: "newer-wins",
 	marginSeconds: 60,
@@ -111,6 +114,9 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		token: safeString(input.token, DEFAULT_SETTINGS.token),
 		boardId: safeString(input.boardId, DEFAULT_SETTINGS.boardId),
 		scope: normalizeVaultPath(safeString(input.scope, DEFAULT_SETTINGS.scope)),
+		excludedFolders: (Array.isArray(input.excludedFolders) ? input.excludedFolders : [])
+			.map((folder) => normalizeVaultPath(safeString(folder)))
+			.filter((folder) => folder !== ""),
 		reportPath: normalizeVaultPath(safeString(input.reportPath, DEFAULT_SETTINGS.reportPath)),
 		marginSeconds: safeNonNegativeNumber(input.marginSeconds, DEFAULT_SETTINGS.marginSeconds),
 		maxRetries: safeNonNegativeNumber(

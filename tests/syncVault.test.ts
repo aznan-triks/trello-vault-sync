@@ -90,6 +90,27 @@ describe("syncVault", () => {
 		expect(stats.skipped).toBe(1);
 	});
 
+	test("ignores a linked note under an excluded folder", async () => {
+		const vault = new FakeVault({
+			"WoT/in.md": { content: linked("c1", "same"), mtime: at("2026-01-01") },
+			"WoT/Archive/out.md": { content: linked("c2", "same"), mtime: at("2026-01-01") },
+		});
+		const { client } = clientFor([
+			card({ id: "c1", name: "in", desc: "same" }),
+			card({ id: "c2", name: "out", desc: "same" }),
+		]);
+
+		const stats = await syncVault(
+			vault,
+			client,
+			{ scope: "WoT", boardId: "board", excludedFolders: ["WoT/Archive"] },
+			options,
+		);
+
+		expect(stats.skipped).toBe(1);
+		expect(stats.unlinked).toBe(0);
+	});
+
 	test("keeps going after a failing note and reports the error count", async () => {
 		const vault = new FakeVault({
 			"WoT/a.md": { content: linked("c1", "local"), mtime: at("2026-03-01") },

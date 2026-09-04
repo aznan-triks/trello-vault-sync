@@ -58,4 +58,17 @@ describe("normalizeSettings", () => {
 		});
 		expect(settings.mappings[0]?.folder).toBe("WoT/85_Idées");
 	});
+
+	test("defaults excludedFolders to an empty list", () => {
+		expect(normalizeSettings({}).excludedFolders).toEqual([]);
+	});
+
+	test("normalizes each excluded folder and drops empty entries", () => {
+		const settings = normalizeSettings({ excludedFolders: ["\\Archive\\", "", "WoT/90_Fins/"] });
+		expect(settings.excludedFolders).toEqual(["Archive", "WoT/90_Fins"]);
+	});
+
+	test("falls back to an empty list when excludedFolders is not an array", () => {
+		expect(normalizeSettings({ excludedFolders: "Archive" as unknown as string[] }).excludedFolders).toEqual([]);
+	});
 });

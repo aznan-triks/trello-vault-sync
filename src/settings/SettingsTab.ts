@@ -168,6 +168,24 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(root)
+			.setName("Excluded folders")
+			.setDesc(
+				"Folders skipped by vault-wide sync and audits, one per line — even a linked note under one of them is left alone.",
+			)
+			.addTextArea((text) =>
+				text
+					.setPlaceholder("Archive\nPersonal")
+					.setValue(this.plugin.settings.excludedFolders.join("\n"))
+					.onChange(async (value) => {
+						this.plugin.settings.excludedFolders = value
+							.split("\n")
+							.map((folder) => normalizeVaultPath(folder.trim()))
+							.filter((folder) => folder !== "");
+						await this.save();
+					}),
+			);
+
+		new Setting(root)
 			.setName("Report note")
 			.setDesc("Path of the note the audits write their report into. It must already exist.")
 			.addText((text) => {

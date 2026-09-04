@@ -32,7 +32,7 @@ export async function auditLinks(
 	const { cards, listNames } = await fetchBoardIndex(client, options.boardId);
 	const cardIds = new Set(cards.map((card) => card.id));
 
-	const notes = vault.listNotes(options.scope);
+	const notes = vault.listNotes(options.scope, options.excludedFolders);
 	reporter.setTotal(notes.length);
 
 	const linkedCardIds = new Set<string>();
