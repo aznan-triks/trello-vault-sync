@@ -1,5 +1,6 @@
 import { TFile, type App } from "obsidian";
 import { CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../core/cardRef";
+import { notesInFolder } from "../core/fileName";
 import type { NoteHandle, VaultGateway } from "./gateway";
 
 /** The real vault, behind the interface the engines depend on. */
@@ -22,12 +23,8 @@ export class ObsidianVault implements VaultGateway {
 	}
 
 	listNotes(folder: string): NoteHandle[] {
-		const prefix = folder === "" || folder === "/" ? "" : `${folder.replace(/\/$/, "")}/`;
-		return this.app.vault
-			.getMarkdownFiles()
-			.filter((file) => prefix === "" || file.path.startsWith(prefix))
-			.sort((a, b) => a.path.localeCompare(b.path))
-			.map((file) => this.toHandle(file));
+		const handles = this.app.vault.getMarkdownFiles().map((file) => this.toHandle(file));
+		return notesInFolder(handles, folder).sort((a, b) => a.path.localeCompare(b.path));
 	}
 
 	/** Handle for a single path, without walking the whole vault. */

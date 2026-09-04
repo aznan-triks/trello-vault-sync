@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { joinPath, sanitizeFileName, uniqueNotePath } from "../src/core/fileName";
+import { joinPath, notesInFolder, sanitizeFileName, uniqueNotePath } from "../src/core/fileName";
 
 describe("sanitizeFileName", () => {
 	test("replaces every character Obsidian forbids in a file name", () => {
@@ -76,5 +76,22 @@ describe("uniqueNotePath", () => {
 		const taken = new Set(["WoT/Sagondo.md"]);
 		const path = uniqueNotePath("WoT", "Sagondo", (p) => taken.has(p), "WoT/Sagondo.md");
 		expect(path).toBe("WoT/Sagondo.md");
+	});
+});
+
+describe("notesInFolder", () => {
+	const handles = [{ path: "WoT/85_Idées/a.md" }, { path: "WoT/85_Idées/b.md" }, { path: "WoT/90_Fins/c.md" }];
+
+	test("keeps only handles under the given folder", () => {
+		expect(notesInFolder(handles, "WoT/85_Idées")).toEqual([handles[0], handles[1]]);
+	});
+
+	test("treats the vault root (\"\" or \"/\") as every handle", () => {
+		expect(notesInFolder(handles, "")).toEqual(handles);
+		expect(notesInFolder(handles, "/")).toEqual(handles);
+	});
+
+	test("does not match a folder name that is merely a prefix of another folder's name", () => {
+		expect(notesInFolder([{ path: "WoT/85_IdéesBis/a.md" }], "WoT/85_Idées")).toEqual([]);
 	});
 });

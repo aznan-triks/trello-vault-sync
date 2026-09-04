@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { syncFolder, type FolderSyncOptions } from "../src/features/syncFolder";
+import { syncAllMappings, syncFolder, type FolderMapping, type FolderSyncOptions } from "../src/features/syncFolder";
+import { silentReporter } from "../src/obsidian/gateway";
 import { TrelloClient } from "../src/trello/client";
 import { FakeVault, at, card, recordingReporter, routedTransport } from "./fakes";
 
@@ -244,6 +245,20 @@ describe("syncFolder — resilience", () => {
 		expect(stats.pushed).toBe(1);
 	});
 
+	test("keeps existing phantom notes and counts an error when the board-cards protection check itself fails", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
+		// No route for /boards/board/cards -> the protection fetch itself throws.
+		const { transport } = routedTransport({ "/lists/l1/cards": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true });
+
+		expect(stats.deleted).toBe(0);
+		expect(stats.errors).toBe(1);
+		expect(vault.trashed).toEqual([]);
+		expect(vault.paths()).toEqual([`${FOLDER}/Fantôme.md`]);
+	});
+
 	test("logs the sanitized file name actually written when it differs from the card title", async () => {
 		const vault = new FakeVault();
 		const { client } = clientFor([card({ id: "c1", name: "CON" })]);
@@ -405,5 +420,39 @@ describe("syncFolder — progress", () => {
 		await syncFolder(vault, client, MAPPING, { ...options, allowCreate: false }, reporter);
 
 		expect(totals).toEqual([0]);
+	});
+});
+
+describe("syncAllMappings", () => {
+	const MAPPING_A: FolderMapping = { listId: "l1", folder: "Folder/A", templateName: "" };
+	const MAPPING_B: FolderMapping = { listId: "l2", folder: "Folder/B", templateName: "" };
+
+	test("one mapping failing doesn't stop the others, and its error is counted in the total", async () => {
+		const vault = new FakeVault();
+		// No route for /lists/l1/cards -> mapping A's list fetch throws.
+		const { transport } = routedTransport({ "/lists/l2/cards": [card({ id: "c2", name: "Good" })] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const total = await syncAllMappings(vault, client, [MAPPING_A, MAPPING_B], options, silentReporter);
+
+		expect(total.errors).toBe(1);
+		expect(total.created).toBe(1);
+	});
+
+	test("scans the vault once and reuses it across every mapping instead of one scan per folder", async () => {
+		class CountingVault extends FakeVault {
+			listCalls = 0;
+			override listNotes(folder: string) {
+				this.listCalls++;
+				return super.listNotes(folder);
+			}
+		}
+		const vault = new CountingVault();
+		const { transport } = routedTransport({ "/lists/l1/cards": [], "/lists/l2/cards": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncAllMappings(vault, client, [MAPPING_A, MAPPING_B], options, silentReporter);
+
+		expect(vault.listCalls).toBe(1);
 	});
 });

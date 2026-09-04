@@ -1,9 +1,9 @@
 import { formatCardRef } from "../core/cardRef";
-import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
+import { notesInFolder, sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
-import { tallyNoteResult } from "../core/syncTally";
+import { addCounts, tallyNoteResult } from "../core/syncTally";
 import { renderTemplate, templateMissingCardRefKey } from "../core/template";
-import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
+import { silentReporter, type NoteHandle, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient } from "../trello/client";
 import { syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
 
@@ -43,7 +43,7 @@ export interface FolderSyncStats {
 }
 
 /** A stats object with every counter at zero — also the shape callers accumulate into. */
-export const emptyStats = (): FolderSyncStats => ({
+const emptyStats = (): FolderSyncStats => ({
 	created: 0,
 	adopted: 0,
 	pulled: 0,
@@ -88,12 +88,14 @@ export async function syncFolder(
 	/** Pre-fetched (filter "all") board cards — lets a multi-mapping run share one fetch. */
 	boardCards?: TrelloCard[],
 	signal?: AbortSignal,
+	/** Pre-scanned notes already narrowed to this folder — lets a multi-mapping run share one vault scan. */
+	noteHandles?: NoteHandle[],
 ): Promise<FolderSyncStats> {
 	const stats = emptyStats();
 	const cards = await client.getListCards(mapping.listId);
 	reporter.log("info", `${cards.length} card(s) in the list`);
 
-	const handles = vault.listNotes(mapping.folder);
+	const handles = noteHandles ?? vault.listNotes(mapping.folder);
 	const planned: PlannedNote[] = handles.map((note) => ({
 		path: note.path,
 		basename: note.basename,
@@ -186,16 +188,28 @@ export async function syncFolder(
 	// note. "all" (not the default "visible") is required here or an archived
 	// card would be indistinguishable from a genuinely deleted one.
 	let aliveElsewhere = new Map<string, boolean>(); // cardId -> closed
+	// Protection check itself is network I/O like everything else here — a failure
+	// must not lose the create/pull/push stats already accumulated above it.
+	let protectionCheckFailed = false;
 	if (options.allowDelete && plan.phantomNotes.length > 0 && !signal?.aborted) {
-		const cards = boardCards ?? (await client.getBoardCards(options.boardId, "all"));
-		aliveElsewhere = new Map(cards.map((card) => [card.id, card.closed === true]));
+		try {
+			const cards = boardCards ?? (await client.getBoardCards(options.boardId, "all"));
+			aliveElsewhere = new Map(cards.map((card) => [card.id, card.closed === true]));
+		} catch (error) {
+			protectionCheckFailed = true;
+			stats.errors++;
+			reporter.log(
+				"error",
+				`Could not verify phantom notes against the board — skipping deletion this pass: ${(error as Error).message}`,
+			);
+		}
 	}
 
 	for (const phantom of plan.phantomNotes) {
 		if (signal?.aborted) break;
 		const note = byPath.get(phantom.path);
 		if (!note) continue;
-		if (!options.allowDelete) {
+		if (!options.allowDelete || protectionCheckFailed) {
 			reporter.log("warn", `Card missing from the list: ${phantom.basename} (kept)`);
 			continue;
 		}
@@ -223,4 +237,48 @@ export async function syncFolder(
 	}
 
 	return stats;
+}
+
+/**
+ * Mirror every configured list ↔ folder mapping into its folder.
+ *
+ * One board fetch and one vault scan feed every mapping in the run instead of
+ * one each — mirrors the sharing `syncFolder` already does for a single
+ * mapping. A mapping that throws (e.g. its list was deleted) is counted as an
+ * error and does not stop the mappings after it.
+ */
+export async function syncAllMappings(
+	vault: VaultGateway,
+	client: TrelloClient,
+	mappings: FolderMapping[],
+	options: FolderSyncOptions,
+	reporter: Reporter = silentReporter,
+	signal?: AbortSignal,
+): Promise<FolderSyncStats> {
+	const total = emptyStats();
+	const boardCards = options.allowDelete ? await client.getBoardCards(options.boardId, "all") : undefined;
+	const allNotes = vault.listNotes("");
+
+	for (const mapping of mappings) {
+		if (signal?.aborted) break;
+		reporter.log("info", `Folder: ${mapping.folder}`);
+		try {
+			const stats = await syncFolder(
+				vault,
+				client,
+				mapping,
+				options,
+				reporter,
+				boardCards,
+				signal,
+				notesInFolder(allNotes, mapping.folder),
+			);
+			addCounts(total, stats);
+		} catch (error) {
+			total.errors++;
+			reporter.log("error", `${mapping.folder} — ${(error as Error).message}`);
+		}
+	}
+
+	return total;
 }

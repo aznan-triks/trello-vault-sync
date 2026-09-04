@@ -51,3 +51,9 @@ export function uniqueNotePath(
 		if (free(path)) return path;
 	}
 }
+
+/** Entries among `handles` living under `folder` ("" or "/" = the whole vault). The one prefix rule every vault gateway uses to scope a listing. */
+export function notesInFolder<T extends { path: string }>(handles: T[], folder: string): T[] {
+	const prefix = folder === "" || folder === "/" ? "" : `${folder.replace(/\/$/, "")}/`;
+	return prefix === "" ? handles : handles.filter((handle) => handle.path.startsWith(prefix));
+}

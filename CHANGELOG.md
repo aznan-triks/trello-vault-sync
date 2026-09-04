@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] — 2026-09-04
+
+### Fixed
+
+- "Sync every list with its folder" no longer aborts the whole run when one
+  mapping fails (e.g. its Trello list was deleted) — the failing mapping is
+  now counted as an error and the mappings after it still run.
+- A network failure while checking whether a card just moved to another
+  Trello list (the check that stops the plugin from wrongly deleting a note)
+  no longer loses the create/pull/push counts already gathered earlier in
+  the same folder sync — it now keeps every note that pass instead of
+  guessing, and reports the failure as an error.
+- "Sync every list with its folder" now scans the vault once for all
+  mappings instead of once per mapping.
+
+### Security
+
+- Bumped `esbuild` (dev-only) to 0.28.2 and `vitest` to 4.1.11, closing a
+  moderate advisory that escalated to critical through the
+  vite → @vitest/mocker → vitest chain. `npm audit` is clean.
+
 ## [1.4.0] — 2026-09-03
 
 ### Added
