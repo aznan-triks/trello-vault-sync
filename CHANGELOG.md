@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] — 2026-09-04
+
+### Added
+
+- Color coding for the progress panel: the two log levels that had no icon
+  color yet (`info`, `skip`) now do, and every counter (`errors`,
+  `conflicts`, `orphan cards`, …) turns green when clean, orange or red once
+  it flags something needing attention. `countSeverity()`
+  (`src/core/countSeverity.ts`, unit-tested) decides which counters are
+  "problem counts" versus routine action counts.
+
 ## [1.5.3] — 2026-09-04
 
 ### Added
