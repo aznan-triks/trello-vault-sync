@@ -1,4 +1,5 @@
 import type { CommandContext } from "./context";
+import { auditChanges } from "../features/auditChanges";
 import { auditLinks } from "../features/auditLinks";
 import { auditLocations } from "../features/auditLocations";
 
@@ -22,5 +23,27 @@ export async function runLocationAudit(ctx: CommandContext): Promise<void> {
 		reporter.count("comparedNotes", result.rows);
 		reporter.count("misplaced", result.misplaced);
 		return `${result.rows} note(s) compared · ${result.misplaced} outside their expected list`;
+	});
+}
+
+export async function runChangesAudit(ctx: CommandContext): Promise<void> {
+	if (!ctx.ready(true)) return;
+
+	await ctx.run("Audit changes", async (reporter, signal) => {
+		const { boardId, reportPath, timestamp } = ctx.auditOptions();
+		const result = await auditChanges(
+			ctx.vault,
+			ctx.client(reporter),
+			{ boardId, reportPath, timestamp, since: ctx.settings.auditChangesCursor },
+			reporter,
+			signal,
+		);
+		// Dry run plans/reports but never advances state — same rule as every write path.
+		if (!ctx.settings.dryRun && result.cursor) {
+			ctx.settings.auditChangesCursor = result.cursor;
+			await ctx.saveSettings();
+		}
+		reporter.count("changes", result.entries);
+		return `${result.entries} change(s) logged`;
 	});
 }

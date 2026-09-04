@@ -1,15 +1,19 @@
 /**
- * Markdown builders for the two audit reports.
+ * Markdown builders for the three audit reports.
  *
  * Everything here is pure: the timestamp arrives as a string so a report is
  * reproducible, and the previously ticked checkboxes arrive as a set so the
  * user's manual triage survives a regeneration.
  */
 
+import type { AuditEntry } from "./auditAction";
+
 /** Stable heading used to locate and replace a previous link report. */
 export const LINK_REPORT_HEADING = "# 📊 Trello Link Report";
 /** Stable heading used to locate and replace a previous location report. */
 export const LOCATION_REPORT_HEADING = "# 📍 Location Comparison";
+/** Stable heading used to locate and replace a previous change log report. */
+export const CHANGES_REPORT_HEADING = "# 🕘 Change Log";
 
 const CHECKED_LINE = /^[-*]\s\[x\]\s(.*)$/gim;
 const TRELLO_URL = /\((https:\/\/trello\.com\/[^)]+)\)/;
@@ -54,7 +58,7 @@ export interface LinkReportInput {
 }
 
 /** Escape characters that would let an untrusted Trello card name break out of markdown link/table syntax. */
-function escapeMarkdown(text: string): string {
+export function escapeMarkdown(text: string): string {
 	return text.replace(/[\\[\]()]/g, "\\$&");
 }
 
@@ -144,6 +148,28 @@ export function buildLocationReport(input: LocationReportInput): string {
 		out.push(`### 📋 ${listName}`, "", "| Trello card | Current folder |", "| :--- | :--- |");
 		for (const row of rows) {
 			out.push(`| ${escapeMarkdown(row.cardName.replace(/\|/g, "-"))} | 📂 ${row.folder} |`);
+		}
+		out.push("");
+	}
+
+	return out.join("\n").trimEnd() + "\n";
+}
+
+export interface ChangesReportInput {
+	timestamp: string;
+	entries: readonly AuditEntry[];
+}
+
+/** Trello board activity since the last run, newest first (as returned by the API). */
+export function buildChangesReport(input: ChangesReportInput): string {
+	const out: string[] = [CHANGES_REPORT_HEADING, `> ${input.timestamp}`, ""];
+
+	if (input.entries.length === 0) {
+		out.push("✅ No change since the last run.", "");
+	} else {
+		for (const entry of input.entries) {
+			const card = entry.cardName ? escapeMarkdown(entry.cardName) : "(no card)";
+			out.push(`- **${entry.date}** · ${card} · ${escapeMarkdown(entry.detail)} — _${escapeMarkdown(entry.author)}_`);
 		}
 		out.push("");
 	}

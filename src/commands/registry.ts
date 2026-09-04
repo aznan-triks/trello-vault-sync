@@ -92,4 +92,11 @@ export const COMMANDS: CommandDescriptor[] = [
 		section: "Vault",
 		run: (ctx) => auditCommands.runLocationAudit(ctx),
 	},
+	{
+		id: "audit-changes",
+		name: "Audit changes (Trello change log)",
+		icon: "history",
+		section: "Vault",
+		run: (ctx) => auditCommands.runChangesAudit(ctx),
+	},
 ];

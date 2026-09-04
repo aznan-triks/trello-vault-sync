@@ -148,11 +148,16 @@ export function recordingReporter(): Reporter & { logs: Array<{ level: string; m
 	};
 }
 
-/** A client wired to a fake board's cards and lists, plus the requests it made. */
-export function clientFor(cards: unknown[], lists: unknown[] = [{ id: "l1", name: "Idées" }]) {
+/** A client wired to a fake board's cards, lists and actions, plus the requests it made. */
+export function clientFor(
+	cards: unknown[],
+	lists: unknown[] = [{ id: "l1", name: "Idées" }],
+	actions: unknown[] = [],
+) {
 	const { transport, requests } = routedTransport({
 		"/boards/board/cards": cards,
 		"/boards/board/lists": lists,
+		"/boards/board/actions": actions,
 	});
 	return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
 }
