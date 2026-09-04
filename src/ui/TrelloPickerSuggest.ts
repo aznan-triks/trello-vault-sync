@@ -1,4 +1,5 @@
 import { AbstractInputSuggest, Notice, type App } from "obsidian";
+import { errorMessage } from "../core/errorMessage";
 
 export interface IdName {
 	id: string;
@@ -30,7 +31,7 @@ export class TrelloPickerSuggest extends AbstractInputSuggest<IdName> {
 			try {
 				this.cache = await this.fetchItems();
 			} catch (error) {
-				new Notice(`❌ ${(error as Error).message}`);
+				new Notice(`❌ ${errorMessage(error)}`);
 				this.cache = [];
 			}
 		}
