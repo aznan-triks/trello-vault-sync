@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] — 2026-09-04
+
+### Changed
+
+- `main.ts` (438 lines, 12 mixed responsibilities) split into a thin
+  plugin-lifecycle/wiring layer plus `src/commands/{context,noteCommands,
+  syncCommands,auditCommands}.ts` — each command's body now lives next to
+  the others of its kind instead of inside the `Plugin` subclass. No
+  behavior change (command ids, names, ribbon icons and notices are
+  unchanged); a duplicated stats-reporting loop found across the extracted
+  file was consolidated into one helper.
+
 ## [1.4.3] — 2026-09-04
 
 ### Changed

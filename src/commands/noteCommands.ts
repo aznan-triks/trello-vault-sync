@@ -1,0 +1,96 @@
+import { Notice } from "obsidian";
+import type { CommandContext } from "./context";
+import { extractBody } from "../core/noteBody";
+import { tallyNoteResult } from "../core/syncTally";
+import { linkActiveNote } from "../features/linkNote";
+import { decideForCard, syncNote } from "../features/syncNote";
+import { ConflictModal } from "../ui/ConflictModal";
+import type { TrelloClient } from "../trello/client";
+
+export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): Promise<void> {
+	const note = ctx.activeNote();
+	if (!ctx.ready() || !note) return;
+
+	await ctx.run(`Sync — ${note.basename}`, async (reporter) => {
+		reporter.setTotal(1);
+		reporter.step(note.basename);
+		const result = await syncNote(ctx.vault, ctx.client(reporter), note, ctx.noteOptions(force));
+		tallyNoteResult(
+			{ pulled: 0, pushed: 0, skipped: 0, renamed: 0, conflicts: 0 },
+			result,
+			(level, message) => reporter.log(level, message),
+			note.basename,
+		);
+		if (result.direction === "unlinked") reporter.log("warn", "Not linked to a Trello card.");
+
+		switch (result.direction) {
+			case "pull":
+				return `Pulled from Trello${result.renamed ? " and renamed" : ""}.`;
+			case "push":
+				return "Pushed to Trello.";
+			case "conflict":
+				return "Conflict: note and card changed at the same time, nothing was written.";
+			case "unlinked":
+				return "Note not linked — use \"Link active note to a card\".";
+			default:
+				return "Already up to date.";
+		}
+	}, { cancellable: false });
+}
+
+export async function linkActive(ctx: CommandContext): Promise<void> {
+	const note = ctx.activeNote();
+	if (!ctx.ready(true) || !note) return;
+
+	await ctx.run(`Link — ${note.basename}`, async (reporter) => {
+		const result = await linkActiveNote(ctx.vault, ctx.client(reporter), note, {
+			boardId: ctx.settings.boardId,
+			threshold: ctx.settings.similarityThreshold,
+		});
+		if (result.reason === "already-linked") return "This note is already linked to a card.";
+		if (!result.linked) return "No card close enough to the note's title.";
+		return `Linked to "${result.card?.name}" (${Math.round(result.score * 100)}%).`;
+	}, { cancellable: false });
+}
+
+export async function resolveConflict(ctx: CommandContext): Promise<void> {
+	const note = ctx.activeNote();
+	if (!ctx.ready() || !note) return;
+
+	const ref = ctx.vault.getCardRef(note);
+	if (!ref) {
+		new Notice("Not linked to a Trello card.");
+		return;
+	}
+
+	let decision;
+	let localBody: string;
+	let card: Awaited<ReturnType<TrelloClient["getCard"]>>;
+	try {
+		card = await ctx.client().getCard(ref.cardId);
+		localBody = extractBody(await ctx.vault.read(note));
+		decision = decideForCard(note, card, localBody, {
+			policy: ctx.settings.policy,
+			marginMs: ctx.settings.marginSeconds * 1000,
+		});
+	} catch (error) {
+		new Notice(`Trello Vault Sync: ${(error as Error).message}`);
+		return;
+	}
+	if (decision.direction !== "conflict") {
+		new Notice("No conflict on this note — nothing to resolve.");
+		return;
+	}
+
+	new ConflictModal(
+		ctx.app,
+		{ noteTitle: note.basename, localBody, remoteBody: card.desc ?? "" },
+		(direction) => void syncActive(ctx, direction),
+	).open();
+}
+
+export async function toggleDryRun(ctx: CommandContext): Promise<void> {
+	ctx.settings.dryRun = !ctx.settings.dryRun;
+	await ctx.saveSettings();
+	new Notice(`Dry-run mode ${ctx.settings.dryRun ? "enabled" : "disabled"}.`);
+}
