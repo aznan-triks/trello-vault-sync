@@ -73,6 +73,14 @@ describe("buildLinkReport", () => {
 		expect(buildLinkReport(input)).toContain("- [ ] [Sagondo](https://trello.com/c/c1)");
 	});
 
+	test("escapes brackets/parens in a card name so it can't break out of the link or inject a fake one", () => {
+		const md = buildLinkReport({
+			...input,
+			orphanCards: [card("c1", "evil](https://phishing.example)[x", "l1")],
+		});
+		expect(md).toContain("[evil\\]\\(https://phishing.example\\)\\[x](https://trello.com/c/c1)");
+	});
+
 	test("says so explicitly when a category is empty", () => {
 		const md = buildLinkReport({ ...input, orphanCards: [] });
 		expect(md).toContain("No orphan card");
@@ -99,6 +107,17 @@ describe("buildLocationReport", () => {
 			rows: [{ listName: "L", cardName: "a|b", folder: "f", notePath: "p" }],
 		});
 		expect(md).toContain("| a-b | 📂 f |");
+	});
+});
+
+describe("buildLocationReport bracket escaping", () => {
+	test("escapes brackets/parens in a card title so it can't render as a link in the cell", () => {
+		const md = buildLocationReport({
+			scope: "WoT",
+			timestamp: "20:00",
+			rows: [{ listName: "L", cardName: "[evil](https://phishing.example)", folder: "f", notePath: "p" }],
+		});
+		expect(md).toContain("| \\[evil\\]\\(https://phishing.example\\) | 📂 f |");
 	});
 });
 
