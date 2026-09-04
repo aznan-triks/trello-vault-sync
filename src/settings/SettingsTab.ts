@@ -171,20 +171,44 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Excluded folders")
 			.setDesc(
-				"Folders skipped by vault-wide sync and audits, one per line — even a linked note under one of them is left alone.",
-			)
-			.addTextArea((text) =>
-				text
-					.setPlaceholder("Archive\nPersonal")
-					.setValue(this.plugin.settings.excludedFolders.join("\n"))
-					.onChange(async (value) => {
-						this.plugin.settings.excludedFolders = value
-							.split("\n")
-							.map((folder) => normalizeVaultPath(folder.trim()))
-							.filter((folder) => folder !== "");
-						await this.save();
-					}),
+				"Folders skipped by vault-wide sync and audits — even a linked note under one of them is left alone.",
 			);
+
+		this.plugin.settings.excludedFolders.forEach((folder, index) => {
+			new Setting(root)
+				.setClass("tvs-mapping")
+				.addText((text) => {
+					text
+						.setPlaceholder("Archive")
+						.setValue(folder)
+						.onChange(async (value) => {
+							this.plugin.settings.excludedFolders[index] = normalizeVaultPath(value.trim());
+							await this.save();
+						});
+					new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+				})
+				.addExtraButton((button) =>
+					button
+						.setIcon("trash")
+						.setTooltip("Remove")
+						.onClick(async () => {
+							this.plugin.settings.excludedFolders.splice(index, 1);
+							await this.save();
+							this.display();
+						}),
+				);
+		});
+
+		new Setting(root).addButton((button) =>
+			button
+				.setButtonText("Add a folder")
+				.setCta()
+				.onClick(async () => {
+					this.plugin.settings.excludedFolders.push("");
+					await this.save();
+					this.display();
+				}),
+		);
 
 		new Setting(root)
 			.setName("Report note")
