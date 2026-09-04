@@ -35,6 +35,9 @@ export interface TrelloVaultSyncSettings {
 
 	showPanel: boolean;
 	panelAutoCloseSeconds: number;
+
+	/** "Audit changes" cursor: id of the last processed Trello action, "" before a first run. No settings-tab field — internal bookkeeping. */
+	auditChangesCursor: string;
 }
 
 export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
@@ -56,6 +59,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	mappings: [],
 	showPanel: true,
 	panelAutoCloseSeconds: 8,
+	auditChangesCursor: "",
 };
 
 /** Highest retry count normalizeSettings will accept before clamping. */
@@ -118,6 +122,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			.map((folder) => normalizeVaultPath(safeString(folder)))
 			.filter((folder) => folder !== ""),
 		reportPath: normalizeVaultPath(safeString(input.reportPath, DEFAULT_SETTINGS.reportPath)),
+		auditChangesCursor: safeString(input.auditChangesCursor, DEFAULT_SETTINGS.auditChangesCursor),
 		marginSeconds: safeNonNegativeNumber(input.marginSeconds, DEFAULT_SETTINGS.marginSeconds),
 		maxRetries: safeNonNegativeNumber(
 			input.maxRetries,
