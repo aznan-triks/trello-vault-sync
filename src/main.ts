@@ -1,11 +1,11 @@
 import { Notice, Plugin, TFile } from "obsidian";
 import { extractBody } from "./core/noteBody";
-import { addCounts, tallyNoteResult } from "./core/syncTally";
+import { tallyNoteResult } from "./core/syncTally";
 import { auditLinks } from "./features/auditLinks";
 import { auditLocations } from "./features/auditLocations";
 import { linkActiveNote } from "./features/linkNote";
 import {
-	emptyStats,
+	syncAllMappings,
 	syncFolder,
 	type FolderMapping,
 	type FolderSyncOptions,
@@ -384,27 +384,14 @@ export default class TrelloVaultSyncPlugin extends Plugin {
 		}
 
 		await this.run("Sync all mappings", async (reporter, signal) => {
-			const activeClient = this.client(reporter);
-			const total = emptyStats();
-			// One board fetch feeds every mapping in this run instead of one per
-			// mapping — they all share the same configured board.
-			const boardCards = this.settings.allowDelete
-				? await activeClient.getBoardCards(this.settings.boardId, "all")
-				: undefined;
-			for (const mapping of this.settings.mappings) {
-				if (signal.aborted) break;
-				reporter.log("info", `Folder: ${mapping.folder}`);
-				const stats = await syncFolder(
-					this.vault,
-					activeClient,
-					mapping,
-					this.folderOptions(),
-					reporter,
-					boardCards,
-					signal,
-				);
-				addCounts(total, stats);
-			}
+			const total = await syncAllMappings(
+				this.vault,
+				this.client(reporter),
+				this.settings.mappings,
+				this.folderOptions(),
+				reporter,
+				signal,
+			);
 			for (const [key, value] of Object.entries(total)) reporter.count(key, value);
 			return `${this.settings.mappings.length} folder(s) · + ${total.created} · ↓ ${total.pulled} · ↑ ${total.pushed} · ✕ ${total.errors}`;
 		});
