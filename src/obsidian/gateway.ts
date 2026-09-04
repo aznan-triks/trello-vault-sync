@@ -1,4 +1,5 @@
 import type { CardRef } from "../core/cardRef";
+import type { LogLevel } from "../core/journal";
 
 /** A note, reduced to what the sync engines need. Mirrors Obsidian's `TFile`. */
 export interface NoteHandle {
@@ -40,7 +41,7 @@ export interface Reporter {
 	setTotal(total: number): void;
 	step(label: string): void;
 	count(key: string, value: number): void;
-	log(level: "info" | "pull" | "push" | "create" | "adopt" | "rename" | "skip" | "delete" | "warn" | "error", message: string): void;
+	log(level: LogLevel, message: string): void;
 	finish(outcome: "done" | "aborted" | "error", summary: string): void;
 }
 

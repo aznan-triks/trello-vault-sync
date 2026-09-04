@@ -32,6 +32,7 @@ export class TrelloPickerSuggest extends AbstractInputSuggest<IdName> {
 				this.cache = await this.fetchItems();
 			} catch (error) {
 				new Notice(`❌ ${errorMessage(error)}`);
+				console.error("[trello-vault-sync]", error);
 				this.cache = [];
 			}
 		}

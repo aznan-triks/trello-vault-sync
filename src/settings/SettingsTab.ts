@@ -143,6 +143,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.display();
 					} catch (error) {
 						new Notice(`❌ ${errorMessage(error)}`);
+						console.error("[trello-vault-sync]", error);
 					} finally {
 						button.setDisabled(false);
 					}

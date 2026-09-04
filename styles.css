@@ -223,6 +223,15 @@
 	color: var(--text-muted);
 }
 
+.tvs-sidebar__journal {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 240px;
+	padding: 4px;
+	overflow-y: auto;
+}
+
 /* Conflict resolution modal */
 
 .tvs-conflict__hint {
