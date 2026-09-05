@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] — 2026-09-05
+
+### Changed
+
+- The sidebar's activity journal now survives an Obsidian restart — written
+  into the plugin's own `data.json` alongside the settings (once per
+  finished command, not per log line), instead of living in memory only.
+  An existing `data.json` from an earlier version keeps loading normally.
+
 ## [1.5.6] — 2026-09-05
 
 ### Changed
