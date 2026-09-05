@@ -86,6 +86,8 @@ const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed";
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
 /** One page's worth of actions per call — no automatic multi-page walk, see PLAN_2026-09-04_feature-audit-changes.md. */
 const ACTIONS_PAGE_LIMIT = "1000";
+/** Extra fields requested on `memberCreator` — `avatarUrl` lets the HTML export show who did what without a separate per-member call. */
+const MEMBER_CREATOR_FIELDS = "avatarUrl,fullName";
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -162,7 +164,11 @@ export class TrelloClient {
 	 * unchanged — the caller decides which.
 	 */
 	async getActions(boardId: string, options: { since?: string; before?: string } = {}): Promise<TrelloAction[]> {
-		const params: Record<string, string> = { filter: "all", limit: ACTIONS_PAGE_LIMIT };
+		const params: Record<string, string> = {
+			filter: "all",
+			limit: ACTIONS_PAGE_LIMIT,
+			memberCreator_fields: MEMBER_CREATOR_FIELDS,
+		};
 		if (options.since) params.since = options.since;
 		if (options.before) params.before = options.before;
 		return this.json<TrelloAction[]>(`/boards/${encodeURIComponent(boardId)}/actions`, params);

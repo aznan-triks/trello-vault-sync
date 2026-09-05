@@ -168,4 +168,20 @@ describe("describeAction", () => {
 		expect(entry?.cardName).toBe("");
 		expect(entry?.listName).toBe("");
 	});
+
+	test("carries the author's avatar url through, when Trello returns one", () => {
+		const entry = describeAction(
+			action({
+				type: "createCard",
+				memberCreator: { fullName: "Ann", avatarUrl: "https://trello-members.example/ann" },
+				data: { card: { name: "New quest" } },
+			}),
+		);
+		expect(entry?.authorAvatarUrl).toBe("https://trello-members.example/ann");
+	});
+
+	test("leaves the avatar url undefined when Trello doesn't return one", () => {
+		const entry = describeAction(action({ type: "createCard", data: { card: { name: "New quest" } } }));
+		expect(entry?.authorAvatarUrl).toBeUndefined();
+	});
 });

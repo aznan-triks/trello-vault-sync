@@ -13,6 +13,8 @@ export interface TrelloVaultSyncSettings {
 	excludedFolders: string[];
 	/** Note the audit reports are written into. */
 	reportPath: string;
+	/** Page the "Export change log as HTML" command writes into — created if missing, overwritten if present. */
+	changesHtmlPath: string;
 
 	policy: ConflictPolicy;
 	/** Timestamp tolerance, in seconds, below which a divergence is a conflict. */
@@ -47,6 +49,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	scope: "",
 	excludedFolders: [],
 	reportPath: "",
+	changesHtmlPath: "",
 	policy: "newer-wins",
 	marginSeconds: 60,
 	syncTitle: true,
@@ -122,6 +125,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			.map((folder) => normalizeVaultPath(safeString(folder)))
 			.filter((folder) => folder !== ""),
 		reportPath: normalizeVaultPath(safeString(input.reportPath, DEFAULT_SETTINGS.reportPath)),
+		changesHtmlPath: normalizeVaultPath(safeString(input.changesHtmlPath, DEFAULT_SETTINGS.changesHtmlPath)),
 		auditChangesCursor: safeString(input.auditChangesCursor, DEFAULT_SETTINGS.auditChangesCursor),
 		marginSeconds: safeNonNegativeNumber(input.marginSeconds, DEFAULT_SETTINGS.marginSeconds),
 		maxRetries: safeNonNegativeNumber(

@@ -160,25 +160,29 @@ export interface ChangesReportInput {
 	entries: readonly AuditEntry[];
 }
 
-/** Label for an entry with no card name — never equal to an escaped real card name, since `escapeMarkdown` always escapes a literal `(no card)` title into `\(no card\)`. */
-const NO_CARD_LABEL = "(no card)";
-
 /**
- * Groups entries by UTC calendar day (most recent first), then by card within
- * each day (insertion order — entries arrive newest-first from the Trello API,
- * so the first event seen for a card is already its most recent one that day).
- * The card key is already the final, escaped display label, computed once
- * here rather than re-derived from it at render time.
+ * Groups entries by UTC calendar day (most recent first), then by raw card
+ * name within each day (insertion order — entries arrive newest-first from
+ * the Trello API, so the first event seen for a card is already its most
+ * recent one that day). Format-agnostic on purpose: the card key is the raw
+ * `cardName` ("" when missing — Trello never allows a blank card name, so
+ * "" can never collide with a real one), left unescaped here. Each renderer
+ * (Markdown, HTML) decides its own display label and escaping at render time.
  */
-function groupChangesByDayThenCard(entries: readonly AuditEntry[]): Map<string, Map<string, AuditEntry[]>> {
+export function groupChangesByDayThenCard<T extends AuditEntry>(entries: readonly T[]): Map<string, Map<string, T[]>> {
 	const byDay = groupBy(entries, (entry) => entry.date.slice(0, 10));
 	const sortedDays = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a));
-	return new Map(
-		sortedDays.map(([day, dayEntries]) => [
-			day,
-			groupBy(dayEntries, (entry) => (entry.cardName ? escapeMarkdown(entry.cardName) : NO_CARD_LABEL)),
-		]),
-	);
+	return new Map(sortedDays.map(([day, dayEntries]) => [day, groupBy(dayEntries, (entry) => entry.cardName)]));
+}
+
+/** Display label for a `groupChangesByDayThenCard` card key — shared by the Markdown and HTML renderers so the "(no card)" fallback and the escaping rule live in one place. */
+export function cardDisplayLabel(cardName: string, escape: (text: string) => string): string {
+	return cardName === "" ? "(no card)" : escape(cardName);
+}
+
+/** `HH:mm` portion of a Trello action's ISO 8601 date (always UTC) — shared by the Markdown and HTML renderers. */
+export function entryTime(entry: AuditEntry): string {
+	return entry.date.slice(11, 16);
 }
 
 /** Trello board activity since the last run, grouped by day (most recent first) then by card. */
@@ -190,11 +194,10 @@ export function buildChangesReport(input: ChangesReportInput): string {
 	} else {
 		for (const [day, byCard] of groupChangesByDayThenCard(input.entries)) {
 			out.push(`### 📅 ${day}`, "");
-			for (const [cardLabel, entries] of byCard) {
-				out.push(`#### 🗂️ ${cardLabel}`);
+			for (const [cardName, entries] of byCard) {
+				out.push(`#### 🗂️ ${cardDisplayLabel(cardName, escapeMarkdown)}`);
 				for (const entry of entries) {
-					const time = entry.date.slice(11, 16);
-					out.push(`- **${time}** · ${escapeMarkdown(entry.detail)} — _${escapeMarkdown(entry.author)}_`);
+					out.push(`- **${entryTime(entry)}** · ${escapeMarkdown(entry.detail)} — _${escapeMarkdown(entry.author)}_`);
 				}
 				out.push("");
 			}
