@@ -23,6 +23,7 @@ There is no language setting.
 | Sync active note | Pull or push automatically, based on which side changed last |
 | Pull / push active note | Force one direction, ignoring timestamps |
 | Link active note to a card | Fuzzy-matches the file name against the board and writes the id |
+| Link active note to a card (pick manually) | Search-and-pick modal over the board's cards — use it when the title match above picks the wrong card, or isn't close enough to fire |
 | Resolve conflict (active note) | Side-by-side view when both sides changed at once |
 | Sync all linked notes | Walks the scope folder, one board request for the whole run |
 | Sync a list with its folder | Mirrors one Trello list into one vault folder |
@@ -41,6 +42,10 @@ trello_board_card_id: "<boardId>;<cardId>"
 
 A bare card id is accepted too. Unfilled `{{CARD_ID}}` template placeholders are
 ignored rather than sent to the API.
+
+You never need to type that value by hand: run **"Link active note to a card (pick
+manually)"** and search the board's cards by name, or **"Link active note to a card"**
+for automatic title-matching.
 
 ## Install (manual — not on the community plugin store)
 

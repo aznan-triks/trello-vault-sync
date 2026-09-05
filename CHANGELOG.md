@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] — 2026-09-05
+
+### Added
+
+- New command "Link active note to a card (pick manually)": fuzzy-search
+  modal over the configured board's cards, for when the existing
+  title-matching link command picks the wrong card or refuses to fire (no
+  match close enough). Reuses `getBoardCards` and the existing
+  `trello_board_card_id` write path — no new Trello API calls.
+
 ## [1.6.0] — 2026-09-05
 
 ### Added
