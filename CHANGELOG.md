@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] — 2026-09-05
+
+### Added
+
+- New command "Export change log as HTML": a standalone HTML page of the
+  Trello change log, each author's avatar downloaded once and embedded
+  (works offline, one self-contained file). Independent of "Audit changes" —
+  it never advances the change-log cursor, so generating the page doesn't
+  consume entries the Markdown audit would otherwise report next. New
+  setting: the page's destination path (`Change log HTML page`).
+
 ## [1.5.7] — 2026-09-05
 
 ### Changed
