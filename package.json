@@ -1,6 +1,6 @@
 {
 	"name": "trello-vault-sync",
-	"version": "1.5.5",
+	"version": "1.5.6",
 	"description": "Two-way Trello sync and link auditing for Obsidian worldbuilding vaults.",
 	"main": "main.js",
 	"type": "module",
