@@ -4,6 +4,9 @@ Two-way Trello sync, link auditing and card matching for Obsidian — built for 
 worldbuilding vault where every note mirrors a card on a single board.
 
 ![status](https://img.shields.io/badge/status-personal%20project-orange)
+![license](https://img.shields.io/badge/license-MIT-green)
+![obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A51.5.0-7c3aed)
+![install](https://img.shields.io/badge/install-manual-lightgrey)
 
 It replaces a set of Templater user scripts driven by ribbon buttons: one plugin,
 one credential pair, native commands, and a test suite.
@@ -20,11 +23,14 @@ There is no language setting.
 | Sync active note | Pull or push automatically, based on which side changed last |
 | Pull / push active note | Force one direction, ignoring timestamps |
 | Link active note to a card | Fuzzy-matches the file name against the board and writes the id |
+| Resolve conflict (active note) | Side-by-side view when both sides changed at once |
 | Sync all linked notes | Walks the scope folder, one board request for the whole run |
 | Sync a list with its folder | Mirrors one Trello list into one vault folder |
 | Sync every list | Runs all configured list ↔ folder pairs |
 | Audit links | Cards without notes, notes with broken ids, notes with no card |
 | Audit locations | Table of where each linked note lives versus its Trello list |
+| Audit changes | Trello board activity since the last run, grouped by day then by card, into the report note |
+| Export change log as HTML | Standalone page of the same change log, each author's avatar embedded — works offline |
 | Toggle dry run | Plan everything, write nothing |
 
 A note points at its card through a single frontmatter key:
@@ -59,6 +65,8 @@ Everything lives in the plugin settings — **never in a vault note**.
   fuzzy-search your boards by name instead of hunting for the id.
 - **Scope** — folder the vault-wide commands walk; empty means the whole vault.
 - **Report note** — existing note the audits write into.
+- **Change log HTML page** — path of the standalone page "Export change log as HTML"
+  writes into. Created if missing, overwritten if it already exists.
 - **Arbitration** — newer wins (default), Obsidian always wins, or Trello always wins.
 - **Clock margin** — below this gap the two sides count as simultaneous, and a real
   divergence is reported as a conflict instead of being resolved by a coin flip.
