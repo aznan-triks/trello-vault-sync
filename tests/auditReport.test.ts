@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
+import type { AuditEntry } from "../src/core/auditAction";
 import {
 	LINK_REPORT_HEADING,
+	buildChangesReport,
 	buildLinkReport,
 	buildLocationReport,
 	extractCheckedKeys,
@@ -118,6 +120,75 @@ describe("buildLocationReport bracket escaping", () => {
 			rows: [{ listName: "L", cardName: "[evil](https://phishing.example)", folder: "f", notePath: "p" }],
 		});
 		expect(md).toContain("| \\[evil\\]\\(https://phishing.example\\) | 📂 f |");
+	});
+});
+
+describe("buildChangesReport", () => {
+	const entry = (over: Partial<AuditEntry>): AuditEntry => ({
+		id: "a1",
+		date: "2026-09-04T10:00:00.000Z",
+		author: "Antoine",
+		cardName: "Sagondo",
+		listName: "Idées",
+		type: "updateCard",
+		detail: "Name changed",
+		...over,
+	});
+
+	test("says so explicitly when there is nothing to report", () => {
+		const md = buildChangesReport({ timestamp: "20:00", entries: [] });
+		expect(md).toContain("No change since the last run.");
+	});
+
+	test("groups by day (most recent first), then by card", () => {
+		const md = buildChangesReport({
+			timestamp: "20:00",
+			entries: [
+				entry({ id: "b2", date: "2026-09-05T09:00:00.000Z", cardName: "Naaan", detail: "Moved" }),
+				entry({ id: "b1", date: "2026-09-05T08:00:00.000Z", cardName: "Sagondo", detail: "Created" }),
+				entry({ id: "a1", date: "2026-09-04T10:00:00.000Z", cardName: "Sagondo", detail: "Name changed" }),
+			],
+		});
+		const dayB = md.indexOf("### 📅 2026-09-05");
+		const dayA = md.indexOf("### 📅 2026-09-04");
+		const cardNaaan = md.indexOf("#### 🗂️ Naaan");
+		const cardSagondoInB = md.indexOf("#### 🗂️ Sagondo");
+		expect(dayB).toBeGreaterThan(-1);
+		expect(dayA).toBeGreaterThan(dayB);
+		expect(cardNaaan).toBeGreaterThan(dayB);
+		expect(cardNaaan).toBeLessThan(dayA);
+		expect(cardSagondoInB).toBeGreaterThan(dayB);
+		expect(cardSagondoInB).toBeLessThan(dayA);
+	});
+
+	test("keeps two events for the same card, same day, under one subsection in received order", () => {
+		const md = buildChangesReport({
+			timestamp: "20:00",
+			entries: [
+				entry({ id: "a2", date: "2026-09-04T15:00:00.000Z", detail: "Moved" }),
+				entry({ id: "a1", date: "2026-09-04T10:00:00.000Z", detail: "Created" }),
+			],
+		});
+		expect(md.match(/#### 🗂️ Sagondo/g)).toHaveLength(1);
+		const moved = md.indexOf("Moved");
+		const created = md.indexOf("Created");
+		expect(moved).toBeGreaterThan(-1);
+		expect(created).toBeGreaterThan(moved);
+	});
+
+	test("groups an entry without a card name under a fallback bucket", () => {
+		const md = buildChangesReport({ timestamp: "20:00", entries: [entry({ cardName: "" })] });
+		expect(md).toContain("#### 🗂️ (no card)");
+	});
+
+	test("shows the time in UTC on each line", () => {
+		const md = buildChangesReport({ timestamp: "20:00", entries: [entry({ date: "2026-09-04T10:05:00.000Z" })] });
+		expect(md).toContain("**10:05**");
+	});
+
+	test("a card literally named '(no card)' is escaped, so it can't be mistaken for the fallback bucket", () => {
+		const md = buildChangesReport({ timestamp: "20:00", entries: [entry({ cardName: "(no card)" })] });
+		expect(md).toContain("#### 🗂️ \\(no card\\)");
 	});
 });
 

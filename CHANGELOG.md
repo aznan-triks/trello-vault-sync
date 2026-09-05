@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] — 2026-09-05
+
+### Changed
+
+- Trello change log ("Audit changes" report): entries are now grouped by day
+  (most recent first), then by card within each day, instead of one flat
+  list — makes it easy to scan everything that happened to a specific card,
+  or everything that happened on a specific day. Times are shown in UTC.
+
 ## [1.5.5] — 2026-09-04
 
 ### Changed
