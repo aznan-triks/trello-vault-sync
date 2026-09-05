@@ -1,9 +1,11 @@
 import { Notice } from "obsidian";
 import type { CommandContext } from "./context";
+import { errorMessage } from "../core/errorMessage";
 import { extractBody } from "../core/noteBody";
 import { tallyNoteResult } from "../core/syncTally";
-import { linkActiveNote } from "../features/linkNote";
+import { linkActiveNote, linkNoteToCard } from "../features/linkNote";
 import { decideForCard, syncNote } from "../features/syncNote";
+import { CardPickerModal } from "../ui/CardPickerModal";
 import { ConflictModal } from "../ui/ConflictModal";
 
 export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): Promise<void> {
@@ -49,6 +51,25 @@ export async function linkActive(ctx: CommandContext): Promise<void> {
 		if (result.reason === "already-linked") return "This note is already linked to a card.";
 		if (!result.linked) return "No card close enough to the note's title.";
 		return `Linked to "${result.card?.name}" (${Math.round(result.score * 100)}%).`;
+	}, { cancellable: false });
+}
+
+export async function linkActivePick(ctx: CommandContext): Promise<void> {
+	const note = ctx.activeNote();
+	if (!ctx.ready(true) || !note) return;
+
+	await ctx.run(`Pick a card — ${note.basename}`, async (reporter) => {
+		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId);
+		new CardPickerModal(ctx.app, cards, (card) => {
+			void linkNoteToCard(ctx.vault, note, card).then(
+				() => new Notice(`Linked to "${card.name}".`),
+				(error) => {
+					new Notice(`❌ ${errorMessage(error)}`);
+					console.error("[trello-vault-sync]", error);
+				},
+			);
+		}).open();
+		return `${cards.length} card(s) loaded — pick one from the list.`;
 	}, { cancellable: false });
 }
 
