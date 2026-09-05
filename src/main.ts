@@ -6,6 +6,7 @@ import { COMMANDS } from "./commands/registry";
 import * as syncCommands from "./commands/syncCommands";
 import { errorMessage } from "./core/errorMessage";
 import { appendJournalEntry, type JournalEntry, type LogLevel } from "./core/journal";
+import { normalizePersistedData } from "./core/pluginData";
 import type { AuditOptions } from "./features/auditShared";
 import type { FolderSyncOptions } from "./features/syncFolder";
 import type { NoteSyncOptions } from "./features/syncNote";
@@ -28,7 +29,9 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private activePanel: ProgressPanel | null = null;
 
 	override async onload(): Promise<void> {
-		this.settings = normalizeSettings(await this.loadData());
+		const { settingsRaw, journal } = normalizePersistedData(await this.loadData());
+		this.settings = normalizeSettings(settingsRaw);
+		this.journal = journal;
 		this.vault = new ObsidianVault(this.app);
 		this.addSettingTab(new TrelloVaultSyncSettingsTab(this.app, this));
 		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
@@ -42,8 +45,13 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settings);
+		await this.persist();
 		this.refreshSidebarViews();
+	}
+
+	/** Writes settings and journal together into the plugin's own `data.json` — the journal's persistence, not a vault note (internal state, not a user-facing deliverable like the audit reports). */
+	private async persist(): Promise<void> {
+		await this.saveData({ settings: this.settings, journal: this.journal });
 	}
 
 	/** Reflects a settings change (settings tab, or the palette's dry-run toggle) in any open sidebar. */
@@ -152,7 +160,15 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				this.journal = appendJournalEntry(this.journal, { level, message }, MAX_LOG_ROWS);
 				this.appendJournalToSidebars(level, message);
 			},
-			finish: (outcome, summary) => base.finish(outcome, summary),
+			// Written to disk once per finished command, not once per log() call
+			// — a sync can emit dozens of log lines, one disk write per line would be wasteful.
+			// Fire-and-forget: onunload() doesn't await this, so a plugin disable in the
+			// instant right after finish() could lose that last write — acceptable, the
+			// journal is best-effort operational history, not data the user relies on.
+			finish: (outcome, summary) => {
+				base.finish(outcome, summary);
+				void this.persist();
+			},
 		};
 	}
 
