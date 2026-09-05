@@ -33,3 +33,13 @@ export async function linkActiveNote(
 	await vault.setCardRef(note, { boardId: match.item.idBoard, cardId: match.item.id });
 	return { linked: true, score: match.score, card: match.item, reason: "linked" };
 }
+
+/**
+ * Attach a note to a card the user picked manually.
+ * Deliberately skips `linkActiveNote`'s "already-linked" guard — the user
+ * explicitly chose this card, so overwriting a prior link (right or wrong)
+ * is the intended behavior, not a bug.
+ */
+export async function linkNoteToCard(vault: VaultGateway, note: NoteHandle, card: TrelloCard): Promise<void> {
+	await vault.setCardRef(note, { boardId: card.idBoard, cardId: card.id });
+}

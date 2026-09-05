@@ -51,6 +51,13 @@ export const COMMANDS: CommandDescriptor[] = [
 		run: (ctx) => noteCommands.linkActive(ctx),
 	},
 	{
+		id: "link-active-note-pick",
+		name: "Link active note to a card (pick manually)",
+		icon: "link-2",
+		section: "Active note",
+		run: (ctx) => noteCommands.linkActivePick(ctx),
+	},
+	{
 		id: "resolve-conflict",
 		name: "Resolve conflict (active note), side by side",
 		icon: "git-compare",
