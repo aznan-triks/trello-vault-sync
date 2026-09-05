@@ -99,4 +99,11 @@ export const COMMANDS: CommandDescriptor[] = [
 		section: "Vault",
 		run: (ctx) => auditCommands.runChangesAudit(ctx),
 	},
+	{
+		id: "export-changes-html",
+		name: "Export change log as HTML",
+		icon: "file-code",
+		section: "Vault",
+		run: (ctx) => auditCommands.runChangesHtmlExport(ctx),
+	},
 ];

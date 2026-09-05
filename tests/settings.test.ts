@@ -52,6 +52,11 @@ describe("normalizeSettings", () => {
 		expect(settings.reportPath).toBe("WoT/Report.md");
 	});
 
+	test("normalizes changesHtmlPath the same way as reportPath", () => {
+		const settings = normalizeSettings({ changesHtmlPath: "\\WoT\\Changes.html" });
+		expect(settings.changesHtmlPath).toBe("WoT/Changes.html");
+	});
+
 	test("normalizes a mapping's folder the same way", () => {
 		const settings = normalizeSettings({
 			mappings: [{ listId: "l1", folder: "\\WoT\\85_Idées\\", templateName: "" }],

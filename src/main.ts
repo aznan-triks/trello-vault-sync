@@ -11,7 +11,7 @@ import type { AuditOptions } from "./features/auditShared";
 import type { FolderSyncOptions } from "./features/syncFolder";
 import type { NoteSyncOptions } from "./features/syncNote";
 import { ObsidianVault } from "./obsidian/ObsidianVault";
-import { obsidianTransport } from "./obsidian/transport";
+import { obsidianDownloadBinary, obsidianTransport } from "./obsidian/transport";
 import { silentReporter, type NoteHandle, type Reporter } from "./obsidian/gateway";
 import { TrelloVaultSyncSettingsTab } from "./settings/SettingsTab";
 import { DEFAULT_SETTINGS, hasCredentials, normalizeSettings, type TrelloVaultSyncSettings } from "./settings/types";
@@ -93,6 +93,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 					),
 			},
 		);
+	}
+
+	fetchBinary(url: string): Promise<ArrayBuffer | null> {
+		return obsidianDownloadBinary(url);
 	}
 
 	noteOptions(force?: "pull" | "push"): NoteSyncOptions {

@@ -19,3 +19,17 @@ export const obsidianTransport: Transport = async (
 	});
 	return { status: response.status, text: response.text, headers: response.headers };
 };
+
+/**
+ * Fetches a public url (a Trello avatar image, not the authenticated `/1/...`
+ * API) and returns its bytes, or `null` on anything short of success — a
+ * missing avatar must never fail the export it's decorating.
+ */
+export async function obsidianDownloadBinary(url: string): Promise<ArrayBuffer | null> {
+	try {
+		const response = await requestUrl({ url, method: "GET", throw: false });
+		return response.status >= 200 && response.status < 300 ? response.arrayBuffer : null;
+	} catch {
+		return null;
+	}
+}
