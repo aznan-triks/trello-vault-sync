@@ -8,7 +8,7 @@ export interface TrelloAction {
 	id: string;
 	type: string;
 	date: string;
-	memberCreator?: { fullName?: string };
+	memberCreator?: { fullName?: string; avatarUrl?: string };
 	data?: {
 		old?: Record<string, unknown>;
 		card?: { name?: string; closed?: boolean; idList?: string; due?: string | null };
@@ -26,6 +26,8 @@ export interface AuditEntry {
 	id: string;
 	date: string;
 	author: string;
+	/** The author's Trello avatar url, when Trello returns one — undefined otherwise (deleted account, or a member with no custom avatar). */
+	authorAvatarUrl?: string;
 	cardName: string;
 	listName: string;
 	type: string;
@@ -49,6 +51,7 @@ export function describeAction(action: TrelloAction): AuditEntry | null {
 		id: action.id,
 		date: action.date,
 		author: action.memberCreator?.fullName ?? "Unknown",
+		authorAvatarUrl: action.memberCreator?.avatarUrl,
 		cardName: data.card?.name ?? "",
 		listName: data.list?.name ?? data.listAfter?.name ?? "",
 		type: action.type,

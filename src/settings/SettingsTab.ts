@@ -225,6 +225,25 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.app.vault.getMarkdownFiles().map((file) => file.path),
 				);
 			});
+
+		new Setting(root)
+			.setName("Change log HTML page")
+			.setDesc(
+				'Path of the standalone HTML page "Export change log as HTML" writes into — ' +
+					"created if missing, overwritten if it already exists.",
+			)
+			.addText((text) => {
+				text
+					.setPlaceholder("Projects/Trello Changes.html")
+					.setValue(this.plugin.settings.changesHtmlPath)
+					.onChange(async (value) => {
+						this.plugin.settings.changesHtmlPath = normalizeVaultPath(value.trim());
+						await this.save();
+					});
+				// Suggests folders, not `reportPath`'s markdown-file list above — this page
+				// is machine-generated and usually doesn't exist yet on first setup.
+				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+			});
 	}
 
 	private renderBehaviour(root: HTMLElement): void {

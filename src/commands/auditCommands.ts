@@ -2,6 +2,7 @@ import type { CommandContext } from "./context";
 import { auditChanges } from "../features/auditChanges";
 import { auditLinks } from "../features/auditLinks";
 import { auditLocations } from "../features/auditLocations";
+import { exportChangesHtml } from "../features/exportChangesHtml";
 
 export async function runLinkAudit(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
@@ -45,5 +46,23 @@ export async function runChangesAudit(ctx: CommandContext): Promise<void> {
 		}
 		reporter.count("changes", result.entries);
 		return `${result.entries} change(s) logged`;
+	});
+}
+
+export async function runChangesHtmlExport(ctx: CommandContext): Promise<void> {
+	if (!ctx.ready(true)) return;
+
+	await ctx.run("Export change log as HTML", async (reporter, signal) => {
+		const { boardId, timestamp } = ctx.auditOptions();
+		const result = await exportChangesHtml(
+			ctx.vault,
+			ctx.client(reporter),
+			{ boardId, htmlPath: ctx.settings.changesHtmlPath, timestamp, since: ctx.settings.auditChangesCursor },
+			(url) => ctx.fetchBinary(url),
+			reporter,
+			signal,
+		);
+		reporter.count("changes", result.entries);
+		return `${result.entries} change(s) exported to ${ctx.settings.changesHtmlPath}`;
 	});
 }

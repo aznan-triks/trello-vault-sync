@@ -19,6 +19,8 @@ export interface CommandContext {
 	/** In-memory log history, oldest first, capped — survives the floating panel closing. */
 	readonly journal: readonly JournalEntry[];
 	client(reporter?: Reporter): TrelloClient;
+	/** Downloads a public url (a Trello avatar, not the authenticated API) — `null` on anything short of success. */
+	fetchBinary(url: string): Promise<ArrayBuffer | null>;
 	run(
 		title: string,
 		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
