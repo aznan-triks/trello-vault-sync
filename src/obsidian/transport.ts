@@ -29,7 +29,10 @@ export async function obsidianDownloadBinary(url: string): Promise<ArrayBuffer |
 	try {
 		const response = await requestUrl({ url, method: "GET", throw: false });
 		return response.status >= 200 && response.status < 300 ? response.arrayBuffer : null;
-	} catch {
+	} catch (error) {
+		// Still degrades to `null` (the initial fallback shows instead), but the
+		// underlying error is logged rather than silently dropped.
+		console.warn("[trello-vault-sync] public url download failed", error);
 		return null;
 	}
 }

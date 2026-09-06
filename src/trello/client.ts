@@ -92,7 +92,7 @@ const MEMBER_CREATOR_FIELDS = "avatarUrl,fullName";
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Replace every occurrence of a secret with a marker, for logs and errors. */
-export function redactSecrets(text: string, secrets: readonly string[]): string {
+function redactSecrets(text: string, secrets: readonly string[]): string {
 	let out = text;
 	for (const secret of secrets) {
 		if (secret.length >= 4) out = out.split(secret).join("«masked»");

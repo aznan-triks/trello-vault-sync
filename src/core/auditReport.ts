@@ -58,7 +58,7 @@ export interface LinkReportInput {
 }
 
 /** Escape characters that would let an untrusted Trello card name break out of markdown link/table syntax. */
-export function escapeMarkdown(text: string): string {
+function escapeMarkdown(text: string): string {
 	return text.replace(/[\\[\]()]/g, "\\$&");
 }
 
