@@ -1,4 +1,4 @@
-import { formatCardRef } from "../core/cardRef";
+import { CARD_REF_KEY, formatCardRef } from "../core/cardRef";
 import { errorMessage } from "../core/errorMessage";
 import { notesInFolder, sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
@@ -70,7 +70,7 @@ function newNoteContent(card: TrelloCard, template: string | null): string {
 	};
 	if (template) return renderTemplate(template, vars);
 	const ref = formatCardRef(card.idBoard, card.id);
-	return `---\ntrello_board_card_id: "${ref}"\n---\n\n${card.desc ?? ""}`;
+	return `---\n${CARD_REF_KEY}: "${ref}"\n---\n\n${card.desc ?? ""}`;
 }
 
 /**
@@ -126,7 +126,7 @@ export async function syncFolder(
 	if (template && templateMissingCardRefKey(template)) {
 		reporter.log(
 			"warn",
-			`Template "${mapping.templateName}" has no trello_board_card_id key — new notes from it won't link back to their card.`,
+				`Template "${mapping.templateName}" has no ${CARD_REF_KEY} key — new notes from it won't link back to their card.`,
 		);
 	}
 	const byPath = new Map(handles.map((note) => [note.path, note]));

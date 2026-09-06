@@ -1,7 +1,7 @@
 /**
  * Title matching used when adopting an existing note into a Trello card.
  * Normalised Levenshtein distance, plus the containment boost the original
- * linker script relied on ("Sagondo (brouillon)" should still match "Sagondo").
+ * linker script relied on ("Sagondo (draft)" should still match "Sagondo").
  */
 
 const CONTAINMENT_SCORE = 0.9;

@@ -1,9 +1,7 @@
 import { Notice, Plugin, TFile } from "obsidian";
-import * as auditCommands from "./commands/auditCommands";
 import type { CommandContext } from "./commands/context";
 import * as noteCommands from "./commands/noteCommands";
 import { COMMANDS } from "./commands/registry";
-import * as syncCommands from "./commands/syncCommands";
 import { errorMessage } from "./core/errorMessage";
 import { appendJournalEntry, type JournalEntry, type LogLevel } from "./core/journal";
 import { normalizePersistedData } from "./core/pluginData";
@@ -18,6 +16,13 @@ import { DEFAULT_SETTINGS, hasCredentials, normalizeSettings, type TrelloVaultSy
 import { TrelloClient } from "./trello/client";
 import { MAX_LOG_ROWS, ProgressPanel } from "./ui/ProgressPanel";
 import { SidebarView, VIEW_TYPE_TVS_SIDEBAR } from "./ui/SidebarView";
+
+/**
+ * The `COMMANDS` entries surfaced on the ribbon, in display order. The ribbon
+ * must not redeclare id/name/icon/handler — `registry.ts` owns that (one
+ * command declared once), so each entry here is looked up, not copied.
+ */
+const RIBBON_COMMAND_IDS = ["sync-active-note", "sync-vault", "sync-mapping", "audit-links"];
 
 export default class TrelloVaultSyncPlugin extends Plugin implements CommandContext {
 	override settings: TrelloVaultSyncSettings = { ...DEFAULT_SETTINGS };
@@ -270,9 +275,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 
 	private registerRibbon(): void {
 		this.addRibbonIcon("panel-right", "Open Trello Vault Sync", () => void this.activateSidebarView());
-		this.addRibbonIcon("refresh-cw", "Sync active note", () => noteCommands.syncActive(this));
-		this.addRibbonIcon("kanban-square", "Sync all linked notes", () => syncCommands.syncAllLinked(this));
-		this.addRibbonIcon("folder-sync", "Sync a list with its folder", () => syncCommands.syncOneMapping(this));
-		this.addRibbonIcon("search", "Audit Trello links", () => auditCommands.runLinkAudit(this));
+		for (const id of RIBBON_COMMAND_IDS) {
+			const command = COMMANDS.find((entry) => entry.id === id);
+			if (!command) throw new Error(`Ribbon references an unknown command id: ${id}`);
+			this.addRibbonIcon(command.icon, command.name, () => command.run(this));
+		}
 	}
 }

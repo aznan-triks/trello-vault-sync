@@ -1,4 +1,3 @@
-import { parseCardRef } from "../core/cardRef";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { extractBody, replaceBody } from "../core/noteBody";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
@@ -114,6 +113,3 @@ export async function syncNote(
 	const card = await client.getCard(ref.cardId);
 	return syncNoteWithCard(vault, client, note, card, options);
 }
-
-/** Re-export so callers do not need to reach into core for the common case. */
-export { parseCardRef };
