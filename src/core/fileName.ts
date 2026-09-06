@@ -5,7 +5,7 @@ const CONTROL = /[\u0000-\u001F\u007F]/g;
 const RESERVED_WINDOWS_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 /** Longest base name we will produce, leaving room for a folder prefix. */
-export const MAX_BASENAME_LENGTH = 120;
+const MAX_BASENAME_LENGTH = 120;
 
 /** Truncates by Unicode code point, so an emoji's surrogate pair is never split in two. */
 function truncateCodePoints(value: string, maxLength: number): string {
