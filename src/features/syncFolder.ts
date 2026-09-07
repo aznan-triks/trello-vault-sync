@@ -4,7 +4,14 @@ import { notesInFolder, sanitizeFileName, uniqueNotePath } from "../core/fileNam
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
 import { addCounts, tallyNoteResult } from "../core/syncTally";
 import { renderTemplate, templateMissingCardRefKey } from "../core/template";
-import { silentReporter, type NoteHandle, type Reporter, type VaultGateway } from "../obsidian/gateway";
+import {
+	silentReporter,
+	type CardRefStore,
+	type NoteHandle,
+	type Reporter,
+	type TemplateResolver,
+	type VaultGateway,
+} from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient } from "../trello/client";
 import { syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
 
@@ -81,7 +88,7 @@ function newNoteContent(card: TrelloCard, template: string | null): string {
  * only performs the resulting IO.
  */
 export async function syncFolder(
-	vault: VaultGateway,
+	vault: VaultGateway & CardRefStore & TemplateResolver,
 	client: TrelloClient,
 	mapping: FolderMapping,
 	options: FolderSyncOptions,
@@ -93,7 +100,7 @@ export async function syncFolder(
 	noteHandles?: NoteHandle[],
 ): Promise<FolderSyncStats> {
 	const stats = emptyStats();
-	const cards = await client.getListCards(mapping.listId);
+	const cards = await client.getListCards(mapping.listId, signal);
 	reporter.log("info", `${cards.length} card(s) in the list`);
 
 	const handles = noteHandles ?? vault.listNotes(mapping.folder);
@@ -194,7 +201,7 @@ export async function syncFolder(
 	let protectionCheckFailed = false;
 	if (options.allowDelete && plan.phantomNotes.length > 0 && !signal?.aborted) {
 		try {
-			const cards = boardCards ?? (await client.getBoardCards(options.boardId, "all"));
+			const cards = boardCards ?? (await client.getBoardCards(options.boardId, "all", signal));
 			aliveElsewhere = new Map(cards.map((card) => [card.id, card.closed === true]));
 		} catch (error) {
 			protectionCheckFailed = true;
@@ -249,7 +256,7 @@ export async function syncFolder(
  * error and does not stop the mappings after it.
  */
 export async function syncAllMappings(
-	vault: VaultGateway,
+	vault: VaultGateway & CardRefStore & TemplateResolver,
 	client: TrelloClient,
 	mappings: FolderMapping[],
 	options: FolderSyncOptions,
@@ -257,7 +264,9 @@ export async function syncAllMappings(
 	signal?: AbortSignal,
 ): Promise<FolderSyncStats> {
 	const total = emptyStats();
-	const boardCards = options.allowDelete ? await client.getBoardCards(options.boardId, "all") : undefined;
+	const boardCards = options.allowDelete
+		? await client.getBoardCards(options.boardId, "all", signal)
+		: undefined;
 	const allNotes = vault.listNotes("");
 
 	for (const mapping of mappings) {

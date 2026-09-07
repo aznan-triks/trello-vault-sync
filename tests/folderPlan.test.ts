@@ -8,6 +8,7 @@ const card = (id: string, name: string): PlannedCard => ({
 	desc: "",
 	url: `https://trello.com/c/${id}`,
 	dateLastActivity: "2026-08-01T00:00:00.000Z",
+	due: null,
 });
 
 const note = (path: string, cardId: string | null): PlannedNote => ({

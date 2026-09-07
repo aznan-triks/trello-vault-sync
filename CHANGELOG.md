@@ -4,6 +4,66 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] — 2026-09-08
+
+### Added
+
+- **Plain**: Notes now track their Trello due date in a `trello_due`
+  frontmatter field — any due date set or cleared on the card is reflected in
+  the note on the next pull; a date edited locally is pushed back to Trello on
+  the next push. Always on for a linked note, no setting to toggle it.
+  **Technical**: `src/core/dueRef.ts` (`DUE_KEY = "trello_due"`,
+  `parseDueRef`/`formatDueRef`, pure functions mirroring `cardRef.ts`), read
+  and written from `src/features/syncNote.ts` through the generic
+  `VaultGateway.readFrontmatter`/`writeFrontmatter` (no dedicated
+  `getDueDate`/`setDueDate` methods); `TrelloCard.due` added to
+  `src/trello/client.ts`; `syncDecision.dueChanged` flag wired in
+  `src/features/syncNote.ts`.
+
+- **Plain**: A network call that hangs or takes longer than the configured
+  timeout now actually stops waiting, instead of stalling the sync
+  indefinitely — you set the per-request ceiling in the settings.
+  **Technical**: `Transport` signature extended with optional
+  `signal?: AbortSignal`; `TrelloClient.send` (in `src/trello/client.ts`)
+  combines a per-request timeout with the command-level cancel signal via
+  `AbortSignal.any`; `obsidianTransport` and `obsidianDownloadBinary`
+  (in `src/obsidian/transport.ts`) honour it via `Promise.race`. New setting
+  `requestTimeoutMs` (default 30 000 ms). Structural note: `requestUrl` has no
+  native abort — the race stops waiting on this side; the underlying socket may
+  still complete inside Obsidian.
+
+- **Plain**: You can now choose which commands get a button in Obsidian's left
+  ribbon, from a new "Ribbon icons" section in the plugin settings — a change
+  applies immediately, no restart needed. Every command stays available from
+  the sidebar panel and the command palette either way.
+  **Technical**: New setting `ribbonCommandIds: string[]` (default:
+  `sync-active-note`, `sync-vault`, `sync-all-mappings`, `audit-links`) in
+  `src/settings/types.ts`. `SettingsTab.renderRibbon()` renders one toggle per
+  `commands/registry.ts` entry. `main.ts`'s hardcoded `RIBBON_COMMAND_IDS`
+  replaced by `rebuildRibbon()`, called on load and after every
+  `saveSettings()`; a stale id (a command removed since the setting was saved)
+  is skipped rather than treated as an error, unlike the old dev-time constant.
+
+### Changed
+
+- **Plain**: Under the hood, the plugin's vault interface was split into three
+  focused contracts — no change visible to you, but keeps each part easier to
+  test and extend without touching the others.
+  **Technical**: `VaultGateway` in `src/obsidian/gateway.ts` split into three
+  interfaces: `VaultGateway` (file I/O + generic `readFrontmatter`/
+  `writeFrontmatter`), `CardRefStore` (`getCardRef`/`setCardRef`),
+  `TemplateResolver` (`readTemplate`). `ObsidianVault` implements all three;
+  `CommandContext.vault` typed as the intersection of the three.
+
+- **Plain**: A small internal helper that describes the outcome of a single-note
+  sync was moved to a testable location — no behavior change.
+  **Technical**: `describeSyncOutcome()` extracted into `src/core/syncTally.ts`;
+  `tests/noteCommands.test.ts` (which imported `src/commands/` and broke the
+  `obsidian`-import isolation rule) removed; `tests/syncTally.test.ts` now
+  covers the extracted function directly.
+
+---
+
 ## [1.7.0] — 2026-09-05
 
 ### Added

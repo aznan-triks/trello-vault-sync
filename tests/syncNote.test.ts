@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DUE_KEY } from "../src/core/dueRef";
 import { syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
 import { TrelloClient } from "../src/trello/client";
 import { FakeVault, at, card, routedTransport } from "./fakes";
@@ -169,6 +170,88 @@ describe("syncNoteWithCard", () => {
 		expect(requests).toHaveLength(0);
 		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "old");
 		expect(vault.paths()).toEqual([PATH]);
+	});
+});
+
+describe("syncNoteWithCard — due date", () => {
+	test("pulls the card's due date into the frontmatter", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			due: "2026-09-10T12:00:00.000Z",
+		});
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(result.direction).toBe("pull");
+		expect(vault.readFrontmatter(vault.note(PATH))?.[DUE_KEY]).toBe("2026-09-10T12:00:00.000Z");
+	});
+
+	test("clears a stale due date when the card no longer has one", async () => {
+		const withDue = FRONTMATTER.replace("---\n\n", `${DUE_KEY}: "2026-01-01T00:00:00.000Z"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withDue, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", due: null });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(result.direction).toBe("pull");
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(DUE_KEY);
+	});
+
+	test("leaves the frontmatter untouched on pull when the due date already agrees", async () => {
+		const { vault, client } = setup("old", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "new text", dateLastActivity: "2026-02-01", due: null });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "new text");
+	});
+
+	test("pushes the local due date when it changed and the note is newer", async () => {
+		const withDue = FRONTMATTER.replace("---\n\n", `${DUE_KEY}: "2026-09-10T12:00:00.000Z"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withDue, mtime: at("2026-03-01") } });
+		const { transport, requests } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01", due: null });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(result.direction).toBe("push");
+		expect(requests[0]?.body).toContain("due=2026-09-10T12%3A00%3A00.000Z");
+	});
+
+	test("does not send a due field when it did not change", async () => {
+		const { vault, client, requests } = setup("local text", at("2026-03-01"));
+		const remote = card({ id: "c1", name: "Ancien titre", desc: "remote", dateLastActivity: "2026-01-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(requests[0]?.body).not.toContain("due=");
+	});
+
+	test("reports a conflict when only the due date diverged on both sides within the margin", async () => {
+		const withDue = FRONTMATTER.replace("---\n\n", `${DUE_KEY}: "2026-01-01T00:00:00.000Z"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withDue, mtime: at("2026-01-01T00:00:00") } });
+		const { transport, requests } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-01-01T00:00:30",
+			due: "2026-09-11T00:00:00.000Z",
+		});
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, marginMs: 60_000 });
+
+		expect(result.direction).toBe("conflict");
+		expect(requests).toHaveLength(0);
+		expect(vault.readFrontmatter(vault.note(PATH))?.[DUE_KEY]).toBe("2026-01-01T00:00:00.000Z");
 	});
 });
 

@@ -17,13 +17,6 @@ import { TrelloClient } from "./trello/client";
 import { MAX_LOG_ROWS, ProgressPanel } from "./ui/ProgressPanel";
 import { SidebarView, VIEW_TYPE_TVS_SIDEBAR } from "./ui/SidebarView";
 
-/**
- * The `COMMANDS` entries surfaced on the ribbon, in display order. The ribbon
- * must not redeclare id/name/icon/handler — `registry.ts` owns that (one
- * command declared once), so each entry here is looked up, not copied.
- */
-const RIBBON_COMMAND_IDS = ["sync-active-note", "sync-vault", "sync-mapping", "audit-links"];
-
 export default class TrelloVaultSyncPlugin extends Plugin implements CommandContext {
 	override settings: TrelloVaultSyncSettings = { ...DEFAULT_SETTINGS };
 	vault!: ObsidianVault;
@@ -32,6 +25,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private syncing = false;
 	/** The panel of the sync currently running, if any — torn down on unload. */
 	private activePanel: ProgressPanel | null = null;
+	/** Icons added from `settings.ribbonCommandIds` — tracked so `rebuildRibbon()` can remove them, unlike the fixed "Open Trello Vault Sync" icon. */
+	private configurableRibbonEls: HTMLElement[] = [];
 
 	override async onload(): Promise<void> {
 		const { settingsRaw, journal } = normalizePersistedData(await this.loadData());
@@ -52,6 +47,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	async saveSettings(): Promise<void> {
 		await this.persist();
 		this.refreshSidebarViews();
+		this.rebuildRibbon();
 	}
 
 	/** Writes settings and journal together into the plugin's own `data.json` — the journal's persistence, not a vault note (internal state, not a user-facing deliverable like the audit reports). */
@@ -91,6 +87,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			{
 				maxRetries: this.settings.maxRetries,
 				baseDelayMs: this.settings.baseDelayMs,
+				requestTimeoutMs: this.settings.requestTimeoutMs,
 				onRetry: ({ attempt, maxAttempts, delayMs, status }) =>
 					reporter.log(
 						"warn",
@@ -100,8 +97,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		);
 	}
 
-	fetchBinary(url: string): Promise<ArrayBuffer | null> {
-		return obsidianDownloadBinary(url);
+	fetchBinary(url: string, signal?: AbortSignal): Promise<ArrayBuffer | null> {
+		return obsidianDownloadBinary(url, signal);
 	}
 
 	noteOptions(force?: "pull" | "push"): NoteSyncOptions {
@@ -275,10 +272,22 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 
 	private registerRibbon(): void {
 		this.addRibbonIcon("panel-right", "Open Trello Vault Sync", () => void this.activateSidebarView());
-		for (const id of RIBBON_COMMAND_IDS) {
-			const command = COMMANDS.find((entry) => entry.id === id);
-			if (!command) throw new Error(`Ribbon references an unknown command id: ${id}`);
-			this.addRibbonIcon(command.icon, command.name, () => command.run(this));
-		}
+		this.rebuildRibbon();
+	}
+
+	/**
+	 * Re-reads `settings.ribbonCommandIds` and replaces the configurable ribbon
+	 * icons accordingly — called after every settings save so a change made in
+	 * the settings tab shows up without restarting Obsidian. An id no longer in
+	 * `COMMANDS` (settings saved by an older version, a command since removed)
+	 * is skipped rather than treated as an error: unlike the old hardcoded list,
+	 * this one is user data, not a dev-time invariant.
+	 */
+	private rebuildRibbon(): void {
+		for (const el of this.configurableRibbonEls) el.remove();
+		this.configurableRibbonEls = this.settings.ribbonCommandIds
+			.map((id) => COMMANDS.find((entry) => entry.id === id))
+			.filter((command) => command !== undefined)
+			.map((command) => this.addRibbonIcon(command.icon, command.name, () => command.run(this)));
 	}
 }
