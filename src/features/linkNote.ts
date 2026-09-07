@@ -1,5 +1,5 @@
 import { bestMatch } from "../core/similarity";
-import type { NoteHandle, VaultGateway } from "../obsidian/gateway";
+import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient } from "../trello/client";
 
 export interface LinkOptions {
@@ -17,7 +17,7 @@ export interface LinkResult {
 
 /** Attach a note to the board card whose title is closest to the file name. */
 export async function linkActiveNote(
-	vault: VaultGateway,
+	vault: VaultGateway & CardRefStore,
 	client: TrelloClient,
 	note: NoteHandle,
 	options: LinkOptions,
@@ -40,6 +40,10 @@ export async function linkActiveNote(
  * explicitly chose this card, so overwriting a prior link (right or wrong)
  * is the intended behavior, not a bug.
  */
-export async function linkNoteToCard(vault: VaultGateway, note: NoteHandle, card: TrelloCard): Promise<void> {
+export async function linkNoteToCard(
+	vault: VaultGateway & CardRefStore,
+	note: NoteHandle,
+	card: TrelloCard,
+): Promise<void> {
 	await vault.setCardRef(note, { boardId: card.idBoard, cardId: card.id });
 }

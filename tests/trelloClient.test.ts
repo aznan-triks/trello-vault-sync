@@ -55,7 +55,7 @@ describe("TrelloClient credentials", () => {
 describe("TrelloClient requests", () => {
 	test("parses a card into the shape the sync layer expects", async () => {
 		const { api } = client([
-			ok({ id: "c1", idBoard: "b1", name: "Sagondo", desc: "d", url: "u", dateLastActivity: "t" }),
+			ok({ id: "c1", idBoard: "b1", name: "Sagondo", desc: "d", url: "u", dateLastActivity: "t", due: null }),
 		]);
 		await expect(api.getCard("c1")).resolves.toEqual({
 			id: "c1",
@@ -64,7 +64,14 @@ describe("TrelloClient requests", () => {
 			desc: "d",
 			url: "u",
 			dateLastActivity: "t",
+			due: null,
 		});
+	});
+
+	test("requests the due field alongside the other card fields", async () => {
+		const { api, calls } = client([ok({ id: "c1", name: "A" })]);
+		await api.getCard("c1");
+		expect(calls[0]?.url).toContain("fields=name%2Cdesc%2Curl%2CdateLastActivity%2CidBoard%2CidList%2Cclosed%2Cdue");
 	});
 
 	test("sends a card update as a url-encoded PUT", async () => {
@@ -79,6 +86,24 @@ describe("TrelloClient requests", () => {
 		const { api, calls } = client([]);
 		await api.updateCard("c1", {});
 		expect(calls).toHaveLength(0);
+	});
+
+	test("sends an explicit due date update", async () => {
+		const { api, calls } = client([ok({})]);
+		await api.updateCard("c1", { due: "2026-09-10T12:00:00.000Z" });
+		expect(calls[0]?.body).toBe("due=2026-09-10T12%3A00%3A00.000Z");
+	});
+
+	test("sends due=null to clear a card's due date", async () => {
+		const { api, calls } = client([ok({})]);
+		await api.updateCard("c1", { due: null });
+		expect(calls[0]?.body).toBe("due=null");
+	});
+
+	test("leaves the due date untouched when it is not in the update fields", async () => {
+		const { api, calls } = client([ok({})]);
+		await api.updateCard("c1", { name: "Titre" });
+		expect(calls[0]?.body).not.toContain("due=");
 	});
 
 	test("asks the board endpoint for every card in one call", async () => {
@@ -233,6 +258,58 @@ describe("TrelloClient backoff correctness", () => {
 		await api.getCard("c1");
 		expect(onRetry).toHaveBeenCalledWith({ attempt: 2, maxAttempts: 2, delayMs: 10, status: 429 });
 		expect(order).toEqual(["onRetry", "sleep"]);
+	});
+});
+
+describe("TrelloClient cancellation and timeout", () => {
+	/** A transport that never resolves on its own — it only settles when its signal fires, exactly like a real fetch/requestUrl racing an abort. */
+	function hangingTransport() {
+		let calls = 0;
+		const transport = (_req: HttpRequest, signal?: AbortSignal): Promise<HttpResponse> => {
+			calls++;
+			return new Promise<HttpResponse>((_resolve, reject) => {
+				signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+			});
+		};
+		return { transport, callCount: () => calls };
+	}
+
+	test("an AbortSignal cancellation interrupts send() without consuming retry budget", async () => {
+		const { transport, callCount } = hangingTransport();
+		const sleep = vi.fn(async () => {});
+		const api = new TrelloClient(CREDENTIALS, transport, { maxRetries: 3, baseDelayMs: 10, sleep });
+		const controller = new AbortController();
+
+		const promise = api.getCard("c1", controller.signal);
+		controller.abort();
+
+		await expect(promise).rejects.toBeInstanceOf(TrelloError);
+		expect(callCount()).toBe(1);
+		expect(sleep).not.toHaveBeenCalled();
+	});
+
+	test("a transport that never resolves throws a timeout error after requestTimeoutMs, retryable exactly like a 5xx", async () => {
+		let calls = 0;
+		const transport = (_req: HttpRequest, signal?: AbortSignal): Promise<HttpResponse> => {
+			calls++;
+			if (calls < 2) {
+				return new Promise<HttpResponse>((_resolve, reject) => {
+					signal?.addEventListener("abort", () => reject(new Error("timed out")), { once: true });
+				});
+			}
+			return Promise.resolve(ok({ id: "c1" }));
+		};
+		const sleep = vi.fn(async () => {});
+		const api = new TrelloClient(CREDENTIALS, transport, {
+			maxRetries: 2,
+			baseDelayMs: 10,
+			sleep,
+			requestTimeoutMs: 20,
+		});
+
+		await expect(api.getCard("c1")).resolves.toMatchObject({ id: "c1" });
+		expect(calls).toBe(2);
+		expect(sleep).toHaveBeenCalledTimes(1);
 	});
 });
 

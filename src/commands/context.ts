@@ -3,7 +3,7 @@ import type { JournalEntry } from "../core/journal";
 import type { AuditOptions } from "../features/auditShared";
 import type { FolderSyncOptions } from "../features/syncFolder";
 import type { NoteSyncOptions } from "../features/syncNote";
-import type { NoteHandle, Reporter, VaultGateway } from "../obsidian/gateway";
+import type { CardRefStore, NoteHandle, Reporter, TemplateResolver, VaultGateway } from "../obsidian/gateway";
 import type { TrelloVaultSyncSettings } from "../settings/types";
 import type { TrelloClient } from "../trello/client";
 
@@ -14,13 +14,13 @@ import type { TrelloClient } from "../trello/client";
  */
 export interface CommandContext {
 	readonly app: App;
-	readonly vault: VaultGateway;
+	readonly vault: VaultGateway & CardRefStore & TemplateResolver;
 	readonly settings: TrelloVaultSyncSettings;
 	/** In-memory log history, oldest first, capped — survives the floating panel closing. */
 	readonly journal: readonly JournalEntry[];
 	client(reporter?: Reporter): TrelloClient;
 	/** Downloads a public url (a Trello avatar, not the authenticated API) — `null` on anything short of success. */
-	fetchBinary(url: string): Promise<ArrayBuffer | null>;
+	fetchBinary(url: string, signal?: AbortSignal): Promise<ArrayBuffer | null>;
 	run(
 		title: string,
 		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,

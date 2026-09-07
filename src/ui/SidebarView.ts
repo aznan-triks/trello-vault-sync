@@ -1,6 +1,6 @@
 import { ItemView, Setting, type App, type WorkspaceLeaf } from "obsidian";
 import type { CommandContext } from "../commands/context";
-import { COMMANDS, type CommandSection } from "../commands/registry";
+import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
 import type { LogLevel } from "../core/journal";
 import { hasCredentials } from "../settings/types";
 import { MAX_LOG_ROWS, renderLogRow } from "./ProgressPanel";
@@ -17,8 +17,6 @@ interface AppWithSettingDialog extends App {
 }
 
 export const VIEW_TYPE_TVS_SIDEBAR = "trello-vault-sync-sidebar";
-
-const SECTIONS: CommandSection[] = ["Active note", "Folders", "Vault"];
 
 /**
  * Persistent sidebar counterpart to the command palette: one button per
@@ -82,7 +80,7 @@ export class SidebarView extends ItemView {
 			return;
 		}
 
-		for (const section of SECTIONS) {
+		for (const section of ALL_SECTIONS) {
 			new Setting(contentEl).setName(section).setHeading();
 			for (const command of COMMANDS.filter((c) => c.section === section)) {
 				new Setting(contentEl)

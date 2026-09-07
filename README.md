@@ -60,6 +60,24 @@ Community Plugins settings.
 
 For live development, `npm run dev` rebuilds `main.js` on save.
 
+## Quickstart
+
+1. **Get a Trello key and token** — open <https://trello.com/app-key>, copy the
+   **Key**, then use the token-generation link on that same page to create a
+   **Token** (Trello walks you through granting read/write access).
+2. **Install the plugin** — see [Install](#install-manual--not-on-the-community-plugin-store)
+   above, then enable it in Obsidian's Community Plugins settings.
+3. **Open the plugin settings**, paste the key and token into the *Trello
+   connection* section, then fill **Board id** — start typing to search your
+   boards by name instead of hunting for the id.
+4. **Click "Test connection"** to confirm the key, the token and board access
+   all work before syncing anything.
+5. **Add one list ↔ folder mapping**, or link a single existing note first with
+   **"Link active note to a card (pick manually)"**.
+6. **Turn on Dry run**, then run **"Sync a list with its folder"** once —
+   nothing is written, but the log shows exactly what would happen.
+7. Happy with the plan? **Turn Dry run off** and run the same command for real.
+
 ## Configuration
 
 Everything lives in the plugin settings — **never in a vault note**.
@@ -80,6 +98,9 @@ Everything lives in the plugin settings — **never in a vault note**.
 - **Create / delete** — creation is on by default. Deletion is off by default, only ever
   uses Obsidian's trash, and only fires for a card that left the *board*: a card dragged
   to another list leaves its note untouched and is reported as moved.
+- **Ribbon icons** — a toggle per command, choosing which ones get a button in Obsidian's
+  left ribbon. Changes apply immediately, no restart needed. Every command is always
+  available from the sidebar panel and the command palette regardless of this setting.
 
 ## Templates
 

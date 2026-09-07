@@ -1,11 +1,11 @@
 import { parseCardRef, formatCardRef, type CardRef } from "../src/core/cardRef";
 import { excludeFolders } from "../src/core/fileName";
 import { splitFrontmatter } from "../src/core/noteBody";
-import type { NoteHandle, Reporter, VaultGateway } from "../src/obsidian/gateway";
+import type { CardRefStore, NoteHandle, Reporter, TemplateResolver, VaultGateway } from "../src/obsidian/gateway";
 import { TrelloClient, type HttpRequest, type HttpResponse, type TrelloCard } from "../src/trello/client";
 
 /** In-memory vault, faithful enough to exercise the engines end to end. */
-export class FakeVault implements VaultGateway {
+export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 	private files = new Map<string, { content: string; mtime: number }>();
 	readonly templates = new Map<string, string>();
 	readonly trashed: string[] = [];
@@ -56,6 +56,51 @@ export class FakeVault implements VaultGateway {
 		const frontmatter = splitFrontmatter(this.contentOf(note.path)).frontmatter ?? "";
 		const match = frontmatter.match(/trello_board_card_id:\s*"?([^"\n]*)"?/);
 		return parseCardRef(match?.[1]);
+	}
+
+	/** Minimal `key: value` YAML parsing — enough for the generic frontmatter tests need. */
+	private parseFrontmatterBlock(block: string): Record<string, unknown> {
+		const result: Record<string, unknown> = {};
+		const lines = block.replace(/\r\n/g, "\n").split("\n").slice(1, -1);
+		for (const line of lines) {
+			const match = line.match(/^([^:]+):\s*(.*)$/);
+			if (!match) continue;
+			const key = (match[1] ?? "").trim();
+			const raw = (match[2] ?? "").trim();
+			const quoted = raw.match(/^"(.*)"$/);
+			result[key] = quoted
+				? quoted[1]
+				: raw === "true"
+					? true
+					: raw === "false"
+						? false
+						: raw !== "" && !Number.isNaN(Number(raw))
+							? Number(raw)
+							: raw;
+		}
+		return result;
+	}
+
+	private serializeFrontmatterBlock(frontmatter: Record<string, unknown>): string {
+		const lines = Object.entries(frontmatter).map(([key, value]) =>
+			typeof value === "string" ? `${key}: "${value}"` : `${key}: ${value}`,
+		);
+		return `---\n${lines.join("\n")}\n---`;
+	}
+
+	readFrontmatter(note: NoteHandle): Record<string, unknown> | null {
+		const { frontmatter } = splitFrontmatter(this.contentOf(note.path));
+		return frontmatter === null ? null : this.parseFrontmatterBlock(frontmatter);
+	}
+
+	async writeFrontmatter(note: NoteHandle, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void> {
+		const content = this.contentOf(note.path);
+		const { frontmatter, body } = splitFrontmatter(content);
+		const parsed = frontmatter === null ? {} : this.parseFrontmatterBlock(frontmatter);
+		mutate(parsed);
+		const block = this.serializeFrontmatterBlock(parsed);
+		const next = frontmatter === null ? `${block}\n\n${content}` : `${block}${body}`;
+		await this.write(note, next);
 	}
 
 	async setCardRef(note: NoteHandle, ref: CardRef): Promise<void> {
@@ -113,6 +158,7 @@ export function card(partial: Partial<TrelloCard> & { id: string }): TrelloCard 
 		desc: "",
 		url: `https://trello.com/c/${partial.id}`,
 		dateLastActivity: "2026-08-01T00:00:00.000Z",
+		due: null,
 		...partial,
 	};
 }

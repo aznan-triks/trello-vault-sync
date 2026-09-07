@@ -27,7 +27,7 @@ export interface HttpResponse {
 	headers?: Record<string, string>;
 }
 
-export type Transport = (request: HttpRequest) => Promise<HttpResponse>;
+export type Transport = (request: HttpRequest, signal?: AbortSignal) => Promise<HttpResponse>;
 
 export interface TrelloCard {
 	id: string;
@@ -38,6 +38,7 @@ export interface TrelloCard {
 	dateLastActivity: string;
 	idList?: string;
 	closed?: boolean;
+	due: string | null;
 }
 
 export interface TrelloList {
@@ -79,10 +80,12 @@ export interface TrelloClientOptions {
 	sleep?: (ms: number) => Promise<void>;
 	/** Called right before each retry's wait — lets the caller show live progress. */
 	onRetry?: (info: RetryInfo) => void;
+	/** Per-attempt timeout — a request that outlives this is treated as a transport-level failure (retryable), same path as a 5xx. */
+	requestTimeoutMs?: number;
 }
 
 const API_ROOT = "https://api.trello.com/1";
-const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed";
+const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed,due";
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
 /** One page's worth of actions per call — no automatic multi-page walk, see PLAN_2026-09-04_feature-audit-changes.md. */
 const ACTIONS_PAGE_LIMIT = "1000";
@@ -106,6 +109,7 @@ export class TrelloClient {
 	private readonly maxBackoffDelayMs: number;
 	private readonly sleep: (ms: number) => Promise<void>;
 	private readonly onRetry?: (info: RetryInfo) => void;
+	private readonly requestTimeoutMs: number;
 
 	constructor(
 		private readonly credentials: TrelloCredentials,
@@ -117,6 +121,7 @@ export class TrelloClient {
 		this.maxBackoffDelayMs = options.maxBackoffDelayMs ?? 30_000;
 		this.sleep = options.sleep ?? defaultSleep;
 		this.onRetry = options.onRetry;
+		this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
 	}
 
 	/** True when both halves of the single configured credential pair are present. */
@@ -124,16 +129,17 @@ export class TrelloClient {
 		return this.credentials.apiKey.trim() !== "" && this.credentials.token.trim() !== "";
 	}
 
-	async getCard(cardId: string): Promise<TrelloCard> {
-		return this.json<TrelloCard>(`/cards/${encodeURIComponent(cardId)}`, { fields: CARD_FIELDS });
+	async getCard(cardId: string, signal?: AbortSignal): Promise<TrelloCard> {
+		return this.json<TrelloCard>(`/cards/${encodeURIComponent(cardId)}`, { fields: CARD_FIELDS }, signal);
 	}
 
 	/** `filter: "all"` includes archived (closed) cards, which "visible" (the default) excludes. */
-	async getBoardCards(boardId: string, filter: "visible" | "all" = "visible"): Promise<TrelloCard[]> {
-		return this.json<TrelloCard[]>(`/boards/${encodeURIComponent(boardId)}/cards`, {
-			fields: CARD_FIELDS,
-			filter,
-		});
+	async getBoardCards(boardId: string, filter: "visible" | "all" = "visible", signal?: AbortSignal): Promise<TrelloCard[]> {
+		return this.json<TrelloCard[]>(
+			`/boards/${encodeURIComponent(boardId)}/cards`,
+			{ fields: CARD_FIELDS, filter },
+			signal,
+		);
 	}
 
 	/**
@@ -142,20 +148,16 @@ export class TrelloClient {
 	 * Trello API defaults this endpoint to "all", which includes closed boards
 	 * a user picking a board to sync almost never wants to see.
 	 */
-	async getMyBoards(): Promise<TrelloBoard[]> {
-		return this.json<TrelloBoard[]>("/members/me/boards", { fields: "name", filter: "open" });
+	async getMyBoards(signal?: AbortSignal): Promise<TrelloBoard[]> {
+		return this.json<TrelloBoard[]>("/members/me/boards", { fields: "name", filter: "open" }, signal);
 	}
 
-	async getBoardLists(boardId: string): Promise<TrelloList[]> {
-		return this.json<TrelloList[]>(`/boards/${encodeURIComponent(boardId)}/lists`, {
-			fields: "name",
-		});
+	async getBoardLists(boardId: string, signal?: AbortSignal): Promise<TrelloList[]> {
+		return this.json<TrelloList[]>(`/boards/${encodeURIComponent(boardId)}/lists`, { fields: "name" }, signal);
 	}
 
-	async getListCards(listId: string): Promise<TrelloCard[]> {
-		return this.json<TrelloCard[]>(`/lists/${encodeURIComponent(listId)}/cards`, {
-			fields: CARD_FIELDS,
-		});
+	async getListCards(listId: string, signal?: AbortSignal): Promise<TrelloCard[]> {
+		return this.json<TrelloCard[]>(`/lists/${encodeURIComponent(listId)}/cards`, { fields: CARD_FIELDS }, signal);
 	}
 
 	/**
@@ -163,7 +165,11 @@ export class TrelloClient {
 	 * default). `since`/`before` are action ids or ISO dates, passed through
 	 * unchanged — the caller decides which.
 	 */
-	async getActions(boardId: string, options: { since?: string; before?: string } = {}): Promise<TrelloAction[]> {
+	async getActions(
+		boardId: string,
+		options: { since?: string; before?: string } = {},
+		signal?: AbortSignal,
+	): Promise<TrelloAction[]> {
 		const params: Record<string, string> = {
 			filter: "all",
 			limit: ACTIONS_PAGE_LIMIT,
@@ -171,22 +177,33 @@ export class TrelloClient {
 		};
 		if (options.since) params.since = options.since;
 		if (options.before) params.before = options.before;
-		return this.json<TrelloAction[]>(`/boards/${encodeURIComponent(boardId)}/actions`, params);
+		return this.json<TrelloAction[]>(`/boards/${encodeURIComponent(boardId)}/actions`, params, signal);
 	}
 
-	/** Update a card's title and/or description. A no-op when nothing changed. */
-	async updateCard(cardId: string, fields: { name?: string; desc?: string }): Promise<void> {
+	/**
+	 * Update a card's title, description and/or due date. A no-op when nothing
+	 * changed. `due: undefined` leaves the field untouched; `due: null` clears it.
+	 */
+	async updateCard(
+		cardId: string,
+		fields: { name?: string; desc?: string; due?: string | null },
+		signal?: AbortSignal,
+	): Promise<void> {
 		const body = new URLSearchParams();
 		if (fields.name !== undefined) body.append("name", fields.name);
 		if (fields.desc !== undefined) body.append("desc", fields.desc);
+		if (fields.due !== undefined) body.append("due", fields.due === null ? "null" : fields.due);
 		if ([...body.keys()].length === 0) return;
 
-		await this.send({
-			url: this.buildUrl(`/cards/${encodeURIComponent(cardId)}`, {}),
-			method: "PUT",
-			body: body.toString(),
-			contentType: "application/x-www-form-urlencoded",
-		});
+		await this.send(
+			{
+				url: this.buildUrl(`/cards/${encodeURIComponent(cardId)}`, {}),
+				method: "PUT",
+				body: body.toString(),
+				contentType: "application/x-www-form-urlencoded",
+			},
+			signal,
+		);
 	}
 
 	private buildUrl(path: string, params: Record<string, string>): string {
@@ -198,8 +215,8 @@ export class TrelloClient {
 		return `${API_ROOT}${path}?${query.toString()}`;
 	}
 
-	private async json<T>(path: string, params: Record<string, string>): Promise<T> {
-		const response = await this.send({ url: this.buildUrl(path, params), method: "GET" });
+	private async json<T>(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
+		const response = await this.send({ url: this.buildUrl(path, params), method: "GET" }, signal);
 		try {
 			return JSON.parse(response.text) as T;
 		} catch {
@@ -207,7 +224,7 @@ export class TrelloClient {
 		}
 	}
 
-	private async send(request: HttpRequest): Promise<HttpResponse> {
+	private async send(request: HttpRequest, callerSignal?: AbortSignal): Promise<HttpResponse> {
 		if (!this.configured) {
 			throw new TrelloError(
 				"Missing Trello credentials — set the key and token in the plugin settings.",
@@ -220,13 +237,19 @@ export class TrelloClient {
 		// `maxRetries` counts the retries that follow the first attempt.
 		for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
 			let response: HttpResponse | undefined;
+			// A fresh timeout per attempt (not one budget for the whole retry loop), combined
+			// with the caller's own signal so either one can cut the wait short.
+			const timeoutSignal = AbortSignal.timeout(this.requestTimeoutMs);
+			const combinedSignal = callerSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : timeoutSignal;
 			try {
 				// The credentials travel in the query string, so a transport-level failure
 				// (DNS, offline, TLS) can carry the whole URL into a Notice or the console.
-				response = await this.transport(request);
+				response = await this.transport(request, combinedSignal);
 			} catch (cause) {
 				// A transport-level failure is transient in the same way a 5xx/429 is —
 				// retry it through the same backoff budget instead of failing on attempt 1.
+				// A timeout lands here too (the combined signal firing rejects the transport
+				// the same way a network error would), so it rides the exact same path.
 				lastError = new TrelloError(this.redact(errorMessage(cause)), 0, true);
 			}
 
@@ -236,6 +259,11 @@ export class TrelloClient {
 				lastError = new TrelloError(this.describe(response), response.status, retryable);
 				if (!retryable) throw lastError;
 			}
+
+			// The caller's own signal (not the combined one, which also fires on a plain
+			// timeout) aborting means "stop now" — fail fast with the error already in
+			// hand instead of spending the next sleep()/attempt on a cancelled request.
+			if (callerSignal?.aborted) throw lastError ?? new TrelloError("Trello request cancelled.", 0, false);
 
 			if (attempt < this.maxRetries) {
 				const delayMs = this.computeDelay(attempt, response);

@@ -1,8 +1,9 @@
 import { Notice } from "obsidian";
 import type { CommandContext } from "./context";
+import { DUE_KEY, parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { extractBody } from "../core/noteBody";
-import { tallyNoteResult } from "../core/syncTally";
+import { describeSyncOutcome, tallyNoteResult } from "../core/syncTally";
 import { linkActiveNote, linkNoteToCard } from "../features/linkNote";
 import { decideForCard, syncNote } from "../features/syncNote";
 import { CardPickerModal } from "../ui/CardPickerModal";
@@ -24,18 +25,7 @@ export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): 
 		);
 		if (result.direction === "unlinked") reporter.log("warn", "Not linked to a Trello card.");
 
-		switch (result.direction) {
-			case "pull":
-				return `Pulled from Trello${result.renamed ? " and renamed" : ""}.`;
-			case "push":
-				return "Pushed to Trello.";
-			case "conflict":
-				return "Conflict: note and card changed at the same time, nothing was written.";
-			case "unlinked":
-				return "Note not linked — use \"Link active note to a card\".";
-			default:
-				return "Already up to date.";
-		}
+		return describeSyncOutcome(result);
 	}, { cancellable: false });
 }
 
@@ -86,10 +76,17 @@ export async function resolveConflict(ctx: CommandContext): Promise<void> {
 	await ctx.run(`Check conflict — ${note.basename}`, async (reporter) => {
 		const card = await ctx.client(reporter).getCard(ref.cardId);
 		const localBody = extractBody(await ctx.vault.read(note));
-		const decision = decideForCard(note, card, localBody, {
-			policy: ctx.settings.policy,
-			marginMs: ctx.settings.marginSeconds * 1000,
-		});
+		const localDue = parseDueRef(ctx.vault.readFrontmatter(note)?.[DUE_KEY]);
+		const decision = decideForCard(
+			note,
+			card,
+			localBody,
+			{
+				policy: ctx.settings.policy,
+				marginMs: ctx.settings.marginSeconds * 1000,
+			},
+			localDue,
+		);
 		if (decision.direction !== "conflict") return "No conflict on this note — nothing to resolve.";
 
 		new ConflictModal(
