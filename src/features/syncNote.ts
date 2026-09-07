@@ -1,7 +1,8 @@
+import { DUE_KEY, formatDueRef, parseDueRef } from "../core/dueRef";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { extractBody, replaceBody } from "../core/noteBody";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
-import type { NoteHandle, VaultGateway } from "../obsidian/gateway";
+import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient } from "../trello/client";
 
 export interface NoteSyncOptions {
@@ -32,6 +33,7 @@ export function decideForCard(
 	card: TrelloCard,
 	localBody: string,
 	options: Pick<NoteSyncOptions, "policy" | "marginMs">,
+	localDue: string | null,
 ): SyncDecision {
 	const remoteMtime = new Date(card.dateLastActivity).getTime();
 	if (!Number.isFinite(remoteMtime)) {
@@ -43,9 +45,11 @@ export function decideForCard(
 		localTitle: note.basename,
 		localBody,
 		localMtime: note.mtime,
+		localDue,
 		remoteTitle: card.name,
 		remoteBody: card.desc ?? "",
 		remoteMtime,
+		remoteDue: card.due,
 		policy: options.policy,
 		marginMs: options.marginMs,
 	});
@@ -61,8 +65,9 @@ export async function syncNoteWithCard(
 ): Promise<NoteSyncResult> {
 	const content = await vault.read(note);
 	const localBody = extractBody(content);
+	const localDue = parseDueRef(vault.readFrontmatter(note)?.[DUE_KEY]);
 
-	const decision = decideForCard(note, card, localBody, options);
+	const decision = decideForCard(note, card, localBody, options, localDue);
 	const direction = options.force ?? decision.direction;
 	if (direction === "skip" || direction === "conflict") {
 		return { direction, renamed: false, note, reason: decision.reason };
@@ -76,6 +81,14 @@ export async function syncNoteWithCard(
 		let current = note;
 		const nextContent = replaceBody(content, card.desc ?? "");
 		if (nextContent !== content) await vault.write(current, nextContent);
+
+		if (decision.dueChanged) {
+			await vault.writeFrontmatter(current, (frontmatter) => {
+				const formatted = formatDueRef(card.due);
+				if (formatted === null) delete frontmatter[DUE_KEY];
+				else frontmatter[DUE_KEY] = formatted;
+			});
+		}
 
 		let renamed = false;
 		if (options.syncTitle && sanitizeFileName(card.name) !== current.basename) {
@@ -93,15 +106,16 @@ export async function syncNoteWithCard(
 		return { direction, renamed, note: current, reason: decision.reason };
 	}
 
-	const fields: { name?: string; desc?: string } = { desc: localBody };
+	const fields: { name?: string; desc?: string; due?: string | null } = { desc: localBody };
 	if (options.syncTitle && decision.titleChanged) fields.name = note.basename;
+	if (decision.dueChanged) fields.due = localDue;
 	await client.updateCard(card.id, fields);
 	return { direction, renamed: false, note, reason: decision.reason };
 }
 
 /** Sync one note, fetching its card first. */
 export async function syncNote(
-	vault: VaultGateway,
+	vault: VaultGateway & CardRefStore,
 	client: TrelloClient,
 	note: NoteHandle,
 	options: NoteSyncOptions,

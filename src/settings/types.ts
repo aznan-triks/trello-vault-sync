@@ -31,12 +31,17 @@ export interface TrelloVaultSyncSettings {
 	similarityThreshold: number;
 	maxRetries: number;
 	baseDelayMs: number;
+	/** Per-attempt network timeout, in ms — a request that outlives this is treated as a transport-level failure (retryable), same path as a 5xx. */
+	requestTimeoutMs: number;
 
 	/** Trello list ↔ vault folder pairs, replacing the per-folder scripts. */
 	mappings: FolderMapping[];
 
 	showPanel: boolean;
 	panelAutoCloseSeconds: number;
+
+	/** Ids (from `commands/registry.ts`) of the commands shown as ribbon icons, in registry order. */
+	ribbonCommandIds: string[];
 
 	/** "Audit changes" cursor: id of the last processed Trello action, "" before a first run. No settings-tab field — internal bookkeeping. */
 	auditChangesCursor: string;
@@ -59,9 +64,11 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	similarityThreshold: 0.45,
 	maxRetries: 3,
 	baseDelayMs: 800,
+	requestTimeoutMs: 30_000,
 	mappings: [],
 	showPanel: true,
 	panelAutoCloseSeconds: 8,
+	ribbonCommandIds: ["sync-active-note", "sync-vault", "sync-all-mappings", "audit-links"],
 	auditChangesCursor: "",
 };
 
@@ -69,6 +76,8 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 export const MAX_RETRIES_CEILING = 10;
 /** Highest backoff delay, in ms, normalizeSettings will accept before clamping. */
 export const BASE_DELAY_MS_CEILING = 60_000;
+/** Highest per-request timeout, in ms, normalizeSettings will accept before clamping. */
+export const REQUEST_TIMEOUT_MS_CEILING = 120_000;
 /** A similarity score never exceeds 1 (100% match). */
 const SIMILARITY_THRESHOLD_CEILING = 1;
 
@@ -138,6 +147,11 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			DEFAULT_SETTINGS.baseDelayMs,
 			BASE_DELAY_MS_CEILING,
 		),
+		requestTimeoutMs: safeNonNegativeNumber(
+			input.requestTimeoutMs,
+			DEFAULT_SETTINGS.requestTimeoutMs,
+			REQUEST_TIMEOUT_MS_CEILING,
+		),
 		panelAutoCloseSeconds: safeNonNegativeNumber(
 			input.panelAutoCloseSeconds,
 			DEFAULT_SETTINGS.panelAutoCloseSeconds,
@@ -147,6 +161,8 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			DEFAULT_SETTINGS.similarityThreshold,
 			SIMILARITY_THRESHOLD_CEILING,
 		),
+		ribbonCommandIds: (Array.isArray(input.ribbonCommandIds) ? input.ribbonCommandIds : DEFAULT_SETTINGS.ribbonCommandIds)
+			.filter((id): id is string => typeof id === "string"),
 		mappings: mappings.map((mapping) => ({
 			listId: safeString(mapping?.listId),
 			folder: normalizeVaultPath(safeString(mapping?.folder)),

@@ -5,6 +5,9 @@ import * as syncCommands from "./syncCommands";
 
 export type CommandSection = "Active note" | "Folders" | "Vault";
 
+/** Display order shared by every UI that groups commands by section (sidebar, settings). */
+export const ALL_SECTIONS: CommandSection[] = ["Active note", "Folders", "Vault"];
+
 export interface CommandDescriptor {
 	id: string;
 	name: string;

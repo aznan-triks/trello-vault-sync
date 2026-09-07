@@ -76,4 +76,30 @@ describe("normalizeSettings", () => {
 	test("falls back to an empty list when excludedFolders is not an array", () => {
 		expect(normalizeSettings({ excludedFolders: "Archive" as unknown as string[] }).excludedFolders).toEqual([]);
 	});
+
+	test("defaults ribbonCommandIds to the 4 built-in ribbon buttons", () => {
+		expect(normalizeSettings({}).ribbonCommandIds).toEqual(DEFAULT_SETTINGS.ribbonCommandIds);
+	});
+
+	test("keeps an empty ribbonCommandIds as is — the user unchecked every ribbon button", () => {
+		expect(normalizeSettings({ ribbonCommandIds: [] }).ribbonCommandIds).toEqual([]);
+	});
+
+	test("keeps a stale ribbonCommandIds entry — filtering an id no longer in COMMANDS happens at ribbon-build time, not here", () => {
+		expect(normalizeSettings({ ribbonCommandIds: ["a-removed-command"] }).ribbonCommandIds).toEqual([
+			"a-removed-command",
+		]);
+	});
+
+	test("falls back to the default when ribbonCommandIds is not an array", () => {
+		expect(normalizeSettings({ ribbonCommandIds: "sync-vault" as unknown as string[] }).ribbonCommandIds).toEqual(
+			DEFAULT_SETTINGS.ribbonCommandIds,
+		);
+	});
+
+	test("drops non-string entries from a corrupted ribbonCommandIds array", () => {
+		expect(normalizeSettings({ ribbonCommandIds: ["sync-vault", 42, null] as never }).ribbonCommandIds).toEqual([
+			"sync-vault",
+		]);
+	});
 });

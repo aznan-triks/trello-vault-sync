@@ -1,10 +1,10 @@
 import { TFile, type App } from "obsidian";
 import { CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../core/cardRef";
 import { excludeFolders, notesInFolder } from "../core/fileName";
-import type { NoteHandle, VaultGateway } from "./gateway";
+import type { CardRefStore, NoteHandle, TemplateResolver, VaultGateway } from "./gateway";
 
-/** The real vault, behind the interface the engines depend on. */
-export class ObsidianVault implements VaultGateway {
+/** The real vault, behind the interfaces the engines depend on. */
+export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolver {
 	constructor(private readonly app: App) {}
 
 	private toHandle(file: TFile): NoteHandle {
@@ -35,14 +35,24 @@ export class ObsidianVault implements VaultGateway {
 		return file instanceof TFile ? this.toHandle(file) : null;
 	}
 
-	getCardRef(note: NoteHandle): CardRef | null {
+	readFrontmatter(note: NoteHandle): Record<string, unknown> | null {
 		const cache = this.app.metadataCache.getFileCache(this.toFile(note));
-		return parseCardRef(cache?.frontmatter?.[CARD_REF_KEY]);
+		return cache?.frontmatter ?? null;
+	}
+
+	async writeFrontmatter(note: NoteHandle, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void> {
+		// processFrontMatter round-trips the YAML properly — no string surgery.
+		await this.app.fileManager.processFrontMatter(this.toFile(note), (frontmatter) => {
+			mutate(frontmatter);
+		});
+	}
+
+	getCardRef(note: NoteHandle): CardRef | null {
+		return parseCardRef(this.readFrontmatter(note)?.[CARD_REF_KEY]);
 	}
 
 	async setCardRef(note: NoteHandle, ref: CardRef): Promise<void> {
-		// processFrontMatter round-trips the YAML properly — no string surgery.
-		await this.app.fileManager.processFrontMatter(this.toFile(note), (frontmatter) => {
+		await this.writeFrontmatter(note, (frontmatter) => {
 			frontmatter[CARD_REF_KEY] = formatCardRef(ref.boardId, ref.cardId);
 		});
 	}

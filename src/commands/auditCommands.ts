@@ -58,7 +58,7 @@ export async function runChangesHtmlExport(ctx: CommandContext): Promise<void> {
 			ctx.vault,
 			ctx.client(reporter),
 			{ boardId, htmlPath: ctx.settings.changesHtmlPath, timestamp, since: ctx.settings.auditChangesCursor },
-			(url) => ctx.fetchBinary(url),
+			(url, avatarSignal) => ctx.fetchBinary(url, avatarSignal),
 			reporter,
 			signal,
 		);

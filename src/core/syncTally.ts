@@ -45,6 +45,31 @@ export function tallyNoteResult(
  * interfaces this accumulates (`FolderSyncStats`, `VaultSyncStats`) declare no
  * index signature, which TS will not match structurally against the latter.
  */
+/**
+ * Turn one note-sync result into the user-facing summary line for `syncActive`.
+ * Exhaustive on `direction` (compiler-enforced) so a new direction added to
+ * `NoteSyncResult` fails the build here instead of silently reporting
+ * "Already up to date." — the bug this replaced.
+ */
+export function describeSyncOutcome(result: TallyableResult): string {
+	switch (result.direction) {
+		case "pull":
+			return `Pulled from Trello${result.renamed ? " and renamed" : ""}.`;
+		case "push":
+			return "Pushed to Trello.";
+		case "conflict":
+			return "Conflict: note and card changed at the same time, nothing was written.";
+		case "unlinked":
+			return "Note not linked — use \"Link active note to a card\".";
+		case "skip":
+			return "Already up to date.";
+		default: {
+			const _exhaustive: never = result.direction;
+			throw new Error(`Unhandled sync direction: ${String(_exhaustive)}`);
+		}
+	}
+}
+
 export function addCounts<T extends object>(target: T, source: T): T {
 	const t = target as unknown as Record<string, number>;
 	const s = source as unknown as Record<string, number>;

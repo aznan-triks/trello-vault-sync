@@ -35,7 +35,7 @@ export async function auditChanges(
 ): Promise<ChangesAuditResult> {
 	const reportNote = requireReportNote(vault, options.reportPath);
 
-	const actions = await client.getActions(options.boardId, { since: options.since || undefined });
+	const actions = await client.getActions(options.boardId, { since: options.since || undefined }, signal);
 	reporter.setTotal(actions.length);
 
 	const entries: AuditEntry[] = [];

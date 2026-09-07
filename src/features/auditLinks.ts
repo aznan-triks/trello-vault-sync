@@ -7,7 +7,7 @@ import {
 	type ReportCard,
 	type ReportNote,
 } from "../core/auditReport";
-import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
+import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { requireReportNote, type AuditOptions } from "./auditShared";
 import { fetchBoardIndex } from "./boardIndex";
@@ -21,7 +21,7 @@ export interface LinkAuditResult {
 
 /** Cross-check the board against the vault: what is linked, dangling or missing. */
 export async function auditLinks(
-	vault: VaultGateway,
+	vault: VaultGateway & CardRefStore,
 	client: TrelloClient,
 	options: AuditOptions,
 	reporter: Reporter = silentReporter,

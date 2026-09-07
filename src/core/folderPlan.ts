@@ -8,6 +8,7 @@ export interface PlannedCard {
 	desc: string;
 	url: string;
 	dateLastActivity: string;
+	due: string | null;
 }
 
 /** The note fields the planner needs — a subset of Obsidian's `TFile`. */

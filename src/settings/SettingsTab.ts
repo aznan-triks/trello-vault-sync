@@ -1,5 +1,6 @@
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
+import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
 import { errorMessage } from "../core/errorMessage";
 import type { ConflictPolicy } from "../core/syncDecision";
 import { TrelloPickerSuggest } from "../ui/TrelloPickerSuggest";
@@ -7,6 +8,7 @@ import { VaultPathSuggest } from "../ui/VaultPathSuggest";
 import {
 	BASE_DELAY_MS_CEILING,
 	MAX_RETRIES_CEILING,
+	REQUEST_TIMEOUT_MS_CEILING,
 	normalizeVaultPath,
 	safeNonNegativeNumber,
 } from "./types";
@@ -41,6 +43,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		this.renderScope(containerEl);
 		this.renderBehaviour(containerEl);
 		this.renderMappings(containerEl);
+		this.renderRibbon(containerEl);
 		this.renderAdvanced(containerEl);
 
 		containerEl.scrollTop = scrollTop;
@@ -416,6 +419,27 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		);
 	}
 
+	private renderRibbon(root: HTMLElement): void {
+		new Setting(root).setName("Ribbon icons").setHeading();
+		new Setting(root).setDesc("Choose which commands get a button in Obsidian's left ribbon.");
+
+		for (const section of ALL_SECTIONS) {
+			for (const command of COMMANDS.filter((c) => c.section === section)) {
+				new Setting(root).setName(command.name).addToggle((toggle) =>
+					toggle
+						.setValue(this.plugin.settings.ribbonCommandIds.includes(command.id))
+						.onChange(async (value) => {
+							const ids = this.plugin.settings.ribbonCommandIds;
+							this.plugin.settings.ribbonCommandIds = value
+								? [...ids, command.id]
+								: ids.filter((id) => id !== command.id);
+							await this.save();
+						}),
+				);
+			}
+		}
+	}
+
 	private renderAdvanced(root: HTMLElement): void {
 		new Setting(root).setName("Advanced").setHeading();
 
@@ -451,6 +475,21 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				text.setValue(String(this.plugin.settings.baseDelayMs)).onChange(async (value) => {
 					const parsed = Number.parseInt(value, 10);
 					this.plugin.settings.baseDelayMs = safeNonNegativeNumber(parsed, 0, BASE_DELAY_MS_CEILING);
+					await this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Request timeout (ms)")
+			.setDesc("How long to wait for a single Trello response before treating it as a failed attempt.")
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.requestTimeoutMs)).onChange(async (value) => {
+					const parsed = Number.parseInt(value, 10);
+					this.plugin.settings.requestTimeoutMs = safeNonNegativeNumber(
+						parsed,
+						0,
+						REQUEST_TIMEOUT_MS_CEILING,
+					);
 					await this.save();
 				}),
 			);
