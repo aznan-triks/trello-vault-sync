@@ -7,7 +7,7 @@ Ressources consultées :
 - `src/commands/{noteCommands,syncCommands,auditCommands}.ts` : chaque handler prend déjà `ctx: CommandContext` en seul paramètre — le panneau latéral peut appeler exactement les mêmes fonctions que `main.ts`, aucune logique dupliquée.
 - `src/commands/context.ts` (`CommandContext`) : `ctx.ready()`, `ctx.run()`, `ctx.settings` déjà exposés — le panneau peut réutiliser l'état "credentials manquantes" sans réimplémenter la validation.
 - `src/ui/ProgressPanel.ts` + `styles.css` : seul précédent de widget custom dans le plugin — même convention à suivre (classes `tvs-*`, variables CSS `--background-*`/`--text-*` du thème Obsidian, pas de couleur en dur).
-- Legacy `trello_location_audit.js` (`[redacted]`, fourni en référence par l'utilisateur) : confirme que "Comparer avec Trello" = la commande `audit-locations` déjà portée dans `auditLocations.ts` — aucune logique manquante, seulement un accès UI manquant. Le panneau latéral referme ce point sans nouveau code métier.
+- Legacy `trello_location_audit.js` (fourni en référence par l'utilisateur) : confirme que "Comparer avec Trello" = la commande `audit-locations` déjà portée dans `auditLocations.ts` — aucune logique manquante, seulement un accès UI manquant. Le panneau latéral referme ce point sans nouveau code métier.
 Décision :
 - Crée `src/ui/SidebarView.ts` — nouveau, aucun fichier existant ne couvre une vue persistante de barre latérale (`ProgressPanel` est un widget flottant éphémère, rôle différent).
 - Étend `src/main.ts` : `registerView(VIEW_TYPE_TVS_SIDEBAR, ...)` + un ribbon icon pour l'ouvrir + détachement des leaves dans `onunload()`.
