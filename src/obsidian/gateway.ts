@@ -12,7 +12,8 @@ export interface NoteHandle {
 }
 
 /**
- * Everything the engines are allowed to do to the vault.
+ * Generic file IO the engines are allowed to do to the vault, plus generic
+ * frontmatter access — independent of any Trello concept or template concern.
  *
  * Keeping this an interface is what lets the sync logic run against an in-memory
  * vault in the tests, and against Obsidian at runtime, with no branching.
@@ -22,16 +23,28 @@ export interface VaultGateway {
 	listNotes(folder: string, excludedFolders?: string[]): NoteHandle[];
 	/** Handle for a single known path, without walking the whole vault. `null` if missing. */
 	noteAt(path: string): NoteHandle | null;
-	/** The card this note points at, or `null` when unlinked or unusable. */
-	getCardRef(note: NoteHandle): CardRef | null;
-	/** Write the card reference into the note's frontmatter. */
-	setCardRef(note: NoteHandle, ref: CardRef): Promise<void>;
 	read(note: NoteHandle): Promise<string>;
 	write(note: NoteHandle, content: string): Promise<void>;
 	rename(note: NoteHandle, newPath: string): Promise<NoteHandle>;
 	create(path: string, content: string): Promise<NoteHandle>;
 	trash(note: NoteHandle): Promise<void>;
 	exists(path: string): boolean;
+	/** The note's frontmatter fields, or `null` when it has none. */
+	readFrontmatter(note: NoteHandle): Record<string, unknown> | null;
+	/** Mutate the note's frontmatter in place; created if missing. */
+	writeFrontmatter(note: NoteHandle, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void>;
+}
+
+/** The Trello card concept, kept out of `VaultGateway` so generic-IO consumers never see it. */
+export interface CardRefStore {
+	/** The card this note points at, or `null` when unlinked or unusable. */
+	getCardRef(note: NoteHandle): CardRef | null;
+	/** Write the card reference into the note's frontmatter. */
+	setCardRef(note: NoteHandle, ref: CardRef): Promise<void>;
+}
+
+/** Template lookup, kept out of `VaultGateway` so consumers that never create notes don't see it. */
+export interface TemplateResolver {
 	/** Content of a template note by name, or `null` when it is missing. */
 	readTemplate(name: string): Promise<string | null>;
 }

@@ -1,6 +1,6 @@
 import { errorMessage } from "../core/errorMessage";
 import { tallyNoteResult } from "../core/syncTally";
-import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
+import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
 
@@ -32,7 +32,7 @@ export interface VaultSyncStats {
  * issued one request per note, which is what made it hit Trello's rate limit.
  */
 export async function syncVault(
-	vault: VaultGateway,
+	vault: VaultGateway & CardRefStore,
 	client: TrelloClient,
 	target: VaultSyncScope,
 	options: NoteSyncOptions,
@@ -57,7 +57,7 @@ export async function syncVault(
 	});
 	stats.unlinked = notes.length - linked.length;
 
-	const cards = await client.getBoardCards(target.boardId);
+	const cards = await client.getBoardCards(target.boardId, "visible", signal);
 	const byId = new Map(cards.map((card) => [card.id, card]));
 	reporter.log("info", `${cards.length} card(s) on the board, ${linked.length} linked note(s)`);
 	reporter.setTotal(linked.length);

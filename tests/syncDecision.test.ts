@@ -5,9 +5,11 @@ const base: SyncInput = {
 	localTitle: "Sagondo",
 	localBody: "same text",
 	localMtime: 1_000_000,
+	localDue: null,
 	remoteTitle: "Sagondo",
 	remoteBody: "same text",
 	remoteMtime: 1_000_000,
+	remoteDue: null,
 	policy: "newer-wins",
 	marginMs: 60_000,
 };
@@ -18,6 +20,7 @@ describe("decideSync", () => {
 			direction: "skip",
 			bodyChanged: false,
 			titleChanged: false,
+			dueChanged: false,
 			reason: "identical",
 		});
 	});
@@ -33,6 +36,7 @@ describe("decideSync", () => {
 			direction: "pull",
 			bodyChanged: true,
 			titleChanged: false,
+			dueChanged: false,
 			reason: "remote-newer",
 		});
 	});
@@ -49,6 +53,7 @@ describe("decideSync", () => {
 			direction: "push",
 			bodyChanged: false,
 			titleChanged: true,
+			dueChanged: false,
 			reason: "local-newer",
 		});
 	});
@@ -130,5 +135,49 @@ describe("decideSync", () => {
 		});
 		expect(decision.titleChanged).toBe(true);
 		expect(decision.direction).toBe("pull");
+	});
+
+	test("pulls on a due-date-only change when the card is newer", () => {
+		const decision = decideSync({
+			...base,
+			remoteDue: "2026-09-10T12:00:00.000Z",
+			remoteMtime: 2_000_000,
+		});
+		expect(decision.dueChanged).toBe(true);
+		expect(decision.direction).toBe("pull");
+	});
+
+	test("pushes on a due-date-only change when the note is newer", () => {
+		const decision = decideSync({
+			...base,
+			localDue: "2026-09-10T12:00:00.000Z",
+			localMtime: 2_000_000,
+		});
+		expect(decision.dueChanged).toBe(true);
+		expect(decision.direction).toBe("push");
+	});
+
+	test("skips when the due date, body and title all still agree", () => {
+		const decision = decideSync({ ...base, localDue: "2026-09-10T12:00:00.000Z", remoteDue: "2026-09-10T12:00:00.000Z" });
+		expect(decision.dueChanged).toBe(false);
+		expect(decision.direction).toBe("skip");
+	});
+
+	test("treats an empty string and an absent due date as equivalent", () => {
+		const decision = decideSync({ ...base, localDue: "", remoteDue: null });
+		expect(decision.dueChanged).toBe(false);
+		expect(decision.direction).toBe("skip");
+	});
+
+	test("flags a conflict when only the due date changed on both sides within the margin", () => {
+		const decision = decideSync({
+			...base,
+			localDue: "mine",
+			remoteDue: "theirs",
+			remoteMtime: 1_030_000,
+		});
+		expect(decision.dueChanged).toBe(true);
+		expect(decision.direction).toBe("conflict");
+		expect(decision.reason).toBe("within-margin");
 	});
 });

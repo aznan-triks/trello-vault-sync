@@ -5,7 +5,7 @@ import {
 	mergeReport,
 	type LocationRow,
 } from "../core/auditReport";
-import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
+import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { requireReportNote, type AuditOptions } from "./auditShared";
 import { fetchBoardIndex } from "./boardIndex";
@@ -21,7 +21,7 @@ const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /** Compare each linked note's folder with the Trello list its card sits in. */
 export async function auditLocations(
-	vault: VaultGateway,
+	vault: VaultGateway & CardRefStore,
 	client: TrelloClient,
 	options: AuditOptions,
 	reporter: Reporter = silentReporter,

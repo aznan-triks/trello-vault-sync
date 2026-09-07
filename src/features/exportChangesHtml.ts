@@ -40,19 +40,19 @@ export async function exportChangesHtml(
 	vault: VaultGateway,
 	client: TrelloClient,
 	options: ChangesHtmlOptions,
-	fetchBinary: (url: string) => Promise<ArrayBuffer | null>,
+	fetchBinary: (url: string, signal?: AbortSignal) => Promise<ArrayBuffer | null>,
 	reporter: Reporter = silentReporter,
 	signal?: AbortSignal,
 ): Promise<ChangesHtmlResult> {
 	const htmlPath = requireHtmlPath(options.htmlPath);
 
-	const actions = await client.getActions(options.boardId, { since: options.since || undefined });
+	const actions = await client.getActions(options.boardId, { since: options.since || undefined }, signal);
 	reporter.setTotal(actions.length);
 
 	const avatarCache = new Map<string, string | null>();
 	async function resolveAvatar(url: string): Promise<string | null> {
 		if (avatarCache.has(url)) return avatarCache.get(url) ?? null;
-		const bytes = await fetchBinary(url + AVATAR_SIZE_SUFFIX);
+		const bytes = await fetchBinary(url + AVATAR_SIZE_SUFFIX, signal);
 		if (!bytes) reporter.log("warn", `Could not download avatar, showing an initial instead: ${url}`);
 		const dataUri = bytes ? `data:image/png;base64,${arrayBufferToBase64(bytes)}` : null;
 		avatarCache.set(url, dataUri);
