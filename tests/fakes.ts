@@ -58,15 +58,29 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 		return parseCardRef(match?.[1]);
 	}
 
-	/** Minimal `key: value` YAML parsing — enough for the generic frontmatter tests need. */
+	/** Minimal `key: value` YAML parsing — enough for the generic frontmatter tests need, plus a block list (`key:` then `  - "item"` lines) for array-valued keys. */
 	private parseFrontmatterBlock(block: string): Record<string, unknown> {
 		const result: Record<string, unknown> = {};
 		const lines = block.replace(/\r\n/g, "\n").split("\n").slice(1, -1);
+		let arrayKey: string | null = null;
 		for (const line of lines) {
+			const item = arrayKey ? line.match(/^\s*-\s*(.*)$/) : null;
+			if (arrayKey && item) {
+				const raw = (item[1] ?? "").trim();
+				const quoted = raw.match(/^"(.*)"$/);
+				(result[arrayKey] as unknown[]).push(quoted ? quoted[1] : raw);
+				continue;
+			}
+			arrayKey = null;
 			const match = line.match(/^([^:]+):\s*(.*)$/);
 			if (!match) continue;
 			const key = (match[1] ?? "").trim();
 			const raw = (match[2] ?? "").trim();
+			if (raw === "") {
+				result[key] = [];
+				arrayKey = key;
+				continue;
+			}
 			const quoted = raw.match(/^"(.*)"$/);
 			result[key] = quoted
 				? quoted[1]
@@ -82,9 +96,12 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 	}
 
 	private serializeFrontmatterBlock(frontmatter: Record<string, unknown>): string {
-		const lines = Object.entries(frontmatter).map(([key, value]) =>
-			typeof value === "string" ? `${key}: "${value}"` : `${key}: ${value}`,
-		);
+		const lines = Object.entries(frontmatter).flatMap(([key, value]) => {
+			if (Array.isArray(value)) {
+				return value.length === 0 ? [`${key}: []`] : [`${key}:`, ...value.map((entry) => `  - "${entry}"`)];
+			}
+			return [typeof value === "string" ? `${key}: "${value}"` : `${key}: ${value}`];
+		});
 		return `---\n${lines.join("\n")}\n---`;
 	}
 
@@ -159,6 +176,7 @@ export function card(partial: Partial<TrelloCard> & { id: string }): TrelloCard 
 		url: `https://trello.com/c/${partial.id}`,
 		dateLastActivity: "2026-08-01T00:00:00.000Z",
 		due: null,
+		labels: [],
 		...partial,
 	};
 }

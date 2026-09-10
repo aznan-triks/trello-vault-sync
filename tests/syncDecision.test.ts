@@ -21,6 +21,7 @@ describe("decideSync", () => {
 			bodyChanged: false,
 			titleChanged: false,
 			dueChanged: false,
+			labelsChanged: false,
 			reason: "identical",
 		});
 	});
@@ -37,6 +38,7 @@ describe("decideSync", () => {
 			bodyChanged: true,
 			titleChanged: false,
 			dueChanged: false,
+			labelsChanged: false,
 			reason: "remote-newer",
 		});
 	});
@@ -54,6 +56,7 @@ describe("decideSync", () => {
 			bodyChanged: false,
 			titleChanged: true,
 			dueChanged: false,
+			labelsChanged: false,
 			reason: "local-newer",
 		});
 	});
@@ -179,5 +182,62 @@ describe("decideSync", () => {
 		expect(decision.dueChanged).toBe(true);
 		expect(decision.direction).toBe("conflict");
 		expect(decision.reason).toBe("within-margin");
+	});
+
+	test("ignores a label divergence entirely in the default (merge) mode", () => {
+		const decision = decideSync({
+			...base,
+			localLabels: ["Bug"],
+			remoteLabels: ["Idée"],
+		});
+		expect(decision.labelsChanged).toBe(false);
+		expect(decision.direction).toBe("skip");
+	});
+
+	test("ignores a label divergence in explicit merge mode even under a forcing policy", () => {
+		const decision = decideSync({
+			...base,
+			localLabels: ["Bug"],
+			remoteLabels: ["Idée"],
+			labelsSyncMode: "merge",
+			policy: "prefer-local",
+		});
+		expect(decision.labelsChanged).toBe(false);
+		expect(decision.direction).toBe("skip");
+	});
+
+	test("pulls on a label-only change in overwrite mode when the card is newer", () => {
+		const decision = decideSync({
+			...base,
+			localLabels: ["Bug"],
+			remoteLabels: ["Idée"],
+			labelsSyncMode: "overwrite",
+			remoteMtime: 2_000_000,
+		});
+		expect(decision.labelsChanged).toBe(true);
+		expect(decision.direction).toBe("pull");
+	});
+
+	test("pushes on a label-only change in overwrite mode when the note is newer", () => {
+		const decision = decideSync({
+			...base,
+			localLabels: ["Bug"],
+			remoteLabels: ["Idée"],
+			labelsSyncMode: "overwrite",
+			localMtime: 2_000_000,
+		});
+		expect(decision.labelsChanged).toBe(true);
+		expect(decision.direction).toBe("push");
+	});
+
+	test("treats a case/order-only label difference as unchanged even in overwrite mode", () => {
+		const decision = decideSync({
+			...base,
+			localLabels: ["Bug", "Idée"],
+			remoteLabels: ["idée", "bug"],
+			labelsSyncMode: "overwrite",
+		});
+		expect(decision.labelsChanged).toBe(false);
+		expect(decision.direction).toBe("skip");
 	});
 });

@@ -107,6 +107,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			marginMs: this.settings.marginSeconds * 1000,
 			syncTitle: this.settings.syncTitle,
 			dryRun: this.settings.dryRun,
+			labelsSyncMode: this.settings.labelsSyncMode,
 			...(force ? { force } : {}),
 		};
 	}
