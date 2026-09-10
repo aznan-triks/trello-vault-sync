@@ -29,6 +29,12 @@ export interface HttpResponse {
 
 export type Transport = (request: HttpRequest, signal?: AbortSignal) => Promise<HttpResponse>;
 
+export interface TrelloLabel {
+	id: string;
+	name: string;
+	color: string | null;
+}
+
 export interface TrelloCard {
 	id: string;
 	idBoard: string;
@@ -39,6 +45,8 @@ export interface TrelloCard {
 	idList?: string;
 	closed?: boolean;
 	due: string | null;
+	/** Optional so `PlannedCard` (a deliberate subset used by the folder planner, out of this feature's scope) keeps satisfying this shape unchanged. */
+	labels?: TrelloLabel[];
 }
 
 export interface TrelloList {
@@ -85,7 +93,9 @@ export interface TrelloClientOptions {
 }
 
 const API_ROOT = "https://api.trello.com/1";
-const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed,due";
+const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed,due,labels";
+/** Only the name and color are used — id is always returned regardless of `fields`. */
+const LABEL_FIELDS = "name,color";
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
 /** One page's worth of actions per call — no automatic multi-page walk, see PLAN_2026-09-04_feature-audit-changes.md. */
 const ACTIONS_PAGE_LIMIT = "1000";
@@ -156,6 +166,15 @@ export class TrelloClient {
 		return this.json<TrelloList[]>(`/boards/${encodeURIComponent(boardId)}/lists`, { fields: "name" }, signal);
 	}
 
+	/** The board's full label catalog — needed to resolve a name typed in the frontmatter to an id. */
+	async getBoardLabels(boardId: string, signal?: AbortSignal): Promise<TrelloLabel[]> {
+		return this.json<TrelloLabel[]>(
+			`/boards/${encodeURIComponent(boardId)}/labels`,
+			{ fields: LABEL_FIELDS },
+			signal,
+		);
+	}
+
 	async getListCards(listId: string, signal?: AbortSignal): Promise<TrelloCard[]> {
 		return this.json<TrelloCard[]>(`/lists/${encodeURIComponent(listId)}/cards`, { fields: CARD_FIELDS }, signal);
 	}
@@ -181,18 +200,21 @@ export class TrelloClient {
 	}
 
 	/**
-	 * Update a card's title, description and/or due date. A no-op when nothing
-	 * changed. `due: undefined` leaves the field untouched; `due: null` clears it.
+	 * Update a card's title, description, due date and/or assigned labels. A
+	 * no-op when nothing changed. `due: undefined` leaves the field untouched;
+	 * `due: null` clears it. `idLabels: []` clears every label on the card —
+	 * Trello replaces the full set, it never appends.
 	 */
 	async updateCard(
 		cardId: string,
-		fields: { name?: string; desc?: string; due?: string | null },
+		fields: { name?: string; desc?: string; due?: string | null; idLabels?: string[] },
 		signal?: AbortSignal,
 	): Promise<void> {
 		const body = new URLSearchParams();
 		if (fields.name !== undefined) body.append("name", fields.name);
 		if (fields.desc !== undefined) body.append("desc", fields.desc);
 		if (fields.due !== undefined) body.append("due", fields.due === null ? "null" : fields.due);
+		if (fields.idLabels !== undefined) body.append("idLabels", fields.idLabels.join(","));
 		if ([...body.keys()].length === 0) return;
 
 		await this.send(

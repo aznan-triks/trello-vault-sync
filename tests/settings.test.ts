@@ -102,4 +102,16 @@ describe("normalizeSettings", () => {
 			"sync-vault",
 		]);
 	});
+
+	test("defaults labelsSyncMode to merge — the non-destructive choice", () => {
+		expect(normalizeSettings({}).labelsSyncMode).toBe("merge");
+	});
+
+	test("keeps an explicit overwrite choice for labelsSyncMode", () => {
+		expect(normalizeSettings({ labelsSyncMode: "overwrite" }).labelsSyncMode).toBe("overwrite");
+	});
+
+	test("falls back to merge when labelsSyncMode is corrupted", () => {
+		expect(normalizeSettings({ labelsSyncMode: "delete-everything" as never }).labelsSyncMode).toBe("merge");
+	});
 });

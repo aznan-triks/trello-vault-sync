@@ -4,6 +4,40 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] — 2026-09-11
+
+### Added
+
+- **Plain**: Trello labels now sync with a note's `trello_labels` frontmatter.
+  By default nothing is ever lost — a label added on either side is added to
+  the other on the next sync, never removed just because it's missing from
+  one. A stricter "last writer wins" mode is available for anyone who wants
+  the card's/note's labels to fully replace the other side instead.
+  **Technical**: `src/core/labelRef.ts` (`LABELS_KEY = "trello_labels"`,
+  `parseLabelsRef`/`formatLabelsRef`, case-insensitive
+  `normalizeLabelSet`/`sameLabelSet`) and `src/core/labelMerge.ts`
+  (`resolveLabelSync`, pure `merge`/`overwrite` split) mirror the `trello_due`
+  pattern; `TrelloLabel`/`TrelloCard.labels`/`getBoardLabels`/
+  `updateCard.idLabels` added to `src/trello/client.ts`; wired into
+  `src/features/syncNote.ts` (label convergence in `merge` mode runs
+  independently of the pull/push direction decided for title/body/due, never
+  a cause of conflict — `src/core/syncDecision.ts`'s `labelsChanged` only
+  applies in `overwrite` mode); new `labelsSyncMode` setting (`merge`
+  default), dropdown in `SettingsTab.ts` next to "Arbitration". A local name
+  with no match on the board is dropped on push without throwing and without
+  losing the labels that did resolve; a color-only Trello label is never
+  turned into an empty frontmatter entry.
+
+### Fixed
+
+- **Plain**: Empty settings fields (API key, board id, report note path…) now
+  show their example text visibly greyed out and in italics, so it's obvious
+  it's a placeholder and not something you already typed — in both light and
+  dark Obsidian themes.
+  **Technical**: `containerEl.addClass("tvs-settings")` in
+  `SettingsTab.ts::display()`; `.tvs-settings input::placeholder { color:
+  var(--text-faint); font-style: italic; }` in `styles.css`.
+
 ## [1.8.0] — 2026-09-08
 
 ### Added
