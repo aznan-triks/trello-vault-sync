@@ -1,6 +1,6 @@
 import { Notice } from "obsidian";
 import type { CommandContext } from "./context";
-import { DUE_KEY, parseDueRef } from "../core/dueRef";
+import { parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { extractBody } from "../core/noteBody";
 import { describeSyncOutcome, tallyNoteResult } from "../core/syncTally";
@@ -76,7 +76,7 @@ export async function resolveConflict(ctx: CommandContext): Promise<void> {
 	await ctx.run(`Check conflict — ${note.basename}`, async (reporter) => {
 		const card = await ctx.client(reporter).getCard(ref.cardId);
 		const localBody = extractBody(await ctx.vault.read(note));
-		const localDue = parseDueRef(ctx.vault.readFrontmatter(note)?.[DUE_KEY]);
+		const localDue = parseDueRef(ctx.vault.readFrontmatter(note)?.[ctx.settings.dueFrontmatterKey]);
 		const decision = decideForCard(
 			note,
 			card,

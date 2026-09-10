@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] — 2026-09-11
+
+### Changed
+
+- **Plain**: The three frontmatter properties the plugin reads and writes
+  (the one linking a note to its card, plus the due-date and labels ones) are
+  now all editable in Settings → Frontmatter keys, instead of being fixed
+  names baked into the plugin. Nothing changes for existing vaults — the
+  defaults are exactly the old fixed names. Changing the card-link key on a
+  vault that already has linked notes will make them look unlinked until
+  their frontmatter is updated to match; the settings field says so.
+  **Technical**: `CARD_REF_KEY`/`DUE_KEY`/`LABELS_KEY` renamed to
+  `DEFAULT_CARD_REF_KEY`/`DEFAULT_DUE_KEY`/`DEFAULT_LABELS_KEY` in
+  `core/cardRef.ts`/`dueRef.ts`/`labelRef.ts` — the only fixed thing left is
+  the default value, never used directly by the sync logic anymore. New
+  settings `cardRefFrontmatterKey`/`dueFrontmatterKey`/`labelsFrontmatterKey`,
+  each normalized to a non-empty string (`safeFrontmatterKey`, reused by both
+  `normalizeSettings` and the settings-tab inputs) threaded through
+  `NoteSyncOptions`/`FolderSyncOptions` into `syncNote.ts`/`syncFolder.ts`
+  (including `template.ts`'s `templateMissingCardRefKey`, now parameterized),
+  and into `ObsidianVault.ts` via a constructor-injected `() => string`
+  accessor rather than a settings-object dependency. This closes a no-hardcode
+  gap the user flagged mid-session on `trello_labels` and generalized to all
+  three keys, plus a new §1.4 rule in `CONTEXT.md` so it doesn't recur.
+
 ## [1.9.0] — 2026-09-11
 
 ### Added

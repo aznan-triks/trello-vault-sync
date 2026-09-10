@@ -1,3 +1,6 @@
+import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
+import { DEFAULT_DUE_KEY } from "../core/dueRef";
+import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, type LabelSyncMode } from "../core/labelMerge";
 import type { ConflictPolicy } from "../core/syncDecision";
 import type { FolderMapping } from "../features/syncFolder";
@@ -48,6 +51,17 @@ export interface TrelloVaultSyncSettings {
 
 	/** "Audit changes" cursor: id of the last processed Trello action, "" before a first run. No settings-tab field — internal bookkeeping. */
 	auditChangesCursor: string;
+
+	/**
+	 * Frontmatter keys — every one is user-editable, none is a hidden constant
+	 * in the sync logic (§1.4, no-hardcode). Changing one on a vault with
+	 * already-linked notes orphans them until their frontmatter is updated to
+	 * match; `cardRefFrontmatterKey` carries the biggest blast radius since
+	 * every command depends on it to find a note's card.
+	 */
+	cardRefFrontmatterKey: string;
+	dueFrontmatterKey: string;
+	labelsFrontmatterKey: string;
 }
 
 export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
@@ -74,6 +88,9 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	panelAutoCloseSeconds: 8,
 	ribbonCommandIds: ["sync-active-note", "sync-vault", "sync-all-mappings", "audit-links"],
 	auditChangesCursor: "",
+	cardRefFrontmatterKey: DEFAULT_CARD_REF_KEY,
+	dueFrontmatterKey: DEFAULT_DUE_KEY,
+	labelsFrontmatterKey: DEFAULT_LABELS_KEY,
 };
 
 /** Highest retry count normalizeSettings will accept before clamping. */
@@ -99,6 +116,17 @@ export function safeNonNegativeNumber(value: unknown, fallback: number, ceiling?
 /** A string, or `fallback` when the raw value is not a string. */
 function safeString(value: unknown, fallback = ""): string {
 	return typeof value === "string" ? value : fallback;
+}
+
+/**
+ * A trimmed, non-empty frontmatter key, or `fallback` — a blank key would
+ * silently break every read/write through it. Shared by `normalizeSettings`
+ * (persisted data) and `SettingsTab.ts` (live user input) — the same
+ * unknown-input-to-safe-string concern at both boundaries.
+ */
+export function safeFrontmatterKey(value: unknown, fallback: string): string {
+	const trimmed = safeString(value).trim();
+	return trimmed === "" ? fallback : trimmed;
 }
 
 /** True once the single Trello key/token pair is filled in — the minimum every command needs. */
@@ -173,5 +201,8 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			folder: normalizeVaultPath(safeString(mapping?.folder)),
 			templateName: safeString(mapping?.templateName),
 		})),
+		cardRefFrontmatterKey: safeFrontmatterKey(input.cardRefFrontmatterKey, DEFAULT_SETTINGS.cardRefFrontmatterKey),
+		dueFrontmatterKey: safeFrontmatterKey(input.dueFrontmatterKey, DEFAULT_SETTINGS.dueFrontmatterKey),
+		labelsFrontmatterKey: safeFrontmatterKey(input.labelsFrontmatterKey, DEFAULT_SETTINGS.labelsFrontmatterKey),
 	};
 }

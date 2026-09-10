@@ -1,4 +1,3 @@
-import { CARD_REF_KEY } from "./cardRef";
 import { splitFrontmatter } from "./noteBody";
 
 /** Placeholders a new-note template may use, matching the legacy `(script)` templates. */
@@ -49,7 +48,7 @@ export function renderTemplate(template: string, vars: TemplateVars): string {
  * Scoped to the frontmatter fence so a mention of the key in body prose (a
  * comment, an example) doesn't wrongly suppress the warning.
  */
-export function templateMissingCardRefKey(template: string): boolean {
+export function templateMissingCardRefKey(template: string, cardRefKey: string): boolean {
 	const frontmatter = splitFrontmatter(template).frontmatter ?? "";
-	return !frontmatter.includes(CARD_REF_KEY);
+	return !frontmatter.includes(cardRefKey);
 }

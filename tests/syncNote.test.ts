@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { DUE_KEY } from "../src/core/dueRef";
-import { LABELS_KEY } from "../src/core/labelRef";
+import { DEFAULT_DUE_KEY as DUE_KEY } from "../src/core/dueRef";
+import { DEFAULT_LABELS_KEY as LABELS_KEY } from "../src/core/labelRef";
 import { syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
 import { TrelloClient } from "../src/trello/client";
 import { FakeVault, at, card, routedTransport } from "./fakes";
@@ -191,6 +191,27 @@ describe("syncNoteWithCard — due date", () => {
 		expect(vault.readFrontmatter(vault.note(PATH))?.[DUE_KEY]).toBe("2026-09-10T12:00:00.000Z");
 	});
 
+	test("reads and writes the due date under a configured key instead of the default", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			due: "2026-09-10T12:00:00.000Z",
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			dueFrontmatterKey: "deadline",
+		});
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.deadline).toBe("2026-09-10T12:00:00.000Z");
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(DUE_KEY);
+	});
+
 	test("clears a stale due date when the card no longer has one", async () => {
 		const withDue = FRONTMATTER.replace("---\n\n", `${DUE_KEY}: "2026-01-01T00:00:00.000Z"\n---\n\n`);
 		const vault = new FakeVault({ [PATH]: { content: withDue, mtime: at("2026-01-01") } });
@@ -271,6 +292,25 @@ describe("syncNoteWithCard — labels, merge mode (default)", () => {
 
 		expect(result.direction).toBe("skip");
 		expect(vault.readFrontmatter(vault.note(PATH))?.[LABELS_KEY]).toEqual(["Bug"]);
+	});
+
+	test("reads and writes labels under a configured key instead of the default", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			labels: [{ id: "b1", name: "Bug", color: "red" }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			labelsFrontmatterKey: "tags_trello",
+		});
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.tags_trello).toEqual(["Bug"]);
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(LABELS_KEY);
 	});
 
 	test("keeps an existing local-only label when pulling a new remote one", async () => {

@@ -114,4 +114,31 @@ describe("normalizeSettings", () => {
 	test("falls back to merge when labelsSyncMode is corrupted", () => {
 		expect(normalizeSettings({ labelsSyncMode: "delete-everything" as never }).labelsSyncMode).toBe("merge");
 	});
+
+	test("defaults every frontmatter key to its historical value", () => {
+		const settings = normalizeSettings({});
+		expect(settings.cardRefFrontmatterKey).toBe("trello_board_card_id");
+		expect(settings.dueFrontmatterKey).toBe("trello_due");
+		expect(settings.labelsFrontmatterKey).toBe("trello_labels");
+	});
+
+	test("keeps a trimmed custom frontmatter key", () => {
+		const settings = normalizeSettings({
+			cardRefFrontmatterKey: "  card_link  ",
+			dueFrontmatterKey: "deadline",
+			labelsFrontmatterKey: "tags_trello",
+		});
+		expect(settings.cardRefFrontmatterKey).toBe("card_link");
+		expect(settings.dueFrontmatterKey).toBe("deadline");
+		expect(settings.labelsFrontmatterKey).toBe("tags_trello");
+	});
+
+	test("falls back to the default when a frontmatter key is blank or not a string", () => {
+		const settings = normalizeSettings({
+			cardRefFrontmatterKey: "   ",
+			dueFrontmatterKey: 42 as unknown as string,
+		});
+		expect(settings.cardRefFrontmatterKey).toBe("trello_board_card_id");
+		expect(settings.dueFrontmatterKey).toBe("trello_due");
+	});
 });

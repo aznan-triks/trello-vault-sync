@@ -32,7 +32,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		const { settingsRaw, journal } = normalizePersistedData(await this.loadData());
 		this.settings = normalizeSettings(settingsRaw);
 		this.journal = journal;
-		this.vault = new ObsidianVault(this.app);
+		this.vault = new ObsidianVault(this.app, () => this.settings.cardRefFrontmatterKey);
 		this.addSettingTab(new TrelloVaultSyncSettingsTab(this.app, this));
 		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
 		this.registerCommands();
@@ -108,6 +108,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			syncTitle: this.settings.syncTitle,
 			dryRun: this.settings.dryRun,
 			labelsSyncMode: this.settings.labelsSyncMode,
+			dueFrontmatterKey: this.settings.dueFrontmatterKey,
+			labelsFrontmatterKey: this.settings.labelsFrontmatterKey,
 			...(force ? { force } : {}),
 		};
 	}
@@ -118,6 +120,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			allowCreate: this.settings.allowCreate,
 			allowDelete: this.settings.allowDelete,
 			boardId: this.settings.boardId,
+			cardRefFrontmatterKey: this.settings.cardRefFrontmatterKey,
 		};
 	}
 

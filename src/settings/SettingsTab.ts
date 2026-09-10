@@ -1,7 +1,10 @@
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
 import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
+import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
+import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
+import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import type { LabelSyncMode } from "../core/labelMerge";
 import type { ConflictPolicy } from "../core/syncDecision";
 import { TrelloPickerSuggest } from "../ui/TrelloPickerSuggest";
@@ -11,6 +14,7 @@ import {
 	MAX_RETRIES_CEILING,
 	REQUEST_TIMEOUT_MS_CEILING,
 	normalizeVaultPath,
+	safeFrontmatterKey,
 	safeNonNegativeNumber,
 } from "./types";
 
@@ -272,7 +276,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Labels sync")
-			.setDesc("How trello_labels and the card's assigned labels reconcile when they diverge.")
+			.setDesc("How the note's labels (Labels key, below) and the card's assigned labels reconcile when they diverge.")
 			.addDropdown((dropdown) => {
 				for (const [value, label] of Object.entries(LABELS_SYNC_MODE_LABELS)) dropdown.addOption(value, label);
 				dropdown.setValue(this.plugin.settings.labelsSyncMode).onChange(async (value) => {
@@ -533,6 +537,42 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 						await this.save();
 					}),
+			);
+
+		new Setting(root).setName("Frontmatter keys").setHeading();
+
+		new Setting(root)
+			.setName("Due date key")
+			.setDesc("Frontmatter property that carries the card's due date.")
+			.addText((text) =>
+				text.setValue(this.plugin.settings.dueFrontmatterKey).onChange(async (value) => {
+					this.plugin.settings.dueFrontmatterKey = safeFrontmatterKey(value, DEFAULT_DUE_KEY);
+					await this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Labels key")
+			.setDesc("Frontmatter property that carries the card's labels.")
+			.addText((text) =>
+				text.setValue(this.plugin.settings.labelsFrontmatterKey).onChange(async (value) => {
+					this.plugin.settings.labelsFrontmatterKey = safeFrontmatterKey(value, DEFAULT_LABELS_KEY);
+					await this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Card link key")
+			.setDesc(
+				"Frontmatter property that links a note to its card — every command depends on it. " +
+					"⚠️ Changing this on a vault that already has linked notes orphans every one of them " +
+					"until their frontmatter is updated to the new key too.",
+			)
+			.addText((text) =>
+				text.setValue(this.plugin.settings.cardRefFrontmatterKey).onChange(async (value) => {
+					this.plugin.settings.cardRefFrontmatterKey = safeFrontmatterKey(value, DEFAULT_CARD_REF_KEY);
+					await this.save();
+				}),
 			);
 	}
 }
