@@ -1,3 +1,4 @@
+import { DEFAULT_LABELS_SYNC_MODE, type LabelSyncMode } from "../core/labelMerge";
 import type { ConflictPolicy } from "../core/syncDecision";
 import type { FolderMapping } from "../features/syncFolder";
 
@@ -19,6 +20,8 @@ export interface TrelloVaultSyncSettings {
 	policy: ConflictPolicy;
 	/** Timestamp tolerance, in seconds, below which a divergence is a conflict. */
 	marginSeconds: number;
+	/** "merge" (default) unions both sides non-destructively; "overwrite" behaves like `policy` for labels. */
+	labelsSyncMode: LabelSyncMode;
 	syncTitle: boolean;
 	/** Global safety switch: plan everything, write nothing. */
 	dryRun: boolean;
@@ -57,6 +60,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	changesHtmlPath: "",
 	policy: "newer-wins",
 	marginSeconds: 60,
+	labelsSyncMode: DEFAULT_LABELS_SYNC_MODE,
 	syncTitle: true,
 	dryRun: false,
 	allowCreate: true,
@@ -137,6 +141,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		changesHtmlPath: normalizeVaultPath(safeString(input.changesHtmlPath, DEFAULT_SETTINGS.changesHtmlPath)),
 		auditChangesCursor: safeString(input.auditChangesCursor, DEFAULT_SETTINGS.auditChangesCursor),
 		marginSeconds: safeNonNegativeNumber(input.marginSeconds, DEFAULT_SETTINGS.marginSeconds),
+		labelsSyncMode: input.labelsSyncMode === "overwrite" ? "overwrite" : DEFAULT_SETTINGS.labelsSyncMode,
 		maxRetries: safeNonNegativeNumber(
 			input.maxRetries,
 			DEFAULT_SETTINGS.maxRetries,

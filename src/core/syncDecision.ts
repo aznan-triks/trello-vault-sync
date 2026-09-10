@@ -1,4 +1,5 @@
 import { sanitizeFileName } from "./fileName";
+import { sameLabelSet } from "./labelRef";
 import { normalizeBody } from "./noteBody";
 
 /** How to resolve a note and a card that both changed. */
@@ -19,6 +20,17 @@ export interface SyncInput {
 	remoteMtime: number;
 	/** Card `due` field, or `null` when unset. */
 	remoteDue: string | null;
+	/** `trello_labels` frontmatter value, parsed. Defaults to `[]`. */
+	localLabels?: string[];
+	/** Card's own label names, parsed. Defaults to `[]`. */
+	remoteLabels?: string[];
+	/**
+	 * `undefined`/`"merge"` keeps labels out of the direction/skip calculation
+	 * entirely — convergence happens as a non-destructive side effect elsewhere,
+	 * never as a conflict. Only `"overwrite"` makes a label divergence behave
+	 * like `dueChanged` here.
+	 */
+	labelsSyncMode?: "merge" | "overwrite";
 	policy: ConflictPolicy;
 	/** Timestamp tolerance below which the two sides are considered simultaneous. */
 	marginMs: number;
@@ -29,6 +41,7 @@ export interface SyncDecision {
 	bodyChanged: boolean;
 	titleChanged: boolean;
 	dueChanged: boolean;
+	labelsChanged: boolean;
 	reason: "identical" | "remote-newer" | "local-newer" | "within-margin" | "policy";
 }
 
@@ -52,16 +65,21 @@ export function decideSync(input: SyncInput): SyncDecision {
 	// push the sanitized filename back to Trello as if it were a real rename.
 	const titleChanged = input.localTitle.trim() !== sanitizeFileName(input.remoteTitle).trim();
 	const dueChanged = normalizeDue(input.localDue) !== normalizeDue(input.remoteDue);
+	// A "merge" (or unset) mode never surfaces a label divergence as a reason to
+	// sync or conflict — the labels converge as a non-destructive side effect
+	// wherever the direction ends up, never a cause of it.
+	const labelsChanged =
+		input.labelsSyncMode === "overwrite" && !sameLabelSet(input.localLabels ?? [], input.remoteLabels ?? []);
 
-	if (!bodyChanged && !titleChanged && !dueChanged) {
-		return { direction: "skip", bodyChanged, titleChanged, dueChanged, reason: "identical" };
+	if (!bodyChanged && !titleChanged && !dueChanged && !labelsChanged) {
+		return { direction: "skip", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "identical" };
 	}
 
 	if (input.policy === "prefer-local") {
-		return { direction: "push", bodyChanged, titleChanged, dueChanged, reason: "policy" };
+		return { direction: "push", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "policy" };
 	}
 	if (input.policy === "prefer-remote") {
-		return { direction: "pull", bodyChanged, titleChanged, dueChanged, reason: "policy" };
+		return { direction: "pull", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "policy" };
 	}
 
 	const delta = input.remoteMtime - input.localMtime;
@@ -69,9 +87,9 @@ export function decideSync(input: SyncInput): SyncDecision {
 	// no clock-skew tolerance to apply, and picking a direction here would just
 	// misreport an arbitrary side as "newer" when neither is.
 	if (delta === 0 || (Math.abs(delta) <= input.marginMs && input.marginMs > 0)) {
-		return { direction: "conflict", bodyChanged, titleChanged, dueChanged, reason: "within-margin" };
+		return { direction: "conflict", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "within-margin" };
 	}
 	return delta > 0
-		? { direction: "pull", bodyChanged, titleChanged, dueChanged, reason: "remote-newer" }
-		: { direction: "push", bodyChanged, titleChanged, dueChanged, reason: "local-newer" };
+		? { direction: "pull", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "remote-newer" }
+		: { direction: "push", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "local-newer" };
 }

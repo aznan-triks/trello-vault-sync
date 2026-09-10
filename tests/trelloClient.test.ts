@@ -71,7 +71,9 @@ describe("TrelloClient requests", () => {
 	test("requests the due field alongside the other card fields", async () => {
 		const { api, calls } = client([ok({ id: "c1", name: "A" })]);
 		await api.getCard("c1");
-		expect(calls[0]?.url).toContain("fields=name%2Cdesc%2Curl%2CdateLastActivity%2CidBoard%2CidList%2Cclosed%2Cdue");
+		expect(calls[0]?.url).toContain(
+			"fields=name%2Cdesc%2Curl%2CdateLastActivity%2CidBoard%2CidList%2Cclosed%2Cdue%2Clabels",
+		);
 	});
 
 	test("sends a card update as a url-encoded PUT", async () => {
@@ -138,6 +140,52 @@ describe("TrelloClient requests", () => {
 		const { api, calls } = client([ok([])]);
 		await api.getListCards("l1");
 		expect(calls[0]?.url).toContain("/lists/l1/cards");
+	});
+});
+
+describe("TrelloClient labels", () => {
+	test("requests the labels field alongside the other card fields", async () => {
+		const { api, calls } = client([ok({ id: "c1", name: "A" })]);
+		await api.getCard("c1");
+		expect(calls[0]?.url).toContain("labels");
+	});
+
+	test("parses a card's own labels, name and color", async () => {
+		const { api } = client([
+			ok({
+				id: "c1",
+				name: "A",
+				labels: [{ id: "l1", name: "Bug", color: "red" }],
+			}),
+		]);
+		await expect(api.getCard("c1")).resolves.toMatchObject({
+			labels: [{ id: "l1", name: "Bug", color: "red" }],
+		});
+	});
+
+	test("reads a board's labels from the labels endpoint", async () => {
+		const { api, calls } = client([ok([{ id: "l1", name: "Bug", color: "red" }])]);
+		const labels = await api.getBoardLabels("b1");
+		expect(labels).toEqual([{ id: "l1", name: "Bug", color: "red" }]);
+		expect(calls[0]?.url).toContain("/boards/b1/labels");
+	});
+
+	test("sends idLabels as a comma-joined list on update", async () => {
+		const { api, calls } = client([ok({})]);
+		await api.updateCard("c1", { idLabels: ["l1", "l2"] });
+		expect(calls[0]?.body).toBe("idLabels=l1%2Cl2");
+	});
+
+	test("sends an empty idLabels to clear every label on the card", async () => {
+		const { api, calls } = client([ok({})]);
+		await api.updateCard("c1", { idLabels: [] });
+		expect(calls[0]?.body).toBe("idLabels=");
+	});
+
+	test("leaves idLabels untouched when it is not in the update fields", async () => {
+		const { api, calls } = client([ok({})]);
+		await api.updateCard("c1", { name: "Titre" });
+		expect(calls[0]?.body).not.toContain("idLabels");
 	});
 });
 

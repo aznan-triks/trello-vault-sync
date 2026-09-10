@@ -232,6 +232,11 @@
 	font-family: var(--font-monospace);
 }
 
+.tvs-settings input::placeholder {
+	color: var(--text-faint);
+	font-style: italic;
+}
+
 /* Sidebar view */
 
 .tvs-sidebar {

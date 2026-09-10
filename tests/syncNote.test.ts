@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { DUE_KEY } from "../src/core/dueRef";
+import { LABELS_KEY } from "../src/core/labelRef";
 import { syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
 import { TrelloClient } from "../src/trello/client";
 import { FakeVault, at, card, routedTransport } from "./fakes";
@@ -252,6 +253,187 @@ describe("syncNoteWithCard — due date", () => {
 		expect(result.direction).toBe("conflict");
 		expect(requests).toHaveLength(0);
 		expect(vault.readFrontmatter(vault.note(PATH))?.[DUE_KEY]).toBe("2026-01-01T00:00:00.000Z");
+	});
+});
+
+describe("syncNoteWithCard — labels, merge mode (default)", () => {
+	test("adds a remote label missing from the frontmatter, even when nothing else changed", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			labels: [{ id: "b1", name: "Bug", color: "red" }],
+		});
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(result.direction).toBe("skip");
+		expect(vault.readFrontmatter(vault.note(PATH))?.[LABELS_KEY]).toEqual(["Bug"]);
+	});
+
+	test("keeps an existing local-only label when pulling a new remote one", async () => {
+		const withLabels = FRONTMATTER.replace("---\n\n", `${LABELS_KEY}:\n  - "Perso"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withLabels, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/boards/board/labels": [
+				{ id: "b1", name: "Bug", color: "red" },
+				{ id: "p1", name: "Perso", color: "purple" },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			labels: [{ id: "b1", name: "Bug", color: "red" }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.[LABELS_KEY]).toEqual(["Bug", "Perso"]);
+	});
+
+	test("pushes a local-only name that matches a board label, without dropping the card's existing labels", async () => {
+		const withLabels = FRONTMATTER.replace("---\n\n", `${LABELS_KEY}:\n  - "Idée"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withLabels, mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({ "/boards/board/labels": [
+			{ id: "b1", name: "Bug", color: "red" },
+			{ id: "i1", name: "Idée", color: "green" },
+		] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			labels: [{ id: "b1", name: "Bug", color: "red" }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		const update = requests.find((r) => r.method === "PUT");
+		expect(update?.body).toBe("idLabels=b1%2Ci1");
+	});
+
+	test("ignores a local name with no match on the board, without throwing, and leaves it in the frontmatter", async () => {
+		const withLabels = FRONTMATTER.replace("---\n\n", `${LABELS_KEY}:\n  - "Zzz"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withLabels, mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({ "/boards/board/labels": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await expect(syncNoteWithCard(vault, client, vault.note(PATH), remote, options)).resolves.toBeDefined();
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.[LABELS_KEY]).toEqual(["Zzz"]);
+		const update = requests.find((r) => r.method === "PUT");
+		expect(update?.body).toBe("idLabels=");
+	});
+
+	test("drops only the unmatched name when pushing a mix of a valid and an invalid local label", async () => {
+		const withLabels = FRONTMATTER.replace("---\n\n", `${LABELS_KEY}:\n  - "Bug"\n  - "Zzz"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withLabels, mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/boards/board/labels": [{ id: "b1", name: "Bug", color: "red" }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		const update = requests.find((r) => r.method === "PUT");
+		expect(update?.body).toBe("idLabels=b1");
+		expect(vault.readFrontmatter(vault.note(PATH))?.[LABELS_KEY]).toEqual(["Bug", "Zzz"]);
+	});
+
+	test("never turns a color-only (nameless) Trello label into a frontmatter entry", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			labels: [{ id: "x1", name: "", color: "green" }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(LABELS_KEY);
+	});
+
+	test("writes nothing and calls nothing in dry-run mode, even when labels diverge", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			labels: [{ id: "b1", name: "Bug", color: "red" }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, dryRun: true });
+
+		expect(requests).toHaveLength(0);
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(LABELS_KEY);
+	});
+});
+
+describe("syncNoteWithCard — labels, overwrite mode", () => {
+	test("pull: the card's labels replace the local list entirely when the card is newer", async () => {
+		const withLabels = FRONTMATTER.replace("---\n\n", `${LABELS_KEY}:\n  - "Old"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withLabels, mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			labels: [
+				{ id: "b1", name: "Bug", color: "red" },
+				{ id: "i1", name: "Idée", color: "green" },
+			],
+		});
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			labelsSyncMode: "overwrite",
+		});
+
+		expect(result.direction).toBe("pull");
+		expect(vault.readFrontmatter(vault.note(PATH))?.[LABELS_KEY]).toEqual(["Bug", "Idée"]);
+		expect(requests.filter((r) => r.method === "PUT")).toHaveLength(0);
+	});
+
+	test("push: the local list replaces the card's labels entirely when the note is newer", async () => {
+		const withLabels = FRONTMATTER.replace("---\n\n", `${LABELS_KEY}:\n  - "Bug"\n  - "Idée"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withLabels, mtime: at("2026-03-01") } });
+		const { transport, requests } = routedTransport({
+			"/boards/board/labels": [
+				{ id: "b1", name: "Bug", color: "red" },
+				{ id: "i1", name: "Idée", color: "green" },
+				{ id: "o1", name: "Old", color: "blue" },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-01-01",
+			labels: [{ id: "o1", name: "Old", color: "blue" }],
+		});
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			labelsSyncMode: "overwrite",
+		});
+
+		expect(result.direction).toBe("push");
+		const update = requests.find((r) => r.method === "PUT");
+		expect(update?.body).toContain("idLabels=b1%2Ci1");
 	});
 });
 

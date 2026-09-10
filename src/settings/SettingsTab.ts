@@ -2,6 +2,7 @@ import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
 import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
 import { errorMessage } from "../core/errorMessage";
+import type { LabelSyncMode } from "../core/labelMerge";
 import type { ConflictPolicy } from "../core/syncDecision";
 import { TrelloPickerSuggest } from "../ui/TrelloPickerSuggest";
 import { VaultPathSuggest } from "../ui/VaultPathSuggest";
@@ -19,6 +20,11 @@ const POLICY_LABELS: Record<ConflictPolicy, string> = {
 	"prefer-remote": "Trello always wins",
 };
 
+const LABELS_SYNC_MODE_LABELS: Record<LabelSyncMode, string> = {
+	merge: "Merge (never lose a label)",
+	overwrite: "Overwrite (same rule as arbitration above)",
+};
+
 export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	private listNames = new Map<string, string>();
 	private boardName: string | null = null;
@@ -32,6 +38,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 	override display(): void {
 		const { containerEl } = this;
+		containerEl.addClass("tvs-settings");
 		// Every action that changes a setting (picking a board/list, adding or
 		// removing a mapping, testing the connection) rebuilds the whole tab from
 		// scratch, which would otherwise reset the scroll position to the top —
@@ -259,6 +266,17 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				for (const [value, label] of Object.entries(POLICY_LABELS)) dropdown.addOption(value, label);
 				dropdown.setValue(this.plugin.settings.policy).onChange(async (value) => {
 					this.plugin.settings.policy = value as ConflictPolicy;
+					await this.save();
+				});
+			});
+
+		new Setting(root)
+			.setName("Labels sync")
+			.setDesc("How trello_labels and the card's assigned labels reconcile when they diverge.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(LABELS_SYNC_MODE_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(this.plugin.settings.labelsSyncMode).onChange(async (value) => {
+					this.plugin.settings.labelsSyncMode = value as LabelSyncMode;
 					await this.save();
 				});
 			});
