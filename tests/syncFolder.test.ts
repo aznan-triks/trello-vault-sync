@@ -86,6 +86,28 @@ describe("syncFolder — creation", () => {
 		expect(vault.contentOf(`${FOLDER}/Sagondo.md`)).toContain("board;c1");
 	});
 
+	test("writes a new note's card link under a configured key instead of the default", async () => {
+		const vault = new FakeVault();
+		const { client } = clientFor([card({ id: "c1", name: "Sagondo", desc: "Une cité." })]);
+
+		await syncFolder(vault, client, MAPPING, { ...options, cardRefFrontmatterKey: "card_link" });
+
+		expect(vault.contentOf(`${FOLDER}/Sagondo.md`)).toContain("card_link:");
+		expect(vault.contentOf(`${FOLDER}/Sagondo.md`)).not.toContain("trello_board_card_id");
+	});
+
+	test("warns using the configured key, not the hardcoded default, when a template omits it", async () => {
+		const vault = new FakeVault();
+		vault.templates.set("idée (script)", "---\ntype: idée\n---\n{{DESCRIPTION}}");
+		const { client } = clientFor([card({ id: "c1", name: "Sagondo" })]);
+		const reporter = recordingReporter();
+
+		await syncFolder(vault, client, MAPPING, { ...options, cardRefFrontmatterKey: "card_link" }, reporter);
+
+		const warnings = reporter.logs.filter((entry) => entry.message.includes("card_link"));
+		expect(warnings).toHaveLength(1);
+	});
+
 	test("does not create anything when creation is disabled", async () => {
 		const vault = new FakeVault();
 		const { client } = clientFor([card({ id: "c1", name: "Sagondo" })]);

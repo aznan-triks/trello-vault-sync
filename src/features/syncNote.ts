@@ -1,6 +1,6 @@
-import { DUE_KEY, formatDueRef, parseDueRef } from "../core/dueRef";
+import { DEFAULT_DUE_KEY, formatDueRef, parseDueRef } from "../core/dueRef";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
-import { LABELS_KEY, formatLabelsRef, normalizeLabelName, parseLabelsRef } from "../core/labelRef";
+import { DEFAULT_LABELS_KEY, formatLabelsRef, normalizeLabelName, parseLabelsRef } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, resolveLabelSync, type LabelSyncMode } from "../core/labelMerge";
 import { extractBody, replaceBody } from "../core/noteBody";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
@@ -17,6 +17,10 @@ export interface NoteSyncOptions {
 	force?: "pull" | "push";
 	/** `undefined` behaves as `"merge"` — the non-destructive default. */
 	labelsSyncMode?: LabelSyncMode;
+	/** `undefined` behaves as `DEFAULT_DUE_KEY`. */
+	dueFrontmatterKey?: string;
+	/** `undefined` behaves as `DEFAULT_LABELS_KEY`. */
+	labelsFrontmatterKey?: string;
 }
 
 export interface NoteSyncResult {
@@ -80,11 +84,16 @@ function resolveLabelIds(names: string[], boardLabels: TrelloLabel[]): string[] 
 }
 
 /** Write a resolved label list into a note's frontmatter, deleting the key when empty. */
-async function writeLocalLabels(vault: VaultGateway, note: NoteHandle, labels: string[]): Promise<void> {
+async function writeLocalLabels(
+	vault: VaultGateway,
+	note: NoteHandle,
+	labels: string[],
+	labelsKey: string,
+): Promise<void> {
 	await vault.writeFrontmatter(note, (frontmatter) => {
 		const formatted = formatLabelsRef(labels);
-		if (formatted === null) delete frontmatter[LABELS_KEY];
-		else frontmatter[LABELS_KEY] = formatted;
+		if (formatted === null) delete frontmatter[labelsKey];
+		else frontmatter[labelsKey] = formatted;
 	});
 }
 
@@ -112,9 +121,10 @@ async function convergeLabelsOnMerge(
 	card: TrelloCard,
 	localLabels: string[],
 	remoteLabels: string[],
+	labelsKey: string,
 ): Promise<void> {
 	const { nextLocal, nextRemote } = resolveLabelSync(localLabels, remoteLabels, "merge", "pull");
-	if (nextLocal !== null) await writeLocalLabels(vault, note, nextLocal);
+	if (nextLocal !== null) await writeLocalLabels(vault, note, nextLocal, labelsKey);
 	if (nextRemote !== null) await pushRemoteLabels(client, card, nextRemote);
 }
 
@@ -126,10 +136,12 @@ export async function syncNoteWithCard(
 	card: TrelloCard,
 	options: NoteSyncOptions,
 ): Promise<NoteSyncResult> {
+	const dueKey = options.dueFrontmatterKey ?? DEFAULT_DUE_KEY;
+	const labelsKey = options.labelsFrontmatterKey ?? DEFAULT_LABELS_KEY;
 	let content = await vault.read(note);
 	const localBody = extractBody(content);
-	const localDue = parseDueRef(vault.readFrontmatter(note)?.[DUE_KEY]);
-	const localLabels = parseLabelsRef(vault.readFrontmatter(note)?.[LABELS_KEY]);
+	const localDue = parseDueRef(vault.readFrontmatter(note)?.[dueKey]);
+	const localLabels = parseLabelsRef(vault.readFrontmatter(note)?.[labelsKey]);
 	const remoteLabels = remoteLabelsOf(card);
 	const labelsSyncMode = options.labelsSyncMode ?? DEFAULT_LABELS_SYNC_MODE;
 
@@ -142,7 +154,7 @@ export async function syncNoteWithCard(
 	// branch below rebuilds the whole file from this snapshot, and a stale one
 	// would silently undo the frontmatter write just made here.
 	if (labelsSyncMode === "merge" && !options.dryRun) {
-		await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels);
+		await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey);
 		content = await vault.read(note);
 	}
 
@@ -162,14 +174,14 @@ export async function syncNoteWithCard(
 		if (decision.dueChanged) {
 			await vault.writeFrontmatter(current, (frontmatter) => {
 				const formatted = formatDueRef(card.due);
-				if (formatted === null) delete frontmatter[DUE_KEY];
-				else frontmatter[DUE_KEY] = formatted;
+				if (formatted === null) delete frontmatter[dueKey];
+				else frontmatter[dueKey] = formatted;
 			});
 		}
 
 		if (labelsSyncMode === "overwrite") {
 			const { nextLocal } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "pull");
-			if (nextLocal !== null) await writeLocalLabels(vault, current, nextLocal);
+			if (nextLocal !== null) await writeLocalLabels(vault, current, nextLocal, labelsKey);
 		}
 
 		let renamed = false;

@@ -1,11 +1,20 @@
 import { TFile, type App } from "obsidian";
-import { CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../core/cardRef";
+import { DEFAULT_CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../core/cardRef";
 import { excludeFolders, notesInFolder } from "../core/fileName";
 import type { CardRefStore, NoteHandle, TemplateResolver, VaultGateway } from "./gateway";
 
 /** The real vault, behind the interfaces the engines depend on. */
 export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolver {
-	constructor(private readonly app: App) {}
+	/**
+	 * `getCardRefKey` is a live accessor, not a value captured once — the
+	 * plugin's own settings object is mutated in place (a settings-tab save
+	 * never replaces it), so reading through a closure keeps this in sync with
+	 * the current setting without this class knowing about `TrelloVaultSyncSettings`.
+	 */
+	constructor(
+		private readonly app: App,
+		private readonly getCardRefKey: () => string = () => DEFAULT_CARD_REF_KEY,
+	) {}
 
 	private toHandle(file: TFile): NoteHandle {
 		return {
@@ -48,12 +57,13 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 	}
 
 	getCardRef(note: NoteHandle): CardRef | null {
-		return parseCardRef(this.readFrontmatter(note)?.[CARD_REF_KEY]);
+		return parseCardRef(this.readFrontmatter(note)?.[this.getCardRefKey()]);
 	}
 
 	async setCardRef(note: NoteHandle, ref: CardRef): Promise<void> {
+		const key = this.getCardRefKey();
 		await this.writeFrontmatter(note, (frontmatter) => {
-			frontmatter[CARD_REF_KEY] = formatCardRef(ref.boardId, ref.cardId);
+			frontmatter[key] = formatCardRef(ref.boardId, ref.cardId);
 		});
 	}
 

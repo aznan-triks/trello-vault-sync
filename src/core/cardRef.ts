@@ -8,8 +8,8 @@ export interface CardRef {
 	cardId: string;
 }
 
-/** Frontmatter key the vault has always used to point at a Trello card. */
-export const CARD_REF_KEY = "trello_board_card_id";
+/** Default frontmatter key pointing at a Trello card — configurable via `cardRefFrontmatterKey`. */
+export const DEFAULT_CARD_REF_KEY = "trello_board_card_id";
 
 const PLACEHOLDER = /\{\{|\}\}/;
 
