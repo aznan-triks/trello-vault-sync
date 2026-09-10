@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DEFAULT_CARD_REF_KEY } from "../src/core/cardRef";
 import { renderTemplate, templateMissingCardRefKey } from "../src/core/template";
 
 const vars = {
@@ -49,16 +50,24 @@ describe("renderTemplate", () => {
 
 describe("templateMissingCardRefKey", () => {
 	test("flags a template with no trello_board_card_id key at all", () => {
-		expect(templateMissingCardRefKey("---\ntitle: {{TITLE}}\n---\n{{DESCRIPTION}}")).toBe(true);
+		expect(
+			templateMissingCardRefKey("---\ntitle: {{TITLE}}\n---\n{{DESCRIPTION}}", DEFAULT_CARD_REF_KEY),
+		).toBe(true);
 	});
 
 	test("does not flag a template that declares the key", () => {
 		const template = '---\ntrello_board_card_id: "{{BOARD_ID}};{{CARD_ID}}"\n---\n{{DESCRIPTION}}';
-		expect(templateMissingCardRefKey(template)).toBe(false);
+		expect(templateMissingCardRefKey(template, DEFAULT_CARD_REF_KEY)).toBe(false);
 	});
 
 	test("still flags it when the key only appears in the body, not the frontmatter", () => {
 		const template = "---\ntype: idée\n---\nSee trello_board_card_id in the legacy script.";
-		expect(templateMissingCardRefKey(template)).toBe(true);
+		expect(templateMissingCardRefKey(template, DEFAULT_CARD_REF_KEY)).toBe(true);
+	});
+
+	test("checks against a configured key, not just the default", () => {
+		const template = '---\ncard_link: "{{BOARD_ID}};{{CARD_ID}}"\n---\n{{DESCRIPTION}}';
+		expect(templateMissingCardRefKey(template, "card_link")).toBe(false);
+		expect(templateMissingCardRefKey(template, DEFAULT_CARD_REF_KEY)).toBe(true);
 	});
 });

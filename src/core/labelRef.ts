@@ -5,8 +5,8 @@
  * happens where the frontmatter meets the Trello API, not here).
  */
 
-/** Frontmatter key the vault uses for the card's labels. */
-export const LABELS_KEY = "trello_labels";
+/** Default frontmatter key for the card's labels — configurable via `labelsFrontmatterKey`. */
+export const DEFAULT_LABELS_KEY = "trello_labels";
 
 /** Parse a frontmatter value into a list of trimmed, non-empty label names. */
 export function parseLabelsRef(raw: unknown): string[] {

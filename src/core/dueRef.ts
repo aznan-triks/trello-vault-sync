@@ -4,8 +4,8 @@
  * conversion. `null` means "no due date" and, on write, "clear the field".
  */
 
-/** Frontmatter key the vault uses for the card's due date. */
-export const DUE_KEY = "trello_due";
+/** Default frontmatter key for the card's due date — configurable via `dueFrontmatterKey`. */
+export const DEFAULT_DUE_KEY = "trello_due";
 
 /** Parse a frontmatter value, returning `null` for anything unusable. */
 export function parseDueRef(raw: unknown): string | null {

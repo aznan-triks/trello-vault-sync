@@ -1,4 +1,4 @@
-import { CARD_REF_KEY, formatCardRef } from "../core/cardRef";
+import { DEFAULT_CARD_REF_KEY, formatCardRef } from "../core/cardRef";
 import { errorMessage } from "../core/errorMessage";
 import { notesInFolder, sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
@@ -29,6 +29,8 @@ export interface FolderSyncOptions extends NoteSyncOptions {
 	allowDelete: boolean;
 	/** Board the list belongs to; consulted only to protect notes before deleting. */
 	boardId: string;
+	/** `undefined` behaves as `DEFAULT_CARD_REF_KEY`. */
+	cardRefFrontmatterKey?: string;
 }
 
 export interface FolderSyncStats {
@@ -67,7 +69,7 @@ const emptyStats = (): FolderSyncStats => ({
 	errors: 0,
 });
 
-function newNoteContent(card: TrelloCard, template: string | null): string {
+function newNoteContent(card: TrelloCard, template: string | null, cardRefKey: string): string {
 	const vars = {
 		TITLE: card.name,
 		DESCRIPTION: card.desc ?? "",
@@ -77,7 +79,7 @@ function newNoteContent(card: TrelloCard, template: string | null): string {
 	};
 	if (template) return renderTemplate(template, vars);
 	const ref = formatCardRef(card.idBoard, card.id);
-	return `---\n${CARD_REF_KEY}: "${ref}"\n---\n\n${card.desc ?? ""}`;
+	return `---\n${cardRefKey}: "${ref}"\n---\n\n${card.desc ?? ""}`;
 }
 
 /**
@@ -100,6 +102,7 @@ export async function syncFolder(
 	noteHandles?: NoteHandle[],
 ): Promise<FolderSyncStats> {
 	const stats = emptyStats();
+	const cardRefKey = options.cardRefFrontmatterKey ?? DEFAULT_CARD_REF_KEY;
 	const cards = await client.getListCards(mapping.listId, signal);
 	reporter.log("info", `${cards.length} card(s) in the list`);
 
@@ -130,10 +133,10 @@ export async function syncFolder(
 	);
 
 	const template = mapping.templateName ? await vault.readTemplate(mapping.templateName) : null;
-	if (template && templateMissingCardRefKey(template)) {
+	if (template && templateMissingCardRefKey(template, cardRefKey)) {
 		reporter.log(
 			"warn",
-				`Template "${mapping.templateName}" has no ${CARD_REF_KEY} key — new notes from it won't link back to their card.`,
+			`Template "${mapping.templateName}" has no ${cardRefKey} key — new notes from it won't link back to their card.`,
 		);
 	}
 	const byPath = new Map(handles.map((note) => [note.path, note]));
@@ -180,7 +183,7 @@ export async function syncFolder(
 				);
 				if (options.dryRun) continue;
 				const path = uniqueNotePath(mapping.folder, safeName, (p) => vault.exists(p));
-				await vault.create(path, newNoteContent(card, template));
+				await vault.create(path, newNoteContent(card, template, cardRefKey));
 			} catch (error) {
 				stats.created--;
 				stats.errors++;

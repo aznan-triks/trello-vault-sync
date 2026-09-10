@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { DUE_KEY, formatDueRef, parseDueRef } from "../src/core/dueRef";
+import { DEFAULT_DUE_KEY, formatDueRef, parseDueRef } from "../src/core/dueRef";
 
 describe("parseDueRef", () => {
 	test("keeps the ISO date string as-is, no reformatting", () => {
@@ -29,8 +29,8 @@ describe("formatDueRef", () => {
 	});
 });
 
-describe("DUE_KEY", () => {
+describe("DEFAULT_DUE_KEY", () => {
 	test("is the frontmatter key used for the due date", () => {
-		expect(DUE_KEY).toBe("trello_due");
+		expect(DEFAULT_DUE_KEY).toBe("trello_due");
 	});
 });

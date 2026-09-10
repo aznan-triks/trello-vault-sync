@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-	LABELS_KEY,
+	DEFAULT_LABELS_KEY,
 	formatLabelsRef,
 	normalizeLabelName,
 	normalizeLabelSet,
@@ -8,9 +8,9 @@ import {
 	sameLabelSet,
 } from "../src/core/labelRef";
 
-describe("LABELS_KEY", () => {
+describe("DEFAULT_LABELS_KEY", () => {
 	test("is the frontmatter key used for labels", () => {
-		expect(LABELS_KEY).toBe("trello_labels");
+		expect(DEFAULT_LABELS_KEY).toBe("trello_labels");
 	});
 });
 
