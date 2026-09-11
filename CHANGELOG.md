@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.2] — 2026-09-11
+
+### Fixed
+
+- **Plain**: Three settings had no explanation of what they do — "Folder" and
+  "Note template" in each Trello list ↔ folder mapping, and "Show the
+  progress panel". All three now have a description, like every other
+  setting.
+  **Technical**: Added `.setDesc(...)` to the three `Setting` instances in
+  `src/settings/SettingsTab.ts::renderMappings`/`renderAdvanced`. Audited all
+  37 `Setting` instances in the file; these were the only ones missing a
+  description among fields that take a value (list-item rows under an
+  already-described section, and one-shot action buttons, are exempt).
+
 ## [1.9.1] — 2026-09-11
 
 ### Changed
