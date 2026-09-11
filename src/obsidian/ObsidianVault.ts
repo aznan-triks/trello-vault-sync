@@ -51,8 +51,10 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 
 	async writeFrontmatter(note: NoteHandle, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void> {
 		// processFrontMatter round-trips the YAML properly — no string surgery.
-		await this.app.fileManager.processFrontMatter(this.toFile(note), (frontmatter) => {
-			mutate(frontmatter);
+		// Obsidian types the callback parameter as `any`; it always hands over the
+		// parsed YAML mapping, so the conversion happens once, here, explicitly.
+		await this.app.fileManager.processFrontMatter(this.toFile(note), (frontmatter: unknown) => {
+			mutate(frontmatter as Record<string, unknown>);
 		});
 	}
 
@@ -90,8 +92,9 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 	}
 
 	async trash(note: NoteHandle): Promise<void> {
-		// Obsidian's own trash, so the user can undo from inside the vault.
-		await this.app.vault.trash(this.toFile(note), false);
+		// Obsidian's own deletion path, so it stays recoverable and follows the
+		// user's "Deleted files" preference instead of forcing one destination.
+		await this.app.fileManager.trashFile(this.toFile(note));
 	}
 
 	exists(path: string): boolean {

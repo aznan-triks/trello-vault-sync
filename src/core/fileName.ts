@@ -1,11 +1,20 @@
 /** Characters Obsidian refuses inside a note file name. */
 const FORBIDDEN = new RegExp(String.raw`[*"\\/<>:|?]`, "g");
-const CONTROL = /[\u0000-\u001F\u007F]/g;
 /** Windows device names — illegal as a full file base name regardless of case. */
 const RESERVED_WINDOWS_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 /** Longest base name we will produce, leaving room for a folder prefix. */
 const MAX_BASENAME_LENGTH = 120;
+
+/** Strips ASCII control characters by code point — a regex literal for this range trips control-character linting. */
+function stripControlChars(value: string): string {
+	let out = "";
+	for (const char of value) {
+		const code = char.codePointAt(0) ?? 0;
+		if (code >= 0x20 && code !== 0x7f) out += char;
+	}
+	return out;
+}
 
 /** Truncates by Unicode code point, so an emoji's surrogate pair is never split in two. */
 function truncateCodePoints(value: string, maxLength: number): string {
@@ -19,7 +28,7 @@ function truncateCodePoints(value: string, maxLength: number): string {
 /** Turn an arbitrary Trello card title into a legal note base name. */
 export function sanitizeFileName(name: string): string {
 	const cleaned = truncateCodePoints(
-		name.replace(CONTROL, "").replace(FORBIDDEN, "-").replace(/\.+$/, "").trim(),
+		stripControlChars(name).replace(FORBIDDEN, "-").replace(/\.+$/, "").trim(),
 		MAX_BASENAME_LENGTH,
 	).trim();
 	if (cleaned === "") return "Untitled";
