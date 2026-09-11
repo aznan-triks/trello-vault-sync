@@ -155,7 +155,7 @@ export class ProgressPanel implements Reporter {
 			outcome === "done" ? "Done" : outcome === "aborted" ? "Aborted" : "Error",
 		);
 		this.root.addClass(`tvs-panel--${outcome}`);
-		this.barEl.style.transform = "scaleX(1)";
+		this.barEl.setCssProps({ "--tvs-progress-scale": "1" });
 		this.currentEl.setText(summary);
 		this.closeEl.setAttr("aria-label", "Close");
 		this.closeEl.removeClass("tvs-panel__close--hidden");
@@ -171,7 +171,7 @@ export class ProgressPanel implements Reporter {
 
 	private renderProgress(): void {
 		const ratio = this.total > 0 ? Math.min(1, this.done / this.total) : 0;
-		this.barEl.style.transform = `scaleX(${ratio})`;
+		this.barEl.setCssProps({ "--tvs-progress-scale": String(ratio) });
 		this.progressEl.setText(`${this.done} / ${this.total}`);
 	}
 }
