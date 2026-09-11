@@ -4,6 +4,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] — 2026-09-12
+
+### Changed
+
+- **Plain**: ⚠️ Reverted: the plugin works on Obsidian 1.7 and up again. v1.12.0
+  had raised the requirement to Obsidian 1.13, which silently made the plugin
+  unloadable for anyone on an older release — including the machine it is
+  developed on.
+  **Technical**: `manifest.json`.minAppVersion `1.13.0` → `1.7.2`;
+  `src/settings/SettingsTab.ts` goes back to rendering imperatively from
+  `display()`. `getSettingDefinitions()`, the group/row description
+  (`SettingGroupSpec`/`SettingRow`) introduced in v1.11.0, and the `update()`
+  call are all gone — they are 1.13-only, and the analyzer rejects any 1.13 API
+  under a lower `minAppVersion`, guard or no guard. The analyzer's remaining
+  complaint about `display()` is a deprecation *recommendation*, not an error.
+- **Plain**: What that costs: the plugin's settings no longer show up in
+  Obsidian's own settings search. Everything else about the settings tab is
+  unchanged.
+  **Technical**: the declarative path is the only way to be indexed by the
+  1.13 settings search; supporting 1.7–1.12 and being indexed are mutually
+  exclusive for now. `setDynamicTooltip()` is restored with it — on 1.12 and
+  below it is the only way to see the slider's value while dragging.
+
+### Fixed
+
+- **Plain**: Saving a setting still does not make the interface wait for the
+  write to land on disk — that improvement survives the revert.
+  **Technical**: every settings handler stays synchronous and fires the persist
+  with `void this.save()`; "Test connection" keeps its round trip in the private
+  `testConnection()` method. Same for `src/obsidian/transport.ts` (always
+  rejects with an `Error`) and the explicit timer host in `src/core/asyncUtil.ts`
+  and `src/trello/client.ts`, both introduced in v1.12.0 and kept.
+
 ## [1.12.0] — 2026-09-12
 
 ### Changed
