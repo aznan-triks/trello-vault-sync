@@ -141,4 +141,59 @@ describe("normalizeSettings", () => {
 		expect(settings.cardRefFrontmatterKey).toBe("trello_board_card_id");
 		expect(settings.dueFrontmatterKey).toBe("trello_due");
 	});
+
+	test("defaults syncAttachments to on", () => {
+		expect(normalizeSettings({}).syncAttachments).toBe(true);
+	});
+
+	test("keeps an explicit syncAttachments: false", () => {
+		expect(normalizeSettings({ syncAttachments: false }).syncAttachments).toBe(false);
+	});
+
+	test("defaults the attachment frontmatter keys to their historical values", () => {
+		const settings = normalizeSettings({});
+		expect(settings.attachmentsFrontmatterKey).toBe("trello_attachments");
+		expect(settings.linkedCardsFrontmatterKey).toBe("trello_linked_cards");
+	});
+
+	test("keeps trimmed custom attachment frontmatter keys", () => {
+		const settings = normalizeSettings({
+			attachmentsFrontmatterKey: "  pj  ",
+			linkedCardsFrontmatterKey: "cartes_liees",
+		});
+		expect(settings.attachmentsFrontmatterKey).toBe("pj");
+		expect(settings.linkedCardsFrontmatterKey).toBe("cartes_liees");
+	});
+
+	test("falls back to the default when an attachment frontmatter key is blank or not a string", () => {
+		const settings = normalizeSettings({
+			attachmentsFrontmatterKey: "   ",
+			linkedCardsFrontmatterKey: 42 as unknown as string,
+		});
+		expect(settings.attachmentsFrontmatterKey).toBe("trello_attachments");
+		expect(settings.linkedCardsFrontmatterKey).toBe("trello_linked_cards");
+	});
+
+	test("defaults syncChecklists to on", () => {
+		expect(normalizeSettings({}).syncChecklists).toBe(true);
+	});
+
+	test("keeps an explicit syncChecklists: false", () => {
+		expect(normalizeSettings({ syncChecklists: false }).syncChecklists).toBe(false);
+	});
+
+	test("defaults checklistHeading to its historical value", () => {
+		expect(normalizeSettings({}).checklistHeading).toBe("## Checklist");
+	});
+
+	test("keeps a trimmed custom checklistHeading", () => {
+		expect(normalizeSettings({ checklistHeading: "  ## Tâches  " }).checklistHeading).toBe("## Tâches");
+	});
+
+	test("falls back to the default when checklistHeading is blank or not a string", () => {
+		expect(normalizeSettings({ checklistHeading: "   " }).checklistHeading).toBe("## Checklist");
+		expect(normalizeSettings({ checklistHeading: 42 as unknown as string }).checklistHeading).toBe(
+			"## Checklist",
+		);
+	});
 });

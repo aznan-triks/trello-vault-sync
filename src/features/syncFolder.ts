@@ -13,6 +13,7 @@ import {
 	type VaultGateway,
 } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient } from "../trello/client";
+import { buildCardIndex } from "./attachmentSync";
 import { syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
 
 /** One Trello list mirrored into one vault folder. */
@@ -100,11 +101,16 @@ export async function syncFolder(
 	signal?: AbortSignal,
 	/** Pre-scanned notes already narrowed to this folder — lets a multi-mapping run share one vault scan. */
 	noteHandles?: NoteHandle[],
+	/** Pre-built vault-wide card index for resolving card-link attachments — lets a multi-mapping run share one build; built from its own vault scan when omitted and attachments syncing is on. */
+	cardIndex?: Map<string, NoteHandle>,
 ): Promise<FolderSyncStats> {
 	const stats = emptyStats();
 	const cardRefKey = options.cardRefFrontmatterKey ?? DEFAULT_CARD_REF_KEY;
 	const cards = await client.getListCards(mapping.listId, signal);
 	reporter.log("info", `${cards.length} card(s) in the list`);
+
+	const attachmentsCardIndex =
+		options.syncAttachments === false ? undefined : (cardIndex ?? buildCardIndex(vault, vault.listNotes("")));
 
 	const handles = noteHandles ?? vault.listNotes(mapping.folder);
 	const planned: PlannedNote[] = handles.map((note) => ({
@@ -152,10 +158,17 @@ export async function syncFolder(
 				await vault.setCardRef(note, { boardId: pair.card.idBoard, cardId: pair.card.id });
 			}
 			// An adopted note has no sync history to arbitrate: the card wins.
-			const result = await syncNoteWithCard(vault, client, note, pair.card, {
-				...options,
-				...(pair.adopted ? { force: "pull" as const } : {}),
-			});
+			const result = await syncNoteWithCard(
+				vault,
+				client,
+				note,
+				pair.card,
+				{
+					...options,
+					...(pair.adopted ? { force: "pull" as const } : {}),
+				},
+				attachmentsCardIndex,
+			);
 
 			if (pair.adopted) {
 				if (result.renamed) stats.renamed++;
@@ -271,6 +284,7 @@ export async function syncAllMappings(
 		? await client.getBoardCards(options.boardId, "all", signal)
 		: undefined;
 	const allNotes = vault.listNotes("");
+	const cardIndex = options.syncAttachments === false ? undefined : buildCardIndex(vault, allNotes);
 
 	for (const mapping of mappings) {
 		if (signal?.aborted) break;
@@ -285,6 +299,7 @@ export async function syncAllMappings(
 				boardCards,
 				signal,
 				notesInFolder(allNotes, mapping.folder),
+				cardIndex,
 			);
 			addCounts(total, stats);
 		} catch (error) {

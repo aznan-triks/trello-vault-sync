@@ -75,7 +75,10 @@ export async function resolveConflict(ctx: CommandContext): Promise<void> {
 
 	await ctx.run(`Check conflict — ${note.basename}`, async (reporter) => {
 		const card = await ctx.client(reporter).getCard(ref.cardId);
-		const localBody = extractBody(await ctx.vault.read(note));
+		const localBody = extractBody(
+			await ctx.vault.read(note),
+			ctx.settings.syncChecklists ? ctx.settings.checklistHeading : undefined,
+		);
 		const localDue = parseDueRef(ctx.vault.readFrontmatter(note)?.[ctx.settings.dueFrontmatterKey]);
 		const decision = decideForCard(
 			note,

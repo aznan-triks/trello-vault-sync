@@ -4,6 +4,53 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] — 2026-09-11
+
+### Added
+
+- **Plain**: A card's attachments now sync into a note's frontmatter — plain
+  links in one property, and a clickable reference to any attachment that
+  points at another Trello card in another. If that other card already has
+  its own note in the vault, the reference points straight to it; otherwise
+  it shows the card's name as a placeholder. Both properties, and the whole
+  feature, are configurable in Settings — on by default, but it does cost one
+  extra request to Trello per note synced.
+  **Technical**: `src/trello/client.ts` (`TrelloAttachment`, `getCardAttachments`,
+  `ATTACHMENT_FIELDS`) ; `src/core/attachmentRef.ts` (new: frontmatter keys,
+  parse/format, `extractCardShortLink`, `formatWikilink`) ;
+  `src/features/attachmentSync.ts` (new: `buildCardIndex` — one vault-wide
+  card-id→note scan, shared once per run by `syncFolder`/`syncAllMappings`/
+  `syncVault` — and `resolveAttachments`, exact-match deduped) ; wired into
+  `src/features/syncNote.ts::convergeAttachments`, independent of the
+  pull/push direction decided for title/body/due (never a cause of conflict,
+  respects `dryRun`, best-effort on a network failure — logged, never
+  thrown). New settings `syncAttachments` (default `true`),
+  `attachmentsFrontmatterKey`/`linkedCardsFrontmatterKey` (defaults
+  `trello_attachments`/`trello_linked_cards`).
+- **Plain**: Trello checklists now show up as a checkbox list at the end of
+  the note. Ticking a box in Obsidian pushes that change to Trello right
+  away, even if nothing else on the note changed; an item added or renamed on
+  Trello shows up the same way on the next sync. A box typed by hand with no
+  matching Trello item is not created there — it's dropped on the next sync,
+  by design, not a bug. Configurable in Settings — on by default, one extra
+  request to Trello per note synced.
+  **Technical**: `src/trello/client.ts` (`TrelloChecklist`/`TrelloChecklistItem`,
+  `getCardChecklists`, `updateCheckItemState`) ; `src/core/checklistRef.ts`
+  (new: `renderChecklistMarkdown`/`parseChecklistMarkdown`) ;
+  `src/core/noteBody.ts` gains `splitChecklistSection`/`insertChecklistSection`
+  and an optional `checklistHeading` parameter on `extractBody`/`replaceBody`
+  — omitted (the default), behavior is byte-for-byte identical to before this
+  change, so the description sync every other feature relies on is
+  unaffected ; `src/features/checklistSync.ts` (new: `resolveChecklists` —
+  matches items by (checklist name, item name), Obsidian wins an already-known
+  item's checked state, Trello wins which items/checklists exist) ; wired
+  into `syncNote.ts::convergeChecklists` (same independent-of-direction,
+  best-effort hook point as attachments) and
+  `noteCommands.ts::resolveConflict` (checklist-aware, so a checkbox-only
+  change never shows up as a false conflict). New settings `syncChecklists`
+  (default `true`), `checklistHeading` (default `## Checklist`, must be the
+  last thing in the note's body).
+
 ## [1.9.2] — 2026-09-11
 
 ### Fixed
