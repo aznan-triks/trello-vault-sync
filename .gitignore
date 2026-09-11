@@ -26,7 +26,14 @@ Thumbs.db
 # distinct. CONTEXT.md / NEXT_SESSION.md document that link and personal
 # machine paths — never publishable here. They stay local only.
 CONTEXT.md
+context.md
 NEXT_SESSION.md
+next_session.md
+
+# Personal review/audit/findings documents — machine-specific, analysis snapshots
+CODE_REVIEW_FINDINGS_*.md
+*_REVIEW_*.md
+*_FINDINGS_*.md
 
 # Tool-specific caches — machine-specific, never versioned.
 .claude/
