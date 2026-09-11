@@ -404,29 +404,35 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					);
 				});
 
-			new Setting(row).setName("Folder").addText((text) => {
-				text
-					.setPlaceholder("Projects/Ideas")
-					.setValue(mapping.folder)
-					.onChange(async (value) => {
-						mapping.folder = normalizeVaultPath(value.trim());
-						await this.save();
-					});
-				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
-			});
+			new Setting(row)
+				.setName("Folder")
+				.setDesc("Vault folder synced with this Trello list.")
+				.addText((text) => {
+					text
+						.setPlaceholder("Projects/Ideas")
+						.setValue(mapping.folder)
+						.onChange(async (value) => {
+							mapping.folder = normalizeVaultPath(value.trim());
+							await this.save();
+						});
+					new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+				});
 
-			new Setting(row).setName("Note template").addText((text) => {
-				text
-					.setPlaceholder("Trello Card")
-					.setValue(mapping.templateName)
-					.onChange(async (value) => {
-						mapping.templateName = value.trim();
-						await this.save();
-					});
-				new VaultPathSuggest(this.app, text.inputEl, () =>
-					this.app.vault.getMarkdownFiles().map((file) => file.basename),
-				);
-			});
+			new Setting(row)
+				.setName("Note template")
+				.setDesc("Note used as the template for new notes created from this list; empty = a plain description.")
+				.addText((text) => {
+					text
+						.setPlaceholder("Trello Card")
+						.setValue(mapping.templateName)
+						.onChange(async (value) => {
+							mapping.templateName = value.trim();
+							await this.save();
+						});
+					new VaultPathSuggest(this.app, text.inputEl, () =>
+						this.app.vault.getMarkdownFiles().map((file) => file.basename),
+					);
+				});
 		});
 
 		new Setting(root).addButton((button) =>
@@ -518,6 +524,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Show the progress panel")
+			.setDesc("Floating panel with live progress while a sync runs. Off: the sync still runs, just silently.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.showPanel).onChange(async (value) => {
 					this.plugin.settings.showPanel = value;
