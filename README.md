@@ -16,6 +16,10 @@ and everything you see inside Obsidian (commands, settings, the progress panel,
 Notices, and the Markdown audit reports it writes into your notes) — is in English.
 There is no language setting.
 
+**Acknowledgements** — [nathonius's Trello plugin](https://github.com/nathonius/obsidian-trello)
+is what first got my notes and Trello cards talking to each other, and using it is
+part of what pushed me to build this one. Thanks for the inspiration.
+
 ## Features
 
 | Command | What it does |
