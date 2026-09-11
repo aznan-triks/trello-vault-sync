@@ -1,7 +1,9 @@
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
 import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
+import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_LINKED_CARDS_KEY } from "../core/attachmentRef";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
+import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
@@ -286,6 +288,50 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(root)
+			.setName("Sync attachments")
+			.setDesc(
+				"Pulls the card's attachments into the note's frontmatter (Attachments key/Linked cards key, " +
+					"below) — a plain url in one, a wikilink to the linked card's own note (or a placeholder " +
+					"by name) in the other. Pull-only. Costs one extra Trello request per note synced.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncAttachments).onChange(async (value) => {
+					this.plugin.settings.syncAttachments = value;
+					await this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Sync checklists")
+			.setDesc(
+				"Mirrors the card's checklists as Markdown tasks under the checklist section (Checklist section " +
+					"heading, below), always the last thing in the note. Checking a box in Obsidian pushes that " +
+					"state to Trello even when nothing else changed; which items/checklists exist always follows " +
+					"Trello — an item typed by hand with no match on the card is dropped, never created there. " +
+					"Costs one extra Trello request per note synced.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncChecklists).onChange(async (value) => {
+					this.plugin.settings.syncChecklists = value;
+					await this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Checklist section heading")
+			.setDesc(
+				"The exact line marking where the checklist section starts in a note's body — must be the last " +
+					"thing in the body. ⚠️ The section under this heading is rebuilt from Trello on every sync; " +
+					"changing this key doesn't move an existing section written under the old heading.",
+			)
+			.addText((text) =>
+				text.setValue(this.plugin.settings.checklistHeading).onChange(async (value) => {
+					this.plugin.settings.checklistHeading = safeFrontmatterKey(value, DEFAULT_CHECKLIST_HEADING);
+					await this.save();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Clock margin (seconds)")
 			.setDesc(
 				"Below this gap, both sides are considered simultaneous: the divergence is " +
@@ -564,6 +610,29 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(this.plugin.settings.labelsFrontmatterKey).onChange(async (value) => {
 					this.plugin.settings.labelsFrontmatterKey = safeFrontmatterKey(value, DEFAULT_LABELS_KEY);
+					await this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Attachments key")
+			.setDesc("Frontmatter property that carries the card's plain attachment urls.")
+			.addText((text) =>
+				text.setValue(this.plugin.settings.attachmentsFrontmatterKey).onChange(async (value) => {
+					this.plugin.settings.attachmentsFrontmatterKey = safeFrontmatterKey(value, DEFAULT_ATTACHMENTS_KEY);
+					await this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Linked cards key")
+			.setDesc("Frontmatter property that carries a wikilink for each attachment pointing to another Trello card.")
+			.addText((text) =>
+				text.setValue(this.plugin.settings.linkedCardsFrontmatterKey).onChange(async (value) => {
+					this.plugin.settings.linkedCardsFrontmatterKey = safeFrontmatterKey(
+						value,
+						DEFAULT_LINKED_CARDS_KEY,
+					);
 					await this.save();
 				}),
 			);
