@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DEFAULT_LINKED_CARDS_KEY } from "../src/core/attachmentRef";
 import { syncAllMappings, syncFolder, type FolderMapping, type FolderSyncOptions } from "../src/features/syncFolder";
 import { silentReporter } from "../src/obsidian/gateway";
 import { TrelloClient } from "../src/trello/client";
@@ -15,6 +16,11 @@ const options: FolderSyncOptions = {
 	allowCreate: true,
 	allowDelete: false,
 	boardId: "board",
+	// Off by default in this shared fixture — attachments/checklists syncing is covered on
+	// its own in syncNote.test.ts, and its extra Trello request per note would break
+	// request-count assertions here that are about syncFolder's own list/board-fetch batching.
+	syncAttachments: false,
+	syncChecklists: false,
 };
 
 /** List cards, plus a board that holds exactly the same cards by default. */
@@ -475,6 +481,50 @@ describe("syncAllMappings", () => {
 
 		await syncAllMappings(vault, client, [MAPPING_A, MAPPING_B], options, silentReporter);
 
+		expect(vault.listCalls).toBe(1);
+	});
+});
+
+describe("syncFolder — attachments", () => {
+	test("resolves a card-link attachment to a note living outside the synced folder", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Sagondo.md`]: { content: linked("c1", "same"), mtime: at("2026-01-01") },
+			"Autre/Cible.md": { content: linked("c2", "cible"), mtime: at("2026-01-01") },
+		});
+		const { transport } = routedTransport({
+			"/lists/l1/cards": [card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01" })],
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "Cible", url: "https://trello.com/c/AbC1/2-cible", isUpload: false },
+			],
+			"/cards/AbC1": { id: "c2", idBoard: "board", name: "Cible" },
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, { ...options, syncAttachments: true });
+
+		expect(vault.readFrontmatter(vault.note(`${FOLDER}/Sagondo.md`))?.[DEFAULT_LINKED_CARDS_KEY]).toEqual([
+			"[[Cible]]",
+		]);
+	});
+
+	test("scans the vault only once for the card index, shared across every mapping", async () => {
+		const mappingA: FolderMapping = { listId: "l1", folder: "Folder/A", templateName: "" };
+		const mappingB: FolderMapping = { listId: "l2", folder: "Folder/B", templateName: "" };
+		class CountingVault extends FakeVault {
+			listCalls = 0;
+			override listNotes(folder: string, excludedFolders?: string[]) {
+				this.listCalls++;
+				return super.listNotes(folder, excludedFolders);
+			}
+		}
+		const vault = new CountingVault();
+		const { transport } = routedTransport({ "/lists/l1/cards": [], "/lists/l2/cards": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncAllMappings(vault, client, [mappingA, mappingB], { ...options, syncAttachments: true }, silentReporter);
+
+		// 1 scan for `allNotes` (folder-narrowing + card index), reused by both mappings —
+		// not 2 (one extra full scan per mapping if the card index were rebuilt each time).
 		expect(vault.listCalls).toBe(1);
 	});
 });

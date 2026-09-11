@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DEFAULT_LINKED_CARDS_KEY } from "../src/core/attachmentRef";
 import { syncVault } from "../src/features/syncVault";
 import { silentReporter } from "../src/obsidian/gateway";
 import { TrelloClient } from "../src/trello/client";
@@ -12,6 +13,11 @@ const options = {
 	marginMs: 0,
 	syncTitle: true,
 	dryRun: false,
+	// Off by default in this shared fixture — attachments/checklists syncing is covered on
+	// its own in syncNote.test.ts, and its extra Trello request per note would break the
+	// request-count assertions here that are about syncVault's own board-fetch batching.
+	syncAttachments: false,
+	syncChecklists: false,
 };
 
 function clientFor(cards: unknown[]) {
@@ -153,5 +159,31 @@ describe("syncVault", () => {
 
 		expect(stats.pulled).toBe(0);
 		expect(vault.contentOf("WoT/a.md")).toContain("old");
+	});
+});
+
+describe("syncVault — attachments", () => {
+	test("resolves a card-link attachment to a note outside the synced scope", async () => {
+		// The note's basename ("Sortie") deliberately differs from the Trello card's own
+		// name ("out", used by the attachment/placeholder) — if the card index were built
+		// only from the synced scope ("WoT"), this note (under "Autre") would be missing
+		// from it, and the placeholder fallback ("[[out]]") would be indistinguishable
+		// from a correctly resolved wikilink of the same name.
+		const vault = new FakeVault({
+			"WoT/in.md": { content: linked("c1", "same"), mtime: at("2026-01-01") },
+			"Autre/Sortie.md": { content: linked("c2", "same"), mtime: at("2026-01-01") },
+		});
+		const { transport } = routedTransport({
+			"/boards/board/cards": [card({ id: "c1", name: "in", desc: "same" })],
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "out", url: "https://trello.com/c/AbC1/2-out", isUpload: false },
+			],
+			"/cards/AbC1": { id: "c2", idBoard: "board", name: "out" },
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncVault(vault, client, { scope: "WoT", boardId: "board" }, { ...options, syncAttachments: true });
+
+		expect(vault.readFrontmatter(vault.note("WoT/in.md"))?.[DEFAULT_LINKED_CARDS_KEY]).toEqual(["[[Sortie]]"]);
 	});
 });

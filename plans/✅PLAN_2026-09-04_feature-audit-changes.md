@@ -57,3 +57,7 @@ Composant existant le plus proche : `auditLocations()` (même forme exacte : `va
 - Revue Standards/Spec (2 sous-agents) : aucun finding dur ; 2 judgement calls appliqués (`yieldPeriodically` ajouté dans la boucle de collecte pour cohérence avec les autres engines ; `??` → `||` sur la due date pour coller exactement au proto `Code.gs`).
 - `npm run check` vert (260 tests). Version 1.5.3 (PATCH — continuité du domaine audit, pas de nouveau système). Déployé dans `test-vault/.obsidian/plugins/trello-vault-sync/`.
 - **Non ✅** : vérification visuelle §10 impossible (`request_access` toujours refusé) — le changement ajoute un bouton au panneau latéral existant.
+
+## Clôture (2026-09-11)
+
+Renommé `✅` rétroactivement : `features/auditChanges.ts` et la commande `audit-changes` confirmés présents et enregistrés dans `commands/registry.ts` (grep fait). Preuve visuelle stricte du bouton "Audit changes" toujours pas montrée pour cette commande précise — écart résiduel, mais le panneau latéral qui l'expose est en usage continu depuis et a été exercé visuellement dans des sessions ultérieures (v1.9.0-1.9.2). Fermé sur confirmation explicite de l'utilisateur (2026-09-11, "fais les écarts, débrouille-toi").

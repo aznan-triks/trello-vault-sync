@@ -1,4 +1,6 @@
+import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_LINKED_CARDS_KEY, DEFAULT_SYNC_ATTACHMENTS } from "../core/attachmentRef";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
+import { DEFAULT_CHECKLIST_HEADING, DEFAULT_SYNC_CHECKLISTS } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, type LabelSyncMode } from "../core/labelMerge";
@@ -62,6 +64,16 @@ export interface TrelloVaultSyncSettings {
 	cardRefFrontmatterKey: string;
 	dueFrontmatterKey: string;
 	labelsFrontmatterKey: string;
+	attachmentsFrontmatterKey: string;
+	linkedCardsFrontmatterKey: string;
+
+	/** Pull-only, on by default — costs one extra Trello request per note synced (attachments aren't embedded in the card object). */
+	syncAttachments: boolean;
+
+	/** On by default — costs one extra Trello request per note synced (checklists aren't embedded in the card object either). */
+	syncChecklists: boolean;
+	/** Heading marking the checklist section — always the last thing in a note's body, not a frontmatter key. */
+	checklistHeading: string;
 }
 
 export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
@@ -91,6 +103,11 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	cardRefFrontmatterKey: DEFAULT_CARD_REF_KEY,
 	dueFrontmatterKey: DEFAULT_DUE_KEY,
 	labelsFrontmatterKey: DEFAULT_LABELS_KEY,
+	attachmentsFrontmatterKey: DEFAULT_ATTACHMENTS_KEY,
+	linkedCardsFrontmatterKey: DEFAULT_LINKED_CARDS_KEY,
+	syncAttachments: DEFAULT_SYNC_ATTACHMENTS,
+	syncChecklists: DEFAULT_SYNC_CHECKLISTS,
+	checklistHeading: DEFAULT_CHECKLIST_HEADING,
 };
 
 /** Highest retry count normalizeSettings will accept before clamping. */
@@ -204,5 +221,14 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		cardRefFrontmatterKey: safeFrontmatterKey(input.cardRefFrontmatterKey, DEFAULT_SETTINGS.cardRefFrontmatterKey),
 		dueFrontmatterKey: safeFrontmatterKey(input.dueFrontmatterKey, DEFAULT_SETTINGS.dueFrontmatterKey),
 		labelsFrontmatterKey: safeFrontmatterKey(input.labelsFrontmatterKey, DEFAULT_SETTINGS.labelsFrontmatterKey),
+		attachmentsFrontmatterKey: safeFrontmatterKey(
+			input.attachmentsFrontmatterKey,
+			DEFAULT_SETTINGS.attachmentsFrontmatterKey,
+		),
+		linkedCardsFrontmatterKey: safeFrontmatterKey(
+			input.linkedCardsFrontmatterKey,
+			DEFAULT_SETTINGS.linkedCardsFrontmatterKey,
+		),
+		checklistHeading: safeFrontmatterKey(input.checklistHeading, DEFAULT_SETTINGS.checklistHeading),
 	};
 }

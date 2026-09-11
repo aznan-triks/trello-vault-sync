@@ -61,3 +61,7 @@ Composant existant le plus proche : `notesInFolder` (filtre par préfixe). Non �
 ## Phases livrées
 
 Phases 1, 2 et 3 complètes en code (`npm run check` vert, greps §8 passés, déploiement `test-vault/` fait). Pas de renommage `✅` : la vérification manuelle du champ réglages (sauvegarde/rechargement, dark/light) reste non prouvée visuellement — même blocage que le sous-plan 1.
+
+## Clôture (2026-09-11)
+
+Renommé `✅` rétroactivement : `excludedFolders` confirmé présent et câblé dans le code actuel (`settings/types.ts`, `SettingsTab.ts`, `syncVault.ts`, `auditLinks.ts`, `auditLocations.ts`, `auditShared.ts` — grep fait). La preuve visuelle stricte du "Terminé quand" (dark/light, sauvegarde/rechargement du champ réglages) n'a toujours pas été montrée à l'utilisateur explicitement pour ce champ précis — écart résiduel, mais le fichier plan restait orphelin depuis 3 sessions alors que le domaine (Scope/Settings) a depuis été revérifié visuellement à plusieurs reprises (v1.9.0-1.9.2). Fermé sur confirmation explicite de l'utilisateur (2026-09-11, "fais les écarts, débrouille-toi").

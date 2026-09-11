@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { extractBody, normalizeBody, replaceBody, splitFrontmatter } from "../src/core/noteBody";
+import {
+	extractBody,
+	insertChecklistSection,
+	normalizeBody,
+	replaceBody,
+	splitChecklistSection,
+	splitFrontmatter,
+} from "../src/core/noteBody";
 
 describe("splitFrontmatter", () => {
 	test("separates a YAML block from the body", () => {
@@ -74,6 +81,57 @@ describe("extractBody", () => {
 	test("returns the trimmed content when there is no frontmatter", () => {
 		expect(extractBody("  Just text  ")).toBe("Just text");
 	});
+
+	test("leaves a checklist-shaped section alone when no heading is given (off by default)", () => {
+		const content = "---\ntype: idée\n---\n\nReal text\n\n## Checklist\n- [ ] Item\n";
+		expect(extractBody(content)).toBe("Real text\n\n## Checklist\n- [ ] Item");
+	});
+
+	test("strips the checklist section when a heading is given", () => {
+		const content = "---\ntype: idée\n---\n\nReal text\n\n## Checklist\n- [ ] Item\n";
+		expect(extractBody(content, "## Checklist")).toBe("Real text");
+	});
+
+	test("returns an empty description when the checklist section is the whole body", () => {
+		const content = "---\ntype: idée\n---\n\n## Checklist\n- [ ] Item\n";
+		expect(extractBody(content, "## Checklist")).toBe("");
+	});
+});
+
+describe("splitChecklistSection", () => {
+	test("splits at the line matching the heading, keeping it in the block", () => {
+		const body = "Real text\n\n## Checklist\n- [ ] Item";
+		expect(splitChecklistSection(body, "## Checklist")).toEqual({
+			rest: "Real text\n",
+			checklistBlock: "## Checklist\n- [ ] Item",
+		});
+	});
+
+	test("returns a null block and the whole body as rest when the heading isn't found", () => {
+		const body = "Just some text";
+		expect(splitChecklistSection(body, "## Checklist")).toEqual({ rest: body, checklistBlock: null });
+	});
+
+	test("matches the heading line trimmed of surrounding whitespace", () => {
+		const body = "Text\n\n  ## Checklist  \n- [ ] Item";
+		expect(splitChecklistSection(body, "## Checklist").checklistBlock).toBe("  ## Checklist  \n- [ ] Item");
+	});
+});
+
+describe("insertChecklistSection", () => {
+	test("appends the block after rest, separated by a blank line", () => {
+		expect(insertChecklistSection("Real text", "## Checklist\n- [ ] Item")).toBe(
+			"Real text\n\n## Checklist\n- [ ] Item",
+		);
+	});
+
+	test("returns just the block when rest is empty", () => {
+		expect(insertChecklistSection("", "## Checklist\n- [ ] Item")).toBe("## Checklist\n- [ ] Item");
+	});
+
+	test("returns just rest, trimmed, when the block is null", () => {
+		expect(insertChecklistSection("Real text\n\n", null)).toBe("Real text");
+	});
 });
 
 describe("normalizeBody", () => {
@@ -99,5 +157,22 @@ describe("replaceBody", () => {
 	test("keeps the note unchanged when the body is already identical", () => {
 		const content = "---\na: 1\n---\n\nsame";
 		expect(replaceBody(content, "same")).toBe(content);
+	});
+
+	test("ignores an existing checklist-shaped section when no heading is given (off by default)", () => {
+		const content = "---\na: 1\n---\n\nold\n\n## Checklist\n- [ ] Item";
+		expect(replaceBody(content, "new")).toBe("---\na: 1\n---\n\nnew");
+	});
+
+	test("preserves the existing checklist section when a heading is given", () => {
+		const content = "---\na: 1\n---\n\nold\n\n## Checklist\n- [ ] Item";
+		expect(replaceBody(content, "new", "## Checklist")).toBe(
+			"---\na: 1\n---\n\nnew\n\n## Checklist\n- [ ] Item",
+		);
+	});
+
+	test("writes just the new body when there was no checklist section to preserve", () => {
+		const content = "---\na: 1\n---\n\nold";
+		expect(replaceBody(content, "new", "## Checklist")).toBe("---\na: 1\n---\n\nnew");
 	});
 });
