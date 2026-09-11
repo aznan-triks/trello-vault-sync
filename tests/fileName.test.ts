@@ -14,6 +14,10 @@ describe("sanitizeFileName", () => {
 		expect(sanitizeFileName("  bad\u0000name  ")).toBe("badname");
 	});
 
+	test("strips ASCII control characters by code point", () => {
+		expect(sanitizeFileName("a\u0000b\u001Fc\u007Fd")).toBe("abcd");
+	});
+
 	test("falls back to a placeholder when nothing printable is left", () => {
 		expect(sanitizeFileName("///")).toBe("---");
 		expect(sanitizeFileName("   ")).toBe("Untitled");

@@ -9,7 +9,7 @@ import { errorMessage } from "../core/errorMessage";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import type { LabelSyncMode } from "../core/labelMerge";
 import type { ConflictPolicy } from "../core/syncDecision";
-import { TrelloPickerSuggest } from "../ui/TrelloPickerSuggest";
+import { TrelloPickerSuggest, type IdName } from "../ui/TrelloPickerSuggest";
 import { VaultPathSuggest } from "../ui/VaultPathSuggest";
 import {
 	BASE_DELAY_MS_CEILING,
@@ -64,6 +64,24 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 	private save(): Promise<void> {
 		return this.plugin.saveSettings();
+	}
+
+	/**
+	 * The picker's callback is synchronous by contract (`onPick: (item) => void`),
+	 * so the write is fired and forgotten here rather than returning a promise the
+	 * suggester would drop — same shape as `void runMapping(...)` in the commands layer.
+	 */
+	private async applyPickedBoard(board: IdName): Promise<void> {
+		this.plugin.settings.boardId = board.id;
+		this.boardName = board.name;
+		await this.save();
+		this.display();
+	}
+
+	private async applyPickedList(mapping: { listId: string }, list: IdName): Promise<void> {
+		mapping.listId = list.id;
+		await this.save();
+		this.display();
 	}
 
 	private folderCandidates(): string[] {
@@ -137,11 +155,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.app,
 					text.inputEl,
 					() => this.plugin.client().getMyBoards(),
-					async (board) => {
-						this.plugin.settings.boardId = board.id;
-						this.boardName = board.name;
-						await this.save();
-						this.display();
+					(board) => {
+						void this.applyPickedBoard(board);
 					},
 				);
 			});
@@ -442,10 +457,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							this.listNames = new Map(lists.map((list) => [list.id, list.name]));
 							return lists;
 						},
-						async (list) => {
-							mapping.listId = list.id;
-							await this.save();
-							this.display();
+						(list) => {
+							void this.applyPickedList(mapping, list);
 						},
 					);
 				});
