@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] — 2026-09-11
+
+### Changed
+
+- **Plain**: Nothing changes for anyone using the plugin — this only
+  strengthens an internal safety check so a Trello property name (like
+  `trello_attachments`) can never again get hardcoded somewhere it shouldn't
+  be, the way `trello_labels` briefly was before v1.9.1.
+  **Technical**: `npm run check` now runs `scripts/check-hardcode.mjs` (new),
+  which fails the build if a `"trello_xxx"` string literal appears anywhere
+  outside its single `DEFAULT_..._KEY` definition in `src/core/`, or if
+  `src/core/`/`src/trello/` import `"obsidian"`, or `src/features/` touches
+  `TFile`/`app.vault`/`app.workspace` — automates two of the manual
+  `CONTEXT.md` §8 grep checks instead of relying on remembering to run them.
+
 ## [1.10.0] — 2026-09-11
 
 ### Added
