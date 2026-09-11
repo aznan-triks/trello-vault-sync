@@ -4,6 +4,38 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] — 2026-09-11
+
+### Added
+
+- **Plain**: On Obsidian 1.13 and newer, every plugin setting now shows up in
+  Obsidian's own settings search — type "checklist" or "token" in the search
+  box and the matching rows are found, instead of having to scroll the tab.
+  **Technical**: `src/settings/SettingsTab.ts` implements
+  `getSettingDefinitions()` (Obsidian 1.13+), which Obsidian renders and
+  indexes itself. Rows with no name (lone buttons, guidance paragraphs) are
+  marked `searchable: false` so they stay out of the index.
+
+### Changed
+
+- **Plain**: The settings tab was rebuilt around a single description of its
+  own content. Nothing moves, nothing is renamed — it just stops being
+  written twice.
+  **Technical**: the tab is now one list of groups and rows
+  (`SettingGroupSpec`/`SettingRow`), consumed by two render paths:
+  `getSettingDefinitions()` on 1.13+, and `display()` (deliberately kept, as
+  Obsidian's own typings recommend, for 1.7–1.12) which walks the very same
+  groups. Each row's body lives once. Each mapping becomes its own group
+  keeping its `.tvs-mapping` frame, since a settings group cannot nest
+  another. `minAppVersion` stays `1.7.2`: no new requirement, the new API is
+  additive.
+- **Plain**: Anything that rebuilds the settings tab (picking a board or a
+  list, adding or removing a row, testing the connection) now refreshes both
+  render paths.
+  **Technical**: those call sites go through `refresh()`, which calls
+  `update()` — guarded, since it only exists from 1.13 on — before
+  `display()`.
+
 ## [1.10.3] — 2026-09-11
 
 ### Changed
