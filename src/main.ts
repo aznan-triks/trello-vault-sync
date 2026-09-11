@@ -41,7 +41,6 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 
 	override onunload(): void {
 		this.activePanel?.destroy();
-		this.app.workspace.detachLeavesOfType(VIEW_TYPE_TVS_SIDEBAR);
 	}
 
 	async saveSettings(): Promise<void> {

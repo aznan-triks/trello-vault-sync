@@ -97,7 +97,7 @@
 	height: 100%;
 	background: var(--interactive-accent);
 	border-radius: 2px;
-	transform: scaleX(0);
+	transform: scaleX(var(--tvs-progress-scale, 0));
 	transform-origin: left center;
 	transition: transform 0.2s ease;
 }
