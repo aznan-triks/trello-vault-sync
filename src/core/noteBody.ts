@@ -37,9 +37,36 @@ export function splitFrontmatter(content: string): SplitNote {
 	return { frontmatter: null, body: content };
 }
 
-/** The note body with frontmatter and Templater tags removed, trimmed. */
-export function extractBody(content: string): string {
-	return splitFrontmatter(content).body.replace(TEMPLATER_TAG, "").trim();
+/**
+ * Splits `body` at the line matching `heading` exactly (trimmed) — everything
+ * from that line to the end is the checklist block, verbatim, including the
+ * heading line itself. The checklist section is always the LAST thing in a
+ * note's body: nothing after it is preserved separately.
+ */
+export function splitChecklistSection(body: string, heading: string): { rest: string; checklistBlock: string | null } {
+	const lines = body.split("\n");
+	const index = lines.findIndex((line) => line.trim() === heading.trim());
+	if (index === -1) return { rest: body, checklistBlock: null };
+	return { rest: lines.slice(0, index).join("\n"), checklistBlock: lines.slice(index).join("\n") };
+}
+
+/** Rebuilds a body from `rest` plus `checklistBlock` — `null` omits the section entirely. */
+export function insertChecklistSection(rest: string, checklistBlock: string | null): string {
+	if (checklistBlock === null) return rest.trim();
+	const trimmedRest = rest.replace(/\s+$/, "");
+	return trimmedRest === "" ? checklistBlock : `${trimmedRest}\n\n${checklistBlock}`;
+}
+
+/**
+ * The note body with frontmatter and Templater tags removed, trimmed.
+ * `checklistHeading`, when given, also strips a trailing checklist section —
+ * omit it (the default) to keep today's exact behavior, since that section is
+ * never part of the Trello-synced description.
+ */
+export function extractBody(content: string, checklistHeading?: string | null): string {
+	const rawBody = splitFrontmatter(content).body.replace(TEMPLATER_TAG, "");
+	if (!checklistHeading) return rawBody.trim();
+	return splitChecklistSection(rawBody.trim(), checklistHeading).rest.trim();
 }
 
 /** Canonical form used to compare a local body with a remote description. */
@@ -53,9 +80,21 @@ export function normalizeBody(value: string | null | undefined): string {
 		.trim();
 }
 
-/** Rewrite the body while leaving the YAML block byte-identical. */
-export function replaceBody(content: string, body: string): string {
-	const { frontmatter } = splitFrontmatter(content);
-	const next = frontmatter === null ? `${body}\n` : `${frontmatter}\n\n${body}`;
+/**
+ * Rewrite the body while leaving the YAML block byte-identical.
+ * `checklistHeading`, when given, preserves the note's existing checklist
+ * section (read from `content`) instead of letting `body` (the pulled
+ * description) overwrite it — omit it (the default) to keep today's exact
+ * behavior.
+ */
+export function replaceBody(content: string, body: string, checklistHeading?: string | null): string {
+	const { frontmatter, body: currentBody } = splitFrontmatter(content);
+	let finalBody = body;
+	if (checklistHeading) {
+		const currentRawBody = currentBody.replace(TEMPLATER_TAG, "").trim();
+		const { checklistBlock } = splitChecklistSection(currentRawBody, checklistHeading);
+		finalBody = insertChecklistSection(body, checklistBlock);
+	}
+	const next = frontmatter === null ? `${finalBody}\n` : `${frontmatter}\n\n${finalBody}`;
 	return next === content ? content : next;
 }

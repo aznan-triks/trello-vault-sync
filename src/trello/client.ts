@@ -29,6 +29,25 @@ export interface HttpResponse {
 
 export type Transport = (request: HttpRequest, signal?: AbortSignal) => Promise<HttpResponse>;
 
+export interface TrelloChecklistItem {
+	id: string;
+	name: string;
+	state: "complete" | "incomplete";
+}
+
+export interface TrelloChecklist {
+	id: string;
+	name: string;
+	checkItems: TrelloChecklistItem[];
+}
+
+export interface TrelloAttachment {
+	id: string;
+	name: string;
+	url: string;
+	isUpload: boolean;
+}
+
 export interface TrelloLabel {
 	id: string;
 	name: string;
@@ -96,6 +115,11 @@ const API_ROOT = "https://api.trello.com/1";
 const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed,due,labels";
 /** Only the name and color are used — id is always returned regardless of `fields`. */
 const LABEL_FIELDS = "name,color";
+/** id is always returned regardless of `fields`. */
+const ATTACHMENT_FIELDS = "name,url,isUpload";
+/** id is always returned on both the checklist and its items, regardless of `fields`/`checkItem_fields`. */
+const CHECKLIST_FIELDS = "name";
+const CHECK_ITEM_FIELDS = "name,state";
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
 /** One page's worth of actions per call — no automatic multi-page walk, see PLAN_2026-09-04_feature-audit-changes.md. */
 const ACTIONS_PAGE_LIMIT = "1000";
@@ -177,6 +201,42 @@ export class TrelloClient {
 
 	async getListCards(listId: string, signal?: AbortSignal): Promise<TrelloCard[]> {
 		return this.json<TrelloCard[]>(`/lists/${encodeURIComponent(listId)}/cards`, { fields: CARD_FIELDS }, signal);
+	}
+
+	/** A card's attachments — includes both uploaded files and links, and links to other Trello cards. */
+	async getCardAttachments(cardId: string, signal?: AbortSignal): Promise<TrelloAttachment[]> {
+		return this.json<TrelloAttachment[]>(
+			`/cards/${encodeURIComponent(cardId)}/attachments`,
+			{ fields: ATTACHMENT_FIELDS },
+			signal,
+		);
+	}
+
+	/** A card's checklists, each with its items' name and checked state. */
+	async getCardChecklists(cardId: string, signal?: AbortSignal): Promise<TrelloChecklist[]> {
+		return this.json<TrelloChecklist[]>(
+			`/cards/${encodeURIComponent(cardId)}/checklists`,
+			{ fields: CHECKLIST_FIELDS, checkItem_fields: CHECK_ITEM_FIELDS },
+			signal,
+		);
+	}
+
+	/** Checks or unchecks one item, on the card it belongs to. */
+	async updateCheckItemState(
+		cardId: string,
+		checkItemId: string,
+		state: "complete" | "incomplete",
+		signal?: AbortSignal,
+	): Promise<void> {
+		await this.send(
+			{
+				url: this.buildUrl(`/cards/${encodeURIComponent(cardId)}/checkItem/${encodeURIComponent(checkItemId)}`, {}),
+				method: "PUT",
+				body: new URLSearchParams({ state }).toString(),
+				contentType: "application/x-www-form-urlencoded",
+			},
+			signal,
+		);
 	}
 
 	/**

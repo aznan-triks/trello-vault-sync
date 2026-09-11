@@ -1,9 +1,22 @@
+import {
+	DEFAULT_ATTACHMENTS_KEY,
+	DEFAULT_LINKED_CARDS_KEY,
+	DEFAULT_SYNC_ATTACHMENTS,
+	formatAttachmentsRef,
+	formatLinkedCardsRef,
+	parseAttachmentsRef,
+	parseLinkedCardsRef,
+} from "../core/attachmentRef";
+import { DEFAULT_CHECKLIST_HEADING, DEFAULT_SYNC_CHECKLISTS } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY, formatDueRef, parseDueRef } from "../core/dueRef";
+import { errorMessage } from "../core/errorMessage";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { DEFAULT_LABELS_KEY, formatLabelsRef, normalizeLabelName, parseLabelsRef } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, resolveLabelSync, type LabelSyncMode } from "../core/labelMerge";
-import { extractBody, replaceBody } from "../core/noteBody";
+import { extractBody, insertChecklistSection, replaceBody, splitChecklistSection } from "../core/noteBody";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
+import { buildCardIndex, resolveAttachments } from "./attachmentSync";
+import { resolveChecklists } from "./checklistSync";
 import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient, TrelloLabel } from "../trello/client";
 
@@ -21,6 +34,16 @@ export interface NoteSyncOptions {
 	dueFrontmatterKey?: string;
 	/** `undefined` behaves as `DEFAULT_LABELS_KEY`. */
 	labelsFrontmatterKey?: string;
+	/** Pull-only, on by default (`undefined` behaves as `true`) — costs one extra Trello request per note, see `DEFAULT_SYNC_ATTACHMENTS`. */
+	syncAttachments?: boolean;
+	/** `undefined` behaves as `DEFAULT_ATTACHMENTS_KEY`. */
+	attachmentsFrontmatterKey?: string;
+	/** `undefined` behaves as `DEFAULT_LINKED_CARDS_KEY`. */
+	linkedCardsFrontmatterKey?: string;
+	/** Costs one extra Trello request per note synced, see `DEFAULT_SYNC_CHECKLISTS`. `undefined` behaves as `true`. */
+	syncChecklists?: boolean;
+	/** `undefined` behaves as `DEFAULT_CHECKLIST_HEADING`. */
+	checklistHeading?: string;
 }
 
 export interface NoteSyncResult {
@@ -128,18 +151,112 @@ async function convergeLabelsOnMerge(
 	if (nextRemote !== null) await pushRemoteLabels(client, card, nextRemote);
 }
 
-/** Sync one note against a card that has already been fetched. */
-export async function syncNoteWithCard(
+/** Order-sensitive equality — attachment/linked-card lists follow Trello's own order, never sorted. */
+function sameOrderedList(a: string[], b: string[]): boolean {
+	return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+/**
+ * Converges a note's attachment-derived frontmatter (plain urls + linked-card
+ * wikilinks) from the card's current attachments. Pull-only, independent of
+ * whatever direction was decided for title/body/due — same hook point as
+ * `convergeLabelsOnMerge`, runs even when that direction is "skip"/"conflict".
+ * Unlike labels, the remote read here is its own Trello request every time
+ * (attachments aren't embedded in the already-fetched card), so a failure is
+ * treated as best-effort: logged to the console and otherwise ignored, the
+ * same non-fatal treatment `resolveLabelIds` already gives an unmatched label
+ * name — not reported through `Reporter`/`NoteSyncResult`, so it stays
+ * invisible in the progress panel (a known, pre-existing limitation of that
+ * console.warn pattern, not something this feature was meant to fix).
+ */
+async function convergeAttachments(
 	vault: VaultGateway,
 	client: TrelloClient,
 	note: NoteHandle,
 	card: TrelloCard,
+	cardIndex: Map<string, NoteHandle>,
+	attachmentsKey: string,
+	linkedCardsKey: string,
+): Promise<void> {
+	try {
+		const { urls, linkedCards } = await resolveAttachments(client, card.id, cardIndex);
+		const frontmatter = vault.readFrontmatter(note);
+		const currentUrls = parseAttachmentsRef(frontmatter?.[attachmentsKey]);
+		const currentLinkedCards = parseLinkedCardsRef(frontmatter?.[linkedCardsKey]);
+		if (sameOrderedList(currentUrls, urls) && sameOrderedList(currentLinkedCards, linkedCards)) return;
+
+		await vault.writeFrontmatter(note, (fm) => {
+			const formattedUrls = formatAttachmentsRef(urls);
+			if (formattedUrls === null) delete fm[attachmentsKey];
+			else fm[attachmentsKey] = formattedUrls;
+
+			const formattedLinkedCards = formatLinkedCardsRef(linkedCards);
+			if (formattedLinkedCards === null) delete fm[linkedCardsKey];
+			else fm[linkedCardsKey] = formattedLinkedCards;
+		});
+	} catch (error) {
+		console.warn(
+			`[trello-vault-sync] Could not sync attachments for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
+		);
+	}
+}
+
+/**
+ * Converges a note's checklist section from the card's current checklists.
+ * Same hook point and failure handling as `convergeAttachments` — runs
+ * independently of the title/body/due direction (a checkbox toggle must reach
+ * Trello even when that direction is "skip"), never throws.
+ *
+ * Obsidian wins the checked state of an item known to both sides (pushed via
+ * `resolveChecklists`'s `pushes`); Trello wins which items/checklists exist at
+ * all, so the section is always rewritten to Trello's own structure — see
+ * `resolveChecklists` for the full reconciliation rule.
+ */
+async function convergeChecklists(
+	vault: VaultGateway,
+	client: TrelloClient,
+	note: NoteHandle,
+	card: TrelloCard,
+	heading: string,
+): Promise<void> {
+	try {
+		const content = await vault.read(note);
+		const fullBody = extractBody(content);
+		const { rest: description, checklistBlock } = splitChecklistSection(fullBody, heading);
+
+		const remoteChecklists = await client.getCardChecklists(card.id);
+		const { markdown, pushes } = resolveChecklists(remoteChecklists, checklistBlock, heading);
+
+		for (const push of pushes) {
+			await client.updateCheckItemState(card.id, push.checkItemId, push.state);
+		}
+
+		if (markdown === checklistBlock) return;
+		const nextContent = replaceBody(content, insertChecklistSection(description, markdown));
+		if (nextContent !== content) await vault.write(note, nextContent);
+	} catch (error) {
+		console.warn(
+			`[trello-vault-sync] Could not sync checklists for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
+		);
+	}
+}
+
+/** Sync one note against a card that has already been fetched. */
+export async function syncNoteWithCard(
+	vault: VaultGateway & CardRefStore,
+	client: TrelloClient,
+	note: NoteHandle,
+	card: TrelloCard,
 	options: NoteSyncOptions,
+	/** Pre-built vault-wide card index for resolving card-link attachments — built lazily (one extra vault scan) when omitted. */
+	cardIndex?: Map<string, NoteHandle>,
 ): Promise<NoteSyncResult> {
 	const dueKey = options.dueFrontmatterKey ?? DEFAULT_DUE_KEY;
 	const labelsKey = options.labelsFrontmatterKey ?? DEFAULT_LABELS_KEY;
+	const syncChecklists = options.syncChecklists ?? DEFAULT_SYNC_CHECKLISTS;
+	const checklistHeading = options.checklistHeading ?? DEFAULT_CHECKLIST_HEADING;
 	let content = await vault.read(note);
-	const localBody = extractBody(content);
+	const localBody = extractBody(content, syncChecklists ? checklistHeading : undefined);
 	const localDue = parseDueRef(vault.readFrontmatter(note)?.[dueKey]);
 	const localLabels = parseLabelsRef(vault.readFrontmatter(note)?.[labelsKey]);
 	const remoteLabels = remoteLabelsOf(card);
@@ -158,6 +275,27 @@ export async function syncNoteWithCard(
 		content = await vault.read(note);
 	}
 
+	const syncAttachments = options.syncAttachments ?? DEFAULT_SYNC_ATTACHMENTS;
+	if (syncAttachments && !options.dryRun) {
+		const attachmentsKey = options.attachmentsFrontmatterKey ?? DEFAULT_ATTACHMENTS_KEY;
+		const linkedCardsKey = options.linkedCardsFrontmatterKey ?? DEFAULT_LINKED_CARDS_KEY;
+		await convergeAttachments(
+			vault,
+			client,
+			note,
+			card,
+			cardIndex ?? buildCardIndex(vault, vault.listNotes("")),
+			attachmentsKey,
+			linkedCardsKey,
+		);
+		content = await vault.read(note);
+	}
+
+	if (syncChecklists && !options.dryRun) {
+		await convergeChecklists(vault, client, note, card, checklistHeading);
+		content = await vault.read(note);
+	}
+
 	if (direction === "skip" || direction === "conflict") {
 		return { direction, renamed: false, note, reason: decision.reason };
 	}
@@ -168,7 +306,7 @@ export async function syncNoteWithCard(
 
 	if (direction === "pull") {
 		let current = note;
-		const nextContent = replaceBody(content, card.desc ?? "");
+		const nextContent = replaceBody(content, card.desc ?? "", syncChecklists ? checklistHeading : undefined);
 		if (nextContent !== content) await vault.write(current, nextContent);
 
 		if (decision.dueChanged) {

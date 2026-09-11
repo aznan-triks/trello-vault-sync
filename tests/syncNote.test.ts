@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_LINKED_CARDS_KEY } from "../src/core/attachmentRef";
+import { DEFAULT_CHECKLIST_HEADING } from "../src/core/checklistRef";
 import { DEFAULT_DUE_KEY as DUE_KEY } from "../src/core/dueRef";
 import { DEFAULT_LABELS_KEY as LABELS_KEY } from "../src/core/labelRef";
 import { syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
@@ -13,6 +15,11 @@ const options: NoteSyncOptions = {
 	marginMs: 0,
 	syncTitle: true,
 	dryRun: false,
+	// Off by default in this shared fixture so tests unrelated to attachments/checklists
+	// keep their existing "zero Trello requests on skip/conflict" guarantees — see the
+	// dedicated describe blocks below for coverage of each feature itself.
+	syncAttachments: false,
+	syncChecklists: false,
 };
 
 function setup(noteBody: string, noteMtime: number) {
@@ -474,6 +481,356 @@ describe("syncNoteWithCard — labels, overwrite mode", () => {
 		expect(result.direction).toBe("push");
 		const update = requests.find((r) => r.method === "PUT");
 		expect(update?.body).toContain("idLabels=b1%2Ci1");
+	});
+});
+
+describe("syncNoteWithCard — attachments (opt-in via syncAttachments)", () => {
+	test("does nothing when syncAttachments is off, even with attachments on the card", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(requests).toHaveLength(0);
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(DEFAULT_ATTACHMENTS_KEY);
+	});
+
+	test("adds a plain url attachment to trello_attachments, even when the sync direction is skip", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [{ id: "a1", name: "spec.pdf", url: "https://example.com/spec.pdf", isUpload: true }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncAttachments: true,
+		});
+
+		expect(result.direction).toBe("skip");
+		expect(vault.readFrontmatter(vault.note(PATH))?.[DEFAULT_ATTACHMENTS_KEY]).toEqual([
+			"https://example.com/spec.pdf",
+		]);
+	});
+
+	test("resolves a card-link attachment to the matching note's wikilink, via the given card index", async () => {
+		const vault = new FakeVault({
+			[PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") },
+			"WoT/85_Idées/Idée business X.md": { content: '---\ntrello_board_card_id: "board;real1"\n---\n\n' },
+		});
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "Idée business X", url: "https://trello.com/c/AbC123/9-idee", isUpload: false },
+			],
+			"/cards/AbC123": { id: "real1", idBoard: "board", name: "Idée business X" },
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+		const cardIndex = new Map([["real1", vault.note("WoT/85_Idées/Idée business X.md")]]);
+
+		await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			{ ...options, syncAttachments: true },
+			cardIndex,
+		);
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.[DEFAULT_LINKED_CARDS_KEY]).toEqual(["[[Idée business X]]"]);
+	});
+
+	test("falls back to a placeholder wikilink when the linked card has no note in the index", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "Idée business X", url: "https://trello.com/c/AbC123/9-idee", isUpload: false },
+			],
+			"/cards/AbC123": { id: "real1", idBoard: "board", name: "Idée business X" },
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			{ ...options, syncAttachments: true },
+			new Map(),
+		);
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.[DEFAULT_LINKED_CARDS_KEY]).toEqual(["[[Idée business X]]"]);
+	});
+
+	test("clears stale attachment keys when the card no longer has any attachments", async () => {
+		const withAttachments = FRONTMATTER.replace(
+			"---\n\n",
+			`${DEFAULT_ATTACHMENTS_KEY}:\n  - "https://old.example.com"\n---\n\n`,
+		);
+		const vault = new FakeVault({ [PATH]: { content: withAttachments, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({ "/cards/c1/attachments": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncAttachments: true });
+
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(DEFAULT_ATTACHMENTS_KEY);
+	});
+
+	test("reads and writes attachment keys under configured names instead of the defaults", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [{ id: "a1", name: "spec.pdf", url: "https://example.com/spec.pdf", isUpload: true }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncAttachments: true,
+			attachmentsFrontmatterKey: "pj",
+		});
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.pj).toEqual(["https://example.com/spec.pdf"]);
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(DEFAULT_ATTACHMENTS_KEY);
+	});
+
+	test("does not throw and leaves attachment keys untouched when the attachments endpoint fails", async () => {
+		const { vault, client } = setup("same", at("2026-01-01")); // no attachments route configured
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await expect(
+			syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncAttachments: true }),
+		).resolves.toBeDefined();
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(DEFAULT_ATTACHMENTS_KEY);
+	});
+
+	test("writes nothing and calls nothing in dry-run mode, even with attachments enabled", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1/attachments": [{ id: "a1", name: "spec.pdf", url: "https://example.com/spec.pdf", isUpload: true }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncAttachments: true,
+			dryRun: true,
+		});
+
+		expect(requests).toHaveLength(0);
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(DEFAULT_ATTACHMENTS_KEY);
+	});
+});
+
+describe("syncNoteWithCard — checklists (opt-in via syncChecklists)", () => {
+	test("does nothing when syncChecklists is off, even with a checklist on the card", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(requests).toHaveLength(0);
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "same");
+	});
+
+	test("adds a checklist section from the card's checklist, leaving the description untouched", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/checklists": [
+				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "complete" }] },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncChecklists: true,
+		});
+
+		expect(result.direction).toBe("skip");
+		expect(vault.contentOf(PATH)).toBe(
+			FRONTMATTER + "same\n\n" + DEFAULT_CHECKLIST_HEADING + "\n### Prep\n- [x] Réserver",
+		);
+	});
+
+	test("pushes a local checkbox toggle even when the overall sync direction is skip", async () => {
+		const withChecklist =
+			FRONTMATTER + `same\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [x] Réserver`;
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1/checklists": [
+				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "incomplete" }] },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncChecklists: true,
+		});
+
+		expect(result.direction).toBe("skip");
+		const update = requests.find((r) => r.method === "PUT");
+		expect(update?.url).toContain("/cards/c1/checkItem/i1");
+		expect(update?.body).toBe("state=complete");
+	});
+
+	test("picks up an item added on the remote checklist", async () => {
+		const withChecklist =
+			FRONTMATTER + `same\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [ ] Réserver`;
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/checklists": [
+				{
+					id: "cl1",
+					name: "Prep",
+					checkItems: [
+						{ id: "i1", name: "Réserver", state: "incomplete" },
+						{ id: "i2", name: "Inviter", state: "incomplete" },
+					],
+				},
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncChecklists: true });
+
+		expect(vault.contentOf(PATH)).toContain("- [ ] Inviter");
+	});
+
+	test("drops a locally-typed item with no matching name on the remote checklist", async () => {
+		const withChecklist =
+			FRONTMATTER +
+			`same\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [ ] Réserver\n- [ ] Acheter des fleurs`;
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/checklists": [
+				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "incomplete" }] },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncChecklists: true });
+
+		expect(vault.contentOf(PATH)).not.toContain("Acheter des fleurs");
+	});
+
+	test("removes the checklist section entirely once the card has no checklists left", async () => {
+		const withChecklist =
+			FRONTMATTER + `same\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [ ] Réserver`;
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({ "/cards/c1/checklists": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncChecklists: true });
+
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "same");
+	});
+
+	test("does not treat the checklist section as part of the description pushed to Trello", async () => {
+		const withChecklist =
+			FRONTMATTER + `local text\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [ ] Réserver`;
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-03-01") } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1/checklists": [
+				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "incomplete" }] },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "remote", dateLastActivity: "2026-01-01" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncChecklists: true,
+		});
+
+		expect(result.direction).toBe("push");
+		const updateCard = requests.find((r) => r.method === "PUT" && r.url.includes("/cards/c1?"));
+		expect(updateCard?.body).toContain("desc=local+text");
+		expect(updateCard?.body).not.toContain("Checklist");
+		expect(vault.contentOf(PATH)).toContain(DEFAULT_CHECKLIST_HEADING);
+	});
+
+	test("preserves the checklist section across a pull that also changes the description", async () => {
+		const withChecklist =
+			FRONTMATTER + `old\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [ ] Réserver`;
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/checklists": [
+				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "incomplete" }] },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "new text", dateLastActivity: "2026-02-01" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncChecklists: true,
+		});
+
+		expect(result.direction).toBe("pull");
+		expect(vault.contentOf(PATH)).toBe(
+			FRONTMATTER + `new text\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [ ] Réserver`,
+		);
+	});
+
+	test("writes nothing and calls nothing in dry-run mode, even with a checklist on the card", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1/checklists": [
+				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "complete" }] },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncChecklists: true,
+			dryRun: true,
+		});
+
+		expect(requests).toHaveLength(0);
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "same");
+	});
+
+	test("reads and writes the checklist section under a configured heading instead of the default", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/checklists": [
+				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "complete" }] },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncChecklists: true,
+			checklistHeading: "## Tâches",
+		});
+
+		expect(vault.contentOf(PATH)).toContain("## Tâches");
+		expect(vault.contentOf(PATH)).not.toContain(DEFAULT_CHECKLIST_HEADING);
+	});
+
+	test("does not throw and leaves the note untouched when the checklists endpoint fails", async () => {
+		const { vault, client } = setup("same", at("2026-01-01")); // no checklists route configured
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await expect(
+			syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncChecklists: true }),
+		).resolves.toBeDefined();
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "same");
 	});
 });
 

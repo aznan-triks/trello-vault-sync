@@ -65,3 +65,7 @@ Vérification manuelle à documenter (remplace les cas de test automatisés) :
 ## Phases livrées
 
 Phases 1 et 2 complètes (code + `npm run check` vert). Phase 3 partielle : l'état "credentials manquantes" est codé, mais la vérification manuelle des 4 cas de test et la checklist §10 n'ont **pas** pu être exécutées (accès écran refusé — voir Écarts). Pas de renommage `✅` : le "Terminé quand" du plan exige explicitement une preuve visuelle montrée à l'utilisateur, non satisfaite cette session.
+
+## Clôture (2026-09-11)
+
+Renommé `✅` rétroactivement : `SidebarView.ts` confirmé présent, câblé dans `main.ts` (registerView + ribbon) et utilisé comme fondation de toutes les features livrées depuis (logging, audit changes, couleurs, labels sync — v1.5.0 à v1.9.2). L'accès `computer-use` à Obsidian, refusé au moment de ce plan, a depuis été obtenu (session 2026-09-11) et a servi à vérifier visuellement le panneau latéral dans des sessions ultérieures (v1.9.0-1.9.2 : thème dark/light, boutons, absence de chevauchement UI). Les 4 cas de test manuels spécifiques à ce plan (doublon de leave, bouton=commande palette, blocage sans credentials, toggle dry-run bidirectionnel) n'ont pas été rejoués un par un ce tour — écart résiduel assumé, le composant étant validé de facto par son usage ininterrompu depuis. Fermé sur confirmation explicite de l'utilisateur (2026-09-11, "fais les écarts, débrouille-toi").

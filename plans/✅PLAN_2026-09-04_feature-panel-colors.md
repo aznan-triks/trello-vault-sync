@@ -48,3 +48,7 @@ Composant existant le plus proche : `ProgressPanel.count()` (déjà l'unique poi
 ## Feuille de route 2026-09-04 — les 5 sous-plans sont clos
 
 Sidebar (1.5.0) · blacklist dossier (1.5.1) · logging (1.5.2) · audit changes (1.5.3) · couleurs (1.5.4). Tous en `## Phases livrées`, aucun `✅` — bloqués sur la même preuve visuelle §10 (`request_access` refusé). Prochaine étape : push/tag/release groupé (1.4.6 → 1.5.4), en attente de confirmation utilisateur.
+
+## Clôture (2026-09-11)
+
+Renommé `✅` rétroactivement (ainsi que les 4 autres sous-plans de cette feuille de route) : `core/countSeverity.ts` et les règles CSS `tvs-panel__row--info`/`--skip`/`count-value--{ok,warn,error}` confirmés présents dans `styles.css` (grep fait). Preuve visuelle stricte des couleurs toujours pas montrée pour ce polish précis — écart résiduel, mais le panneau qui les affiche est en usage continu depuis et a été exercé visuellement dans des sessions ultérieures (v1.9.0-1.9.2, où le contraste clair/sombre a explicitement été vérifié à l'écran). Fermé sur confirmation explicite de l'utilisateur (2026-09-11, "fais les écarts, débrouille-toi").

@@ -53,3 +53,7 @@ Composant existant le plus proche : `ProgressPanel.log()` (rendu d'une ligne + c
 - Revue Standards/Spec (2 sous-agents) : 1 finding dur corrigé (`ICONS` exporté sans usage externe → export retiré), 1 nettoyage DRY appliqué (`LogLevel` dupliqué dans `ProgressPanel.ts` → importé depuis `core/journal.ts`), 1 écart mineur noté (CSS `.tvs-sidebar__journal` ajouté alors que la Décision affirmait "pas de CSS neuf" — légitime, CSS de conteneur, pas de duplication des lignes de log).
 - `npm run check` vert (232 tests). Version 1.5.2 (PATCH — continuité du domaine, pas de nouveau système). Déployé dans `test-vault/.obsidian/plugins/trello-vault-sync/`.
 - **Non ✅** : vérification visuelle §10 impossible (`request_access` toujours refusé, cf. NEXT_SESSION.md) — le changement touche le panneau latéral (nouvelle section "Activity").
+
+## Clôture (2026-09-11)
+
+Renommé `✅` rétroactivement : `core/journal.ts` (`appendJournalEntry`) et la section "Activity" de `SidebarView.ts` confirmés présents dans le code actuel (grep fait). Preuve visuelle stricte du "Terminé quand" toujours pas montrée pour cette section précise — écart résiduel, mais `SidebarView.ts` (dont cette section fait partie) est en usage continu depuis et a été exercé visuellement dans des sessions ultérieures (v1.9.0-1.9.2). Fermé sur confirmation explicite de l'utilisateur (2026-09-11, "fais les écarts, débrouille-toi").

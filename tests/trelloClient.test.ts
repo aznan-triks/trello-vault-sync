@@ -189,6 +189,66 @@ describe("TrelloClient labels", () => {
 	});
 });
 
+describe("TrelloClient attachments", () => {
+	test("reads a card's attachments from the attachments endpoint", async () => {
+		const { api, calls } = client([
+			ok([{ id: "a1", name: "Cahier des charges.pdf", url: "https://example.com/f.pdf", isUpload: true }]),
+		]);
+		const attachments = await api.getCardAttachments("c1");
+		expect(attachments).toEqual([
+			{ id: "a1", name: "Cahier des charges.pdf", url: "https://example.com/f.pdf", isUpload: true },
+		]);
+		expect(calls[0]?.url).toContain("/cards/c1/attachments");
+	});
+
+	test("requests only the fields the sync layer needs", async () => {
+		const { api, calls } = client([ok([])]);
+		await api.getCardAttachments("c1");
+		expect(calls[0]?.url).toContain("fields=name%2Curl%2CisUpload");
+	});
+});
+
+describe("TrelloClient checklists", () => {
+	test("reads a card's checklists, with each item's name and state", async () => {
+		const { api, calls } = client([
+			ok([
+				{
+					id: "cl1",
+					name: "Préparation",
+					checkItems: [{ id: "i1", name: "Réserver", state: "complete" }],
+				},
+			]),
+		]);
+		const checklists = await api.getCardChecklists("c1");
+		expect(checklists).toEqual([
+			{ id: "cl1", name: "Préparation", checkItems: [{ id: "i1", name: "Réserver", state: "complete" }] },
+		]);
+		expect(calls[0]?.url).toContain("/cards/c1/checklists");
+	});
+
+	test("requests only the checklist/item fields the sync layer needs", async () => {
+		const { api, calls } = client([ok([])]);
+		await api.getCardChecklists("c1");
+		expect(calls[0]?.url).toContain("fields=name");
+		expect(calls[0]?.url).toContain("checkItem_fields=name%2Cstate");
+	});
+
+	test("sends a check item's new state as a url-encoded PUT", async () => {
+		const { api, calls } = client([ok({})]);
+		await api.updateCheckItemState("c1", "i1", "complete");
+		expect(calls[0]?.url).toContain("/cards/c1/checkItem/i1");
+		expect(calls[0]?.method).toBe("PUT");
+		expect(calls[0]?.contentType).toBe("application/x-www-form-urlencoded");
+		expect(calls[0]?.body).toBe("state=complete");
+	});
+
+	test("can clear a check item back to incomplete", async () => {
+		const { api, calls } = client([ok({})]);
+		await api.updateCheckItemState("c1", "i1", "incomplete");
+		expect(calls[0]?.body).toBe("state=incomplete");
+	});
+});
+
 describe("TrelloClient rate limiting", () => {
 	test("retries a 429 and returns the eventual success", async () => {
 		const { api, calls, sleep } = client([
