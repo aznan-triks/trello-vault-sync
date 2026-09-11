@@ -7,14 +7,20 @@ import type { HttpRequest, HttpResponse, Transport } from "../trello/client";
  * *waiting* here — the underlying request Obsidian issued keeps running.
  * Documented limitation, not a bug: see PLAN_2026-09-06_fix-cancellation-timeout.md.
  */
+/** A rejection is always an `Error`; a non-`Error` abort reason is kept as its `cause`. */
+function abortError(signal: AbortSignal): Error {
+	if (signal.reason instanceof Error) return signal.reason;
+	return signal.reason === undefined ? new Error("Aborted") : new Error("Aborted", { cause: signal.reason });
+}
+
 function racedAgainst<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
 	if (!signal) return promise;
 	const abortion = new Promise<never>((_resolve, reject) => {
 		if (signal.aborted) {
-			reject(signal.reason ?? new Error("Aborted"));
+			reject(abortError(signal));
 			return;
 		}
-		signal.addEventListener("abort", () => reject(signal.reason ?? new Error("Aborted")), { once: true });
+		signal.addEventListener("abort", () => reject(abortError(signal)), { once: true });
 	});
 	return Promise.race([promise, abortion]);
 }
