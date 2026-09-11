@@ -4,6 +4,44 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.3] — 2026-09-11
+
+### Changed
+
+- **Plain**: Deleting a note during a sync now follows whatever you chose in
+  Obsidian's own "Deleted files" setting, instead of always using the vault
+  trash. It stays recoverable either way.
+  **Technical**: `src/obsidian/ObsidianVault.ts::trash` uses
+  `FileManager.trashFile()` instead of the older `Vault.trash(file, false)`,
+  the API Obsidian now sanctions for honouring the user's preference. The
+  guard that only deletes once a card has left the *board* is unchanged.
+- **Plain**: One fewer third-party package in the build — nothing changes for
+  you, there is just less to go wrong.
+  **Technical**: `esbuild.config.mjs` reads Node's own `builtinModules` from
+  `node:module` (and also marks the `node:`-prefixed spellings external)
+  instead of depending on `builtin-modules`, now dropped from
+  `devDependencies`.
+
+### Fixed
+
+- **Plain**: Picking a board or a list from the autocomplete in the settings
+  now saves through a path that cannot silently drop the save.
+  **Technical**: `src/settings/SettingsTab.ts` no longer hands an `async`
+  lambda to `TrelloPickerSuggest.onPick` (typed `(item) => void`, so the
+  returned promise was discarded): both call sites now call
+  `void this.applyPickedBoard(...)` / `void this.applyPickedList(...)`,
+  the same shape as `void runMapping(...)` in the commands layer.
+- **Plain**: Internal type-safety and linting cleanups — no visible change.
+  **Technical**: `src/core/fileName.ts` strips ASCII control characters by
+  code point (`stripControlChars`) instead of a regex holding literal control
+  characters, pinned by a new test in `tests/fileName.test.ts`;
+  `src/core/similarity.ts` initialises its cost row with `.fill(0)` and drops
+  all three `as number` assertions; `src/commands/syncCommands.ts::reportStats`
+  takes the stats record itself under a `T extends Record<keyof T, number>`
+  constraint instead of untyped `Object.entries` pairs;
+  `ObsidianVault.writeFrontmatter` converts Obsidian's `any` frontmatter
+  parameter once, explicitly, at the boundary.
+
 ## [1.10.2] — 2026-09-11
 
 ### Fixed

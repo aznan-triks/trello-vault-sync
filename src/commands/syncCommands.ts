@@ -5,8 +5,15 @@ import { syncVault } from "../features/syncVault";
 import type { Reporter } from "../obsidian/gateway";
 import { MappingSuggest } from "../ui/MappingSuggest";
 
-function reportStats(reporter: Reporter, entries: [string, number][]): void {
-	for (const [key, value] of entries) reporter.count(key, value);
+/**
+ * Takes the stats object itself rather than pre-built pairs: the constraint
+ * `T extends Record<keyof T, number>` accepts the sync engines' plain interfaces
+ * (which do not satisfy `Record<string, number>`) while still proving every field
+ * is a number — `Object.entries` only widens the value back to `unknown` on a
+ * generic, hence the single conversion below.
+ */
+function reportStats<T extends Record<keyof T, number>>(reporter: Reporter, stats: T): void {
+	for (const [key, value] of Object.entries(stats)) reporter.count(key, value as number);
 }
 
 export async function syncAllLinked(ctx: CommandContext): Promise<void> {
@@ -21,7 +28,7 @@ export async function syncAllLinked(ctx: CommandContext): Promise<void> {
 			reporter,
 			signal,
 		);
-		reportStats(reporter, Object.entries(stats));
+		reportStats(reporter, stats);
 		return `↓ ${stats.pulled} · ↑ ${stats.pushed} · = ${stats.skipped} · ⚠ ${stats.conflicts} · 👻 ${stats.phantoms} · ✕ ${stats.errors}`;
 	});
 }
@@ -48,7 +55,7 @@ async function runMapping(ctx: CommandContext, mapping: FolderMapping): Promise<
 			undefined,
 			signal,
 		);
-		reportStats(reporter, Object.entries(stats));
+		reportStats(reporter, stats);
 		return `+ ${stats.created} · 🔗 ${stats.adopted} · ↓ ${stats.pulled} · ↑ ${stats.pushed} · 🗑 ${stats.deleted} · ✕ ${stats.errors}`;
 	});
 }
@@ -69,7 +76,7 @@ export async function syncAllMappings(ctx: CommandContext): Promise<void> {
 			reporter,
 			signal,
 		);
-		reportStats(reporter, Object.entries(total));
+		reportStats(reporter, total);
 		return `${ctx.settings.mappings.length} folder(s) · + ${total.created} · ↓ ${total.pulled} · ↑ ${total.pushed} · ✕ ${total.errors}`;
 	});
 }

@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
 import process from "node:process";
-import builtins from "builtin-modules";
+import { builtinModules as builtins } from "node:module";
 
 const banner = `/*
 Trello Vault Sync — bundled build. Edit files in src/, not this file.
@@ -28,6 +28,7 @@ const context = await esbuild.context({
 		"@lezer/highlight",
 		"@lezer/lr",
 		...builtins,
+		...builtins.map((name) => `node:${name}`),
 	],
 	format: "cjs",
 	target: "es2020",

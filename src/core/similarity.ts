@@ -7,22 +7,22 @@
 const CONTAINMENT_SCORE = 0.9;
 
 function levenshtein(a: string, b: string): number {
-	const costs: number[] = new Array(b.length + 1);
+	const costs: number[] = new Array<number>(b.length + 1).fill(0);
 	for (let j = 0; j <= b.length; j++) costs[j] = j;
 
 	for (let i = 1; i <= a.length; i++) {
-		let previous = costs[0] as number;
+		let previous = costs[0] ?? 0;
 		costs[0] = i;
 		for (let j = 1; j <= b.length; j++) {
-			const current = costs[j] as number;
+			const current = costs[j] ?? 0;
 			costs[j] =
 				a[i - 1] === b[j - 1]
 					? previous
-					: 1 + Math.min(previous, current, costs[j - 1] as number);
+					: 1 + Math.min(previous, current, (costs[j - 1] ?? 0));
 			previous = current;
 		}
 	}
-	return costs[b.length] as number;
+	return costs[b.length] ?? 0;
 }
 
 /** Similarity between two titles, from 0 (unrelated) to 1 (identical). */
