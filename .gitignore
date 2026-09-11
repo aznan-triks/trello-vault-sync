@@ -35,6 +35,11 @@ CODE_REVIEW_FINDINGS_*.md
 *_REVIEW_*.md
 *_FINDINGS_*.md
 
+# Personal planning/audit working documents — private working notes, not
+# part of the published source (per CONTEXT.md §3/§3bis).
+/plans/
+/audits/
+
 # Tool-specific caches — machine-specific, never versioned.
 .claude/
 .impeccable/
