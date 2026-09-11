@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.2] — 2026-09-11
+
+### Fixed
+
+- **Plain**: The sidebar panel now comes back exactly where you left it after
+  the plugin is reloaded or updated, instead of sometimes vanishing from the
+  layout.
+  **Technical**: `src/main.ts::onunload` no longer calls
+  `Workspace.detachLeavesOfType(VIEW_TYPE_TVS_SIDEBAR)` — Obsidian already
+  tears down views registered through `registerView`, and detaching them by
+  hand kept a reference to the dead leaf and broke workspace restoration.
+- **Plain**: The plugin now states honestly which Obsidian version it needs,
+  so anyone on an older release is told up front instead of hitting a crash.
+  **Technical**: `manifest.json`.minAppVersion `1.5.0` → `1.7.2`, matching the
+  API actually used (`obsidian@^1.7.2`: awaited `Workspace.revealLeaf`,
+  `Vault.getAllFolders`, `FileManager.processFrontMatter`); `versions.json`
+  gains `"1.10.2": "1.7.2"`.
+- **Plain**: The progress bar is now styled entirely by the stylesheet, so a
+  theme or a custom snippet can restyle it.
+  **Technical**: `src/ui/ProgressPanel.ts` replaces the two direct
+  `barEl.style.transform` assignments with
+  `setCssProps({ "--tvs-progress-scale": … })`; `styles.css`'s
+  `.tvs-panel__bar` reads `transform: scaleX(var(--tvs-progress-scale, 0))`.
+  `grep -rn "\.style\." src/` is now empty.
+
 ## [1.10.1] — 2026-09-11
 
 ### Changed
