@@ -1,4 +1,11 @@
-import { Notice, PluginSettingTab, Setting, type App, type SettingDefinitionItem } from "obsidian";
+import {
+	Notice,
+	PluginSettingTab,
+	type App,
+	type ButtonComponent,
+	type Setting,
+	type SettingDefinitionItem,
+} from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
 import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
 import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_LINKED_CARDS_KEY } from "../core/attachmentRef";
@@ -33,7 +40,7 @@ const LABELS_SYNC_MODE_LABELS: Record<LabelSyncMode, string> = {
 
 /**
  * One settings row. `render` receives a `Setting` that already carries the row's
- * name and description, so the same body serves both render paths below.
+ * name and description, and fills in the control.
  */
 interface SettingRow {
 	name: string;
@@ -62,9 +69,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	/**
-	 * The single source of truth for this tab, consumed twice: Obsidian 1.13+
-	 * renders it itself (and indexes it for the settings search), and `display()`
-	 * below renders the very same groups on older versions.
+	 * The whole tab, declared rather than drawn: Obsidian renders these groups
+	 * itself and indexes every named row for its settings search. This is the only
+	 * render path — `display()` is not implemented, which is why `manifest.json`
+	 * requires Obsidian 1.13.
 	 */
 	override getSettingDefinitions(): SettingDefinitionItem[] {
 		return this.groups().map((group) => ({
@@ -81,32 +89,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		}));
 	}
 
-	/**
-	 * Imperative fallback for Obsidian older than 1.13, which ignores
-	 * `getSettingDefinitions()`. Obsidian's own typings document keeping
-	 * `display()` for exactly this reason, so the deprecation is deliberate here.
-	 * It walks the same groups rather than declaring the rows a second time.
-	 */
-	override display(): void {
-		const { containerEl } = this;
-		containerEl.addClass("tvs-settings");
-		// Every action that changes a setting (picking a board/list, adding or
-		// removing a mapping, testing the connection) rebuilds the whole tab from
-		// scratch, which would otherwise reset the scroll position to the top —
-		// jarring once there are enough mappings to scroll at all.
-		const scrollTop = containerEl.scrollTop;
-		containerEl.empty();
-
-		for (const group of this.groups()) {
-			const host = group.cls === undefined ? containerEl : containerEl.createDiv({ cls: group.cls });
-			if (group.heading !== undefined) new Setting(host).setName(group.heading).setHeading();
-			for (const row of group.rows) this.renderRow(row, new Setting(host));
-		}
-
-		containerEl.scrollTop = scrollTop;
-	}
-
-	/** Applies a row's name and description, then its own body — the one place both render paths meet. */
+	/** Applies a row's name and description, then its own body. */
 	private renderRow(row: SettingRow, setting: Setting): void {
 		setting.setName(row.name);
 		if (row.desc !== undefined) setting.setDesc(row.desc);
@@ -135,31 +118,46 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	/**
-	 * Rebuilds the definitions and the rendered tab, whichever render path is in use.
-	 * `update()` only exists from Obsidian 1.13 on, hence the guarded call: on older
-	 * versions `display()` alone rebuilds everything, exactly as it did before.
+	 * Re-reads the definitions and redraws the tab. Needed whenever the *structure*
+	 * changes (a mapping or an excluded folder added/removed, a picked board or list
+	 * renaming a row's description) — `refreshDomState()` would only re-evaluate
+	 * visibility and disabled state.
 	 */
 	private refresh(): void {
-		this.update?.();
-		this.display();
+		this.update();
 	}
 
 	/**
-	 * The picker's callback is synchronous by contract (`onPick: (item) => void`),
-	 * so the write is fired and forgotten here rather than returning a promise the
-	 * suggester would drop — same shape as `void runMapping(...)` in the commands layer.
+	 * Picking a board or a list rewrites the row's own description (it shows the
+	 * resolved name), so it needs a structural refresh, not just a value write.
 	 */
-	private async applyPickedBoard(board: IdName): Promise<void> {
+	private applyPickedBoard(board: IdName): void {
 		this.plugin.settings.boardId = board.id;
 		this.boardName = board.name;
-		await this.save();
+		void this.save();
 		this.refresh();
 	}
 
-	private async applyPickedList(mapping: { listId: string }, list: IdName): Promise<void> {
+	private applyPickedList(mapping: { listId: string }, list: IdName): void {
 		mapping.listId = list.id;
-		await this.save();
+		void this.save();
 		this.refresh();
+	}
+
+	/** `onClick` expects a synchronous handler, so the round trip lives here and is fired with `void`. */
+	private async testConnection(button: ButtonComponent): Promise<void> {
+		button.setDisabled(true);
+		try {
+			const lists = await this.plugin.client().getBoardLists(this.plugin.settings.boardId);
+			this.listNames = new Map(lists.map((list) => [list.id, list.name]));
+			new Notice(`✅ Connected — ${lists.length} list(s) on the board.`);
+			this.refresh();
+		} catch (error) {
+			new Notice(`❌ ${errorMessage(error)}`);
+			console.error("[trello-vault-sync]", error);
+		} finally {
+			button.setDisabled(false);
+		}
 	}
 
 	private folderCandidates(): string[] {
@@ -188,9 +186,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							text
 								.setPlaceholder("API key")
 								.setValue(this.plugin.settings.apiKey)
-								.onChange(async (value) => {
+								.onChange((value) => {
 									this.plugin.settings.apiKey = value.trim();
-									await this.save();
+									void this.save();
 								}),
 						),
 				},
@@ -203,9 +201,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							text
 								.setPlaceholder("token")
 								.setValue(this.plugin.settings.token)
-								.onChange(async (value) => {
+								.onChange((value) => {
 									this.plugin.settings.token = value.trim();
-									await this.save();
+									void this.save();
 								});
 						}),
 				},
@@ -219,17 +217,17 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							text
 								.setPlaceholder("idBoard")
 								.setValue(this.plugin.settings.boardId)
-								.onChange(async (value) => {
+								.onChange((value) => {
 									this.plugin.settings.boardId = value.trim();
 									this.boardName = null;
-									await this.save();
+									void this.save();
 								});
 							new TrelloPickerSuggest(
 								this.app,
 								text.inputEl,
 								() => this.plugin.client().getMyBoards(),
 								(board) => {
-									void this.applyPickedBoard(board);
+									this.applyPickedBoard(board);
 								},
 							);
 						}),
@@ -239,19 +237,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Checks the key, the token, and access to the board.",
 					render: (setting) =>
 						setting.addButton((button) =>
-							button.setButtonText("Test").onClick(async () => {
-								button.setDisabled(true);
-								try {
-									const lists = await this.plugin.client().getBoardLists(this.plugin.settings.boardId);
-									this.listNames = new Map(lists.map((list) => [list.id, list.name]));
-									new Notice(`✅ Connected — ${lists.length} list(s) on the board.`);
-									this.refresh();
-								} catch (error) {
-									new Notice(`❌ ${errorMessage(error)}`);
-									console.error("[trello-vault-sync]", error);
-								} finally {
-									button.setDisabled(false);
-								}
+							button.setButtonText("Test").onClick(() => {
+								void this.testConnection(button);
 							}),
 						),
 				},
@@ -269,9 +256,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						text
 							.setPlaceholder("Projects")
 							.setValue(this.plugin.settings.scope)
-							.onChange(async (value) => {
+							.onChange((value) => {
 								this.plugin.settings.scope = normalizeVaultPath(value.trim());
-								await this.save();
+								void this.save();
 							});
 						new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
 					}),
@@ -294,9 +281,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							text
 								.setPlaceholder("Archive")
 								.setValue(folder)
-								.onChange(async (value) => {
+								.onChange((value) => {
 									this.plugin.settings.excludedFolders[index] = normalizeVaultPath(value.trim());
-									await this.save();
+									void this.save();
 								});
 							new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
 						})
@@ -304,9 +291,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							button
 								.setIcon("trash")
 								.setTooltip("Remove")
-								.onClick(async () => {
+								.onClick(() => {
 									this.plugin.settings.excludedFolders.splice(index, 1);
-									await this.save();
+									void this.save();
 									this.refresh();
 								}),
 						),
@@ -322,9 +309,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						button
 							.setButtonText("Add a folder")
 							.setCta()
-							.onClick(async () => {
+							.onClick(() => {
 								this.plugin.settings.excludedFolders.push("");
-								await this.save();
+								void this.save();
 								this.refresh();
 							}),
 					),
@@ -337,9 +324,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						text
 							.setPlaceholder("Projects/Trello Sync Report.md")
 							.setValue(this.plugin.settings.reportPath)
-							.onChange(async (value) => {
+							.onChange((value) => {
 								this.plugin.settings.reportPath = normalizeVaultPath(value.trim());
-								await this.save();
+								void this.save();
 							});
 						new VaultPathSuggest(this.app, text.inputEl, () =>
 							this.app.vault.getMarkdownFiles().map((file) => file.path),
@@ -356,9 +343,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						text
 							.setPlaceholder("Projects/Trello Changes.html")
 							.setValue(this.plugin.settings.changesHtmlPath)
-							.onChange(async (value) => {
+							.onChange((value) => {
 								this.plugin.settings.changesHtmlPath = normalizeVaultPath(value.trim());
-								await this.save();
+								void this.save();
 							});
 						// Suggests folders, not `reportPath`'s markdown-file list above — this page
 						// is machine-generated and usually doesn't exist yet on first setup.
@@ -380,9 +367,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					render: (setting) =>
 						setting.addDropdown((dropdown) => {
 							for (const [value, label] of Object.entries(POLICY_LABELS)) dropdown.addOption(value, label);
-							dropdown.setValue(this.plugin.settings.policy).onChange(async (value) => {
+							dropdown.setValue(this.plugin.settings.policy).onChange((value) => {
 								this.plugin.settings.policy = value as ConflictPolicy;
-								await this.save();
+								void this.save();
 							});
 						}),
 				},
@@ -393,9 +380,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						setting.addDropdown((dropdown) => {
 							for (const [value, label] of Object.entries(LABELS_SYNC_MODE_LABELS))
 								dropdown.addOption(value, label);
-							dropdown.setValue(this.plugin.settings.labelsSyncMode).onChange(async (value) => {
+							dropdown.setValue(this.plugin.settings.labelsSyncMode).onChange((value) => {
 								this.plugin.settings.labelsSyncMode = value as LabelSyncMode;
-								await this.save();
+								void this.save();
 							});
 						}),
 				},
@@ -407,9 +394,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						"by name) in the other. Pull-only. Costs one extra Trello request per note synced.",
 					render: (setting) =>
 						setting.addToggle((toggle) =>
-							toggle.setValue(this.plugin.settings.syncAttachments).onChange(async (value) => {
+							toggle.setValue(this.plugin.settings.syncAttachments).onChange((value) => {
 								this.plugin.settings.syncAttachments = value;
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -423,9 +410,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						"Costs one extra Trello request per note synced.",
 					render: (setting) =>
 						setting.addToggle((toggle) =>
-							toggle.setValue(this.plugin.settings.syncChecklists).onChange(async (value) => {
+							toggle.setValue(this.plugin.settings.syncChecklists).onChange((value) => {
 								this.plugin.settings.syncChecklists = value;
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -437,12 +424,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						"changing this key doesn't move an existing section written under the old heading.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(this.plugin.settings.checklistHeading).onChange(async (value) => {
+							text.setValue(this.plugin.settings.checklistHeading).onChange((value) => {
 								this.plugin.settings.checklistHeading = safeFrontmatterKey(
 									value,
 									DEFAULT_CHECKLIST_HEADING,
 								);
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -453,10 +440,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						"reported as a conflict instead of being resolved by a coin flip.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(String(this.plugin.settings.marginSeconds)).onChange(async (value) => {
+							text.setValue(String(this.plugin.settings.marginSeconds)).onChange((value) => {
 								const parsed = Number.parseInt(value, 10);
 								this.plugin.settings.marginSeconds = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -465,9 +452,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Renames the note from the card's title, and vice versa.",
 					render: (setting) =>
 						setting.addToggle((toggle) =>
-							toggle.setValue(this.plugin.settings.syncTitle).onChange(async (value) => {
+							toggle.setValue(this.plugin.settings.syncTitle).onChange((value) => {
 								this.plugin.settings.syncTitle = value;
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -476,9 +463,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Computes and shows everything that would be done, without writing anything.",
 					render: (setting) =>
 						setting.addToggle((toggle) =>
-							toggle.setValue(this.plugin.settings.dryRun).onChange(async (value) => {
+							toggle.setValue(this.plugin.settings.dryRun).onChange((value) => {
 								this.plugin.settings.dryRun = value;
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -487,9 +474,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Creates a note for every card with no local match, during a list sync.",
 					render: (setting) =>
 						setting.addToggle((toggle) =>
-							toggle.setValue(this.plugin.settings.allowCreate).onChange(async (value) => {
+							toggle.setValue(this.plugin.settings.allowCreate).onChange((value) => {
 								this.plugin.settings.allowCreate = value;
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -500,9 +487,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						"such notes are simply reported.",
 					render: (setting) =>
 						setting.addToggle((toggle) =>
-							toggle.setValue(this.plugin.settings.allowDelete).onChange(async (value) => {
+							toggle.setValue(this.plugin.settings.allowDelete).onChange((value) => {
 								this.plugin.settings.allowDelete = value;
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -538,9 +525,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 								button
 									.setIcon("trash")
 									.setTooltip("Remove")
-									.onClick(async () => {
+									.onClick(() => {
 										this.plugin.settings.mappings.splice(index, 1);
-										await this.save();
+										void this.save();
 										this.refresh();
 									}),
 							),
@@ -555,9 +542,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 								text
 									.setPlaceholder("idList")
 									.setValue(mapping.listId)
-									.onChange(async (value) => {
+									.onChange((value) => {
 										mapping.listId = value.trim();
-										await this.save();
+										void this.save();
 									});
 								new TrelloPickerSuggest(
 									this.app,
@@ -573,7 +560,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 										return lists;
 									},
 									(list) => {
-										void this.applyPickedList(mapping, list);
+										this.applyPickedList(mapping, list);
 									},
 								);
 							}),
@@ -586,9 +573,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 								text
 									.setPlaceholder("Projects/Ideas")
 									.setValue(mapping.folder)
-									.onChange(async (value) => {
+									.onChange((value) => {
 										mapping.folder = normalizeVaultPath(value.trim());
-										await this.save();
+										void this.save();
 									});
 								new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
 							}),
@@ -601,9 +588,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 								text
 									.setPlaceholder("Trello Card")
 									.setValue(mapping.templateName)
-									.onChange(async (value) => {
+									.onChange((value) => {
 										mapping.templateName = value.trim();
-										await this.save();
+										void this.save();
 									});
 								new VaultPathSuggest(this.app, text.inputEl, () =>
 									this.app.vault.getMarkdownFiles().map((file) => file.basename),
@@ -624,9 +611,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							button
 								.setButtonText("Add a mapping")
 								.setCta()
-								.onClick(async () => {
+								.onClick(() => {
 									this.plugin.settings.mappings.push({ listId: "", folder: "", templateName: "" });
-									await this.save();
+									void this.save();
 									this.refresh();
 								}),
 						),
@@ -648,12 +635,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						setting.addToggle((toggle) =>
 							toggle
 								.setValue(this.plugin.settings.ribbonCommandIds.includes(command.id))
-								.onChange(async (value) => {
+								.onChange((value) => {
 									const ids = this.plugin.settings.ribbonCommandIds;
 									this.plugin.settings.ribbonCommandIds = value
 										? [...ids, command.id]
 										: ids.filter((id) => id !== command.id);
-									await this.save();
+									void this.save();
 								}),
 						),
 				});
@@ -674,13 +661,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						setting.addSlider((slider) =>
 							slider
 								.setLimits(0.1, 1, 0.05)
-								// Deprecated since 1.13, where the value shows inline — but kept, because
-								// the pre-1.13 render path has no other way to show the value being dragged.
-								.setDynamicTooltip()
 								.setValue(this.plugin.settings.similarityThreshold)
-								.onChange(async (value) => {
+								.onChange((value) => {
 									this.plugin.settings.similarityThreshold = value;
-									await this.save();
+									void this.save();
 								}),
 						),
 				},
@@ -689,10 +673,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Number of retries after a 429 response or a server error.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(String(this.plugin.settings.maxRetries)).onChange(async (value) => {
+							text.setValue(String(this.plugin.settings.maxRetries)).onChange((value) => {
 								const parsed = Number.parseInt(value, 10);
 								this.plugin.settings.maxRetries = safeNonNegativeNumber(parsed, 0, MAX_RETRIES_CEILING);
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -701,14 +685,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Wait before the first retry; it doubles on every subsequent attempt.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(String(this.plugin.settings.baseDelayMs)).onChange(async (value) => {
+							text.setValue(String(this.plugin.settings.baseDelayMs)).onChange((value) => {
 								const parsed = Number.parseInt(value, 10);
 								this.plugin.settings.baseDelayMs = safeNonNegativeNumber(
 									parsed,
 									0,
 									BASE_DELAY_MS_CEILING,
 								);
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -717,14 +701,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "How long to wait for a single Trello response before treating it as a failed attempt.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(String(this.plugin.settings.requestTimeoutMs)).onChange(async (value) => {
+							text.setValue(String(this.plugin.settings.requestTimeoutMs)).onChange((value) => {
 								const parsed = Number.parseInt(value, 10);
 								this.plugin.settings.requestTimeoutMs = safeNonNegativeNumber(
 									parsed,
 									0,
 									REQUEST_TIMEOUT_MS_CEILING,
 								);
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -733,9 +717,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Floating panel with live progress while a sync runs. Off: the sync still runs, just silently.",
 					render: (setting) =>
 						setting.addToggle((toggle) =>
-							toggle.setValue(this.plugin.settings.showPanel).onChange(async (value) => {
+							toggle.setValue(this.plugin.settings.showPanel).onChange((value) => {
 								this.plugin.settings.showPanel = value;
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -746,11 +730,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						setting.addText((text) =>
 							text
 								.setValue(String(this.plugin.settings.panelAutoCloseSeconds))
-								.onChange(async (value) => {
+								.onChange((value) => {
 									const parsed = Number.parseInt(value, 10);
 									this.plugin.settings.panelAutoCloseSeconds =
 										Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-									await this.save();
+									void this.save();
 								}),
 						),
 				},
@@ -767,9 +751,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Frontmatter property that carries the card's due date.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(this.plugin.settings.dueFrontmatterKey).onChange(async (value) => {
+							text.setValue(this.plugin.settings.dueFrontmatterKey).onChange((value) => {
 								this.plugin.settings.dueFrontmatterKey = safeFrontmatterKey(value, DEFAULT_DUE_KEY);
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -778,12 +762,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Frontmatter property that carries the card's labels.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(this.plugin.settings.labelsFrontmatterKey).onChange(async (value) => {
+							text.setValue(this.plugin.settings.labelsFrontmatterKey).onChange((value) => {
 								this.plugin.settings.labelsFrontmatterKey = safeFrontmatterKey(
 									value,
 									DEFAULT_LABELS_KEY,
 								);
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -792,12 +776,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Frontmatter property that carries the card's plain attachment urls.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(this.plugin.settings.attachmentsFrontmatterKey).onChange(async (value) => {
+							text.setValue(this.plugin.settings.attachmentsFrontmatterKey).onChange((value) => {
 								this.plugin.settings.attachmentsFrontmatterKey = safeFrontmatterKey(
 									value,
 									DEFAULT_ATTACHMENTS_KEY,
 								);
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -806,12 +790,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					desc: "Frontmatter property that carries a wikilink for each attachment pointing to another Trello card.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(this.plugin.settings.linkedCardsFrontmatterKey).onChange(async (value) => {
+							text.setValue(this.plugin.settings.linkedCardsFrontmatterKey).onChange((value) => {
 								this.plugin.settings.linkedCardsFrontmatterKey = safeFrontmatterKey(
 									value,
 									DEFAULT_LINKED_CARDS_KEY,
 								);
-								await this.save();
+								void this.save();
 							}),
 						),
 				},
@@ -823,12 +807,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						"until their frontmatter is updated to the new key too.",
 					render: (setting) =>
 						setting.addText((text) =>
-							text.setValue(this.plugin.settings.cardRefFrontmatterKey).onChange(async (value) => {
+							text.setValue(this.plugin.settings.cardRefFrontmatterKey).onChange((value) => {
 								this.plugin.settings.cardRefFrontmatterKey = safeFrontmatterKey(
 									value,
 									DEFAULT_CARD_REF_KEY,
 								);
-								await this.save();
+								void this.save();
 							}),
 						),
 				},

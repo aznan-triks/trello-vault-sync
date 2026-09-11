@@ -1,0 +1,45 @@
+# NOT ACTIVE YET — move this file to `.github/workflows/release-attestations.yml` to enable it.
+#
+# It is parked here because pushing anything under `.github/workflows/` needs a
+# GitHub token carrying the `workflow` scope, which the session that wrote this
+# did not have ("refusing to allow an OAuth App to create or update workflow").
+# To activate:
+#   gh auth refresh -h github.com -s workflow      # opens a browser
+#   mkdir -p .github/workflows
+#   git mv ops/release-attestations.yml .github/workflows/release-attestations.yml
+#   git commit -m "ci: attest release artifacts" && git push
+#
+# Signs the assets of a published release with a GitHub artifact attestation, so
+# anyone can verify they were built from this repository:
+#   gh attestation verify main.js --repo aznan-triks/trello-vault-sync
+# The build is reproducible (esbuild, pinned deps), so rebuilding the tag here and
+# attesting that output vouches for the very bytes attached to the release.
+name: Release attestations
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            styles.css

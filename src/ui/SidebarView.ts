@@ -94,9 +94,9 @@ export class SidebarView extends ItemView {
 			.setName("Dry run")
 			.setDesc("Plan every change without writing anything.")
 			.addToggle((toggle) =>
-				toggle.setValue(this.ctx.settings.dryRun).onChange(async (value) => {
+				toggle.setValue(this.ctx.settings.dryRun).onChange((value) => {
 					this.ctx.settings.dryRun = value;
-					await this.ctx.saveSettings();
+					void this.ctx.saveSettings();
 				}),
 			);
 

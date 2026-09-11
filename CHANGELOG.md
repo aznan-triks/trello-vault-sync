@@ -4,6 +4,45 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] — 2026-09-12
+
+### Changed
+
+- **Plain**: ⚠️ The plugin now requires Obsidian 1.13 or newer. That is the
+  version whose settings API it is built on — declaring anything older was a
+  promise it could not keep.
+  **Technical**: `manifest.json`.minAppVersion `1.7.2` → `1.13.0`, clearing
+  the analyzer's `obsidianmd/no-unsupported-api` error. The 1.7–1.12 fallback
+  added in v1.11.0 is gone: `display()` and its group walker are removed, so
+  `getSettingDefinitions()` is the tab's only render path and `update()` is
+  called unguarded.
+- **Plain**: The slider in the settings shows its value inline now, the way
+  Obsidian shows every other slider.
+  **Technical**: the deprecated `setDynamicTooltip()` call is gone — 1.13
+  renders the value next to the slider on its own.
+- **Plain**: Saving a setting no longer makes the interface wait for the write
+  to land on disk.
+  **Technical**: every settings handler is synchronous and fires the persist
+  with `void this.save()`, instead of handing an `async` callback to a
+  component property typed to return nothing (36 sites in `SettingsTab.ts`,
+  plus the sidebar's Dry-run toggle found by the same grep). "Test connection"
+  keeps its round trip in a private async method.
+
+### Fixed
+
+- **Plain**: When a sync is cancelled, what the plugin reports internally is
+  now always a real error object, so nothing downstream can mistake it for a
+  plain value.
+  **Technical**: `src/obsidian/transport.ts` rejects with `abortError(signal)`
+  — the signal's own reason when it is an `Error`, otherwise a new `Error`
+  carrying it as `cause`.
+- **Plain**: Timers now belong to the window the plugin is actually running
+  in, which matters if you tear a pane out into its own window.
+  **Technical**: `src/core/asyncUtil.ts` and `src/trello/client.ts` call
+  `timers.setTimeout`, resolved once to `window` under Obsidian and to
+  `globalThis` under the Node test run — `core/` and `trello/` must stay
+  importable outside Obsidian.
+
 ## [1.11.0] — 2026-09-11
 
 ### Added

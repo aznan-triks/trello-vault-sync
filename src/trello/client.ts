@@ -126,7 +126,11 @@ const ACTIONS_PAGE_LIMIT = "1000";
 /** Extra fields requested on `memberCreator` — `avatarUrl` lets the HTML export show who did what without a separate per-member call. */
 const MEMBER_CREATOR_FIELDS = "avatarUrl,fullName";
 
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** `window` under Obsidian (pop-out windows own their timers), `globalThis` under the Node test run. */
+const timers: { setTimeout: typeof globalThis.setTimeout } =
+	typeof window === "undefined" ? globalThis : window;
+
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => timers.setTimeout(resolve, ms));
 
 /** Replace every occurrence of a secret with a marker, for logs and errors. */
 function redactSecrets(text: string, secrets: readonly string[]): string {
