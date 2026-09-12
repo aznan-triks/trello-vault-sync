@@ -1,5 +1,6 @@
 import { Notice } from "obsidian";
 import type { CommandContext } from "./context";
+import { withHistoryRecording } from "./syncHistoryHelper";
 import { parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { extractBody } from "../core/noteBody";
@@ -16,16 +17,18 @@ export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): 
 	await ctx.run(`Sync — ${note.basename}`, async (reporter) => {
 		reporter.setTotal(1);
 		reporter.step(note.basename);
-		const result = await syncNote(ctx.vault, ctx.client(reporter), note, ctx.noteOptions(force));
-		tallyNoteResult(
-			{ pulled: 0, pushed: 0, skipped: 0, renamed: 0, conflicts: 0 },
-			result,
-			(level, message) => reporter.log(level, message),
-			note.basename,
-		);
-		if (result.direction === "unlinked") reporter.log("warn", "Not linked to a Trello card.");
+		return withHistoryRecording(ctx, note.path, async (vault) => {
+			const result = await syncNote(vault, ctx.client(reporter), note, ctx.noteOptions(force));
+			tallyNoteResult(
+				{ pulled: 0, pushed: 0, skipped: 0, renamed: 0, conflicts: 0 },
+				result,
+				(level, message) => reporter.log(level, message),
+				note.basename,
+			);
+			if (result.direction === "unlinked") reporter.log("warn", "Not linked to a Trello card.");
 
-		return describeSyncOutcome(result);
+			return describeSyncOutcome(result);
+		});
 	}, { cancellable: false });
 }
 

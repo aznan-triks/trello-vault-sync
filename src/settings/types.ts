@@ -74,6 +74,11 @@ export interface TrelloVaultSyncSettings {
 	syncChecklists: boolean;
 	/** Heading marking the checklist section — always the last thing in a note's body, not a frontmatter key. */
 	checklistHeading: string;
+
+	/** On by default — records every vault write a sync makes so it can be undone later ("Show sync history" / "Undo last sync run"). */
+	historyEnabled: boolean;
+	/** Oldest run is dropped once this many are recorded. */
+	historyMaxRuns: number;
 }
 
 export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
@@ -108,7 +113,12 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	syncAttachments: DEFAULT_SYNC_ATTACHMENTS,
 	syncChecklists: DEFAULT_SYNC_CHECKLISTS,
 	checklistHeading: DEFAULT_CHECKLIST_HEADING,
+	historyEnabled: true,
+	historyMaxRuns: 20,
 };
+
+/** Highest number of runs `historyMaxRuns` will accept before clamping — a corrupted setting must not turn into an unbounded `data.json`. */
+export const HISTORY_MAX_RUNS_CEILING = 200;
 
 /** Highest retry count normalizeSettings will accept before clamping. */
 export const MAX_RETRIES_CEILING = 10;
@@ -210,6 +220,11 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			input.similarityThreshold,
 			DEFAULT_SETTINGS.similarityThreshold,
 			SIMILARITY_THRESHOLD_CEILING,
+		),
+		historyMaxRuns: safeNonNegativeNumber(
+			input.historyMaxRuns,
+			DEFAULT_SETTINGS.historyMaxRuns,
+			HISTORY_MAX_RUNS_CEILING,
 		),
 		ribbonCommandIds: (Array.isArray(input.ribbonCommandIds) ? input.ribbonCommandIds : DEFAULT_SETTINGS.ribbonCommandIds)
 			.filter((id): id is string => typeof id === "string"),

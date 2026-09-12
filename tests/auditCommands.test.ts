@@ -13,6 +13,9 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 		vault: new FakeVault(),
 		settings: { ...DEFAULT_SETTINGS, boardId: "board", changesHtmlPath: "Changes.html", auditChangesCursor: "prev-cursor" },
 		journal: [],
+		history: [],
+		recordSyncRun: async () => {},
+		setHistory: async () => {},
 		client: () => client,
 		fetchBinary: async () => null,
 		run: async (_title, body) => {

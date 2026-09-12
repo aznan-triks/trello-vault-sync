@@ -13,6 +13,7 @@ import { TrelloPickerSuggest, type IdName } from "../ui/TrelloPickerSuggest";
 import { VaultPathSuggest } from "../ui/VaultPathSuggest";
 import {
 	BASE_DELAY_MS_CEILING,
+	HISTORY_MAX_RUNS_CEILING,
 	MAX_RETRIES_CEILING,
 	REQUEST_TIMEOUT_MS_CEILING,
 	normalizeVaultPath,
@@ -404,6 +405,31 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.allowDelete).onChange((value) => {
 					this.plugin.settings.allowDelete = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Sync history")
+			.setDesc(
+				"Records every vault write a sync makes, so it can be undone from \"Undo last sync run\" / " +
+					"\"Undo last sync for the active note\". Skips a note that changed since the run instead of " +
+					"overwriting it.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.historyEnabled).onChange((value) => {
+					this.plugin.settings.historyEnabled = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Sync history — runs kept")
+			.setDesc("Oldest run is dropped once this many are recorded.")
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.historyMaxRuns)).onChange((value) => {
+					const parsed = Number.parseInt(value, 10);
+					this.plugin.settings.historyMaxRuns = safeNonNegativeNumber(parsed, 0, HISTORY_MAX_RUNS_CEILING);
 					void this.save();
 				}),
 			);

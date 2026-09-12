@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] — 2026-09-12
+
+### Added
+
+- **Plain**: Every sync now keeps a short history of what it changed, so a
+  bad sync can be undone. Three new commands (palette and sidebar):
+  "Show sync history", "Undo last sync run", and "Undo last sync for the
+  active note". Undoing skips (and says so) any note you've edited again
+  since the run, instead of overwriting your newer edit.
+  **Technical**: `src/core/syncHistory.ts` (pure: `SyncAction`/`SyncRun`
+  types, content `fingerprint`, `appendSyncRun`, `planActionUndo` — the last
+  one decides how to invert one action given the note's *current* state,
+  with no IO of its own). `src/features/syncHistoryRecorder.ts` wraps
+  `VaultGateway` so every `write`/`writeFrontmatter`/`setCardRef`/`create`/
+  `rename`/`trash` call also emits the `SyncAction` needed to invert it —
+  `syncNote`/`syncFolder`/`syncVault` stay unaware it exists.
+  `src/features/rollback.ts` replays a run's actions in reverse through the
+  real vault. New settings `historyEnabled` (default on) and
+  `historyMaxRuns` (default 20, oldest run dropped past that). History is
+  plugin data (`saveData`), not a vault note — it doesn't sync through the
+  user's Drive. Commands wired through
+  `src/commands/syncHistoryHelper.ts::withHistoryRecording`, shared by all
+  four sync entry points (`syncActive`, one-mapping, all-mappings,
+  vault-wide).
+
 ## [1.10.4] — 2026-09-12
 
 > Correction (2026-09-12) : cette livraison remplace ce qui avait été publié

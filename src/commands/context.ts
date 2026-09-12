@@ -1,5 +1,6 @@
 import type { App } from "obsidian";
 import type { JournalEntry } from "../core/journal";
+import type { SyncAction, SyncRun } from "../core/syncHistory";
 import type { AuditOptions } from "../features/auditShared";
 import type { FolderSyncOptions } from "../features/syncFolder";
 import type { NoteSyncOptions } from "../features/syncNote";
@@ -18,6 +19,12 @@ export interface CommandContext {
 	readonly settings: TrelloVaultSyncSettings;
 	/** In-memory log history, oldest first, capped — survives the floating panel closing. */
 	readonly journal: readonly JournalEntry[];
+	/** Completed sync runs, oldest first, capped at `settings.historyMaxRuns` — feeds "Show sync history" / "Undo last sync run". */
+	readonly history: readonly SyncRun[];
+	/** Appends a completed run's actions to `history` (a no-op when `actions` is empty) and persists. */
+	recordSyncRun(scope: string, actions: SyncAction[]): Promise<void>;
+	/** Replaces `history` wholesale — how "Undo last sync run"/"Undo last sync for the active note" consume a run after applying it. */
+	setHistory(next: readonly SyncRun[]): Promise<void>;
 	client(reporter?: Reporter): TrelloClient;
 	/** Downloads a public url (a Trello avatar, not the authenticated API) — `null` on anything short of success. */
 	fetchBinary(url: string, signal?: AbortSignal): Promise<ArrayBuffer | null>;
