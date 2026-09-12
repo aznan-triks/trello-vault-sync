@@ -1,9 +1,9 @@
-import { DEFAULT_CARD_REF_KEY, formatCardRef } from "../core/cardRef";
+import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import { errorMessage } from "../core/errorMessage";
-import { notesInFolder, sanitizeFileName, uniqueNotePath } from "../core/fileName";
+import { notesInFolder, sanitizeFileName } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
 import { addCounts, tallyNoteResult } from "../core/syncTally";
-import { renderTemplate, templateMissingCardRefKey } from "../core/template";
+import { templateMissingCardRefKey } from "../core/template";
 import {
 	silentReporter,
 	type CardRefStore,
@@ -14,6 +14,7 @@ import {
 } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
+import { createNoteFromCard } from "./createNoteFromCard";
 import { syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
 
 /** One Trello list mirrored into one vault folder. */
@@ -69,19 +70,6 @@ const emptyStats = (): FolderSyncStats => ({
 	unlinked: 0,
 	errors: 0,
 });
-
-function newNoteContent(card: TrelloCard, template: string | null, cardRefKey: string): string {
-	const vars = {
-		TITLE: card.name,
-		DESCRIPTION: card.desc ?? "",
-		URL: card.url,
-		CARD_ID: card.id,
-		BOARD_ID: card.idBoard,
-	};
-	if (template) return renderTemplate(template, vars);
-	const ref = formatCardRef(card.idBoard, card.id);
-	return `---\n${cardRefKey}: "${ref}"\n---\n\n${card.desc ?? ""}`;
-}
 
 /**
  * Mirror one Trello list into one vault folder.
@@ -195,8 +183,7 @@ export async function syncFolder(
 					safeName === card.name ? card.name : `${card.name} → saved as "${safeName}"`,
 				);
 				if (options.dryRun) continue;
-				const path = uniqueNotePath(mapping.folder, safeName, (p) => vault.exists(p));
-				await vault.create(path, newNoteContent(card, template, cardRefKey));
+				await createNoteFromCard(vault, card, mapping.folder, template, cardRefKey);
 			} catch (error) {
 				stats.created--;
 				stats.errors++;

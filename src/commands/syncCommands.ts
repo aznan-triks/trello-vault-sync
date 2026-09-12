@@ -1,21 +1,10 @@
 import { Notice } from "obsidian";
 import type { CommandContext } from "./context";
+import { reportStats } from "./reportStats";
 import { withHistoryRecording } from "./syncHistoryHelper";
 import { syncAllMappings as syncAllMappingsFeature, syncFolder, type FolderMapping } from "../features/syncFolder";
 import { syncVault } from "../features/syncVault";
-import type { Reporter } from "../obsidian/gateway";
 import { MappingSuggest } from "../ui/MappingSuggest";
-
-/**
- * Takes the stats object itself rather than pre-built pairs: the constraint
- * `T extends Record<keyof T, number>` accepts the sync engines' plain interfaces
- * (which do not satisfy `Record<string, number>`) while still proving every field
- * is a number — `Object.entries` only widens the value back to `unknown` on a
- * generic, hence the single conversion below.
- */
-function reportStats<T extends Record<keyof T, number>>(reporter: Reporter, stats: T): void {
-	for (const [key, value] of Object.entries(stats)) reporter.count(key, value as number);
-}
 
 export async function syncAllLinked(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;

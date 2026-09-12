@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
 	DEFAULT_ATTACHMENTS_KEY,
+	DEFAULT_COVER_KEY,
 	DEFAULT_LINKED_CARDS_KEY,
+	coverImageUrl,
 	extractCardShortLink,
 	formatAttachmentsRef,
 	formatLinkedCardsRef,
@@ -19,6 +21,29 @@ describe("DEFAULT_ATTACHMENTS_KEY", () => {
 describe("DEFAULT_LINKED_CARDS_KEY", () => {
 	test("is the frontmatter key used for card-link attachments", () => {
 		expect(DEFAULT_LINKED_CARDS_KEY).toBe("trello_linked_cards");
+	});
+});
+
+describe("DEFAULT_COVER_KEY", () => {
+	test("is the key Pixelbanner itself reads", () => {
+		expect(DEFAULT_COVER_KEY).toBe("banner");
+	});
+});
+
+describe("coverImageUrl", () => {
+	test("picks the largest scaled rendition", () => {
+		const cover = { scaled: [{ url: "small", width: 100 }, { url: "big", width: 800 }, { url: "medium", width: 400 }] };
+		expect(coverImageUrl(cover)).toBe("big");
+	});
+
+	test("returns null when the cover has no scaled images (a color cover, or none set)", () => {
+		expect(coverImageUrl({})).toBeNull();
+		expect(coverImageUrl({ scaled: [] })).toBeNull();
+	});
+
+	test("returns null when the card carries no cover field at all", () => {
+		expect(coverImageUrl(null)).toBeNull();
+		expect(coverImageUrl(undefined)).toBeNull();
 	});
 });
 

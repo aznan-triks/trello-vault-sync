@@ -22,6 +22,11 @@ export function wrapWithHistoryRecorder(
 		readFrontmatter: (note) => vault.readFrontmatter(note),
 		getCardRef: (note) => vault.getCardRef(note),
 		readTemplate: (name) => vault.readTemplate(name),
+		binarySize: (path) => vault.binarySize(path),
+		// Downloaded attachments (v1.12.0) are outside sync-history's scope (§1a IN
+		// list: body/frontmatter/create/rename/trash) — self-deduping by name+size
+		// already makes a repeat download a no-op, so there's nothing to invert.
+		writeBinary: (path, data) => vault.writeBinary(path, data),
 
 		write: async (note, content) => {
 			const previousContent = await vault.read(note);

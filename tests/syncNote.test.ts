@@ -141,6 +141,35 @@ describe("syncNoteWithCard", () => {
 		expect(requests[0]?.method).toBe("PUT");
 	});
 
+	test("a forced pull/push is still a no-op when both sides already agree — never bumps mtime for nothing", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		const pulled = await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, force: "pull" });
+		expect(pulled.direction).toBe("skip");
+
+		const pushed = await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, force: "push" });
+		expect(pushed.direction).toBe("skip");
+
+		expect(requests).toHaveLength(0);
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "same");
+	});
+
+	test("a forced pull/push with dryRun plans the (would-be) direction and writes nothing", async () => {
+		const { vault, client, requests } = setup("local", at("2026-03-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "remote", dateLastActivity: "2026-01-01" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			force: "pull",
+			dryRun: true,
+		});
+
+		expect(result.direction).toBe("pull");
+		expect(requests).toHaveLength(0);
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "local");
+	});
+
 	test("reports a conflict and touches nothing when both sides moved together", async () => {
 		const { vault, client, requests } = setup("local", at("2026-01-01T00:00:00"));
 		const remote = card({ id: "c1", name: "Sagondo", desc: "remote", dateLastActivity: "2026-01-01T00:00:30" });
@@ -842,5 +871,185 @@ describe("syncNoteWithCard — forced push", () => {
 		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, force: "push" });
 
 		expect(requests[0]?.body).toContain("name=Sagondo");
+	});
+});
+
+describe("syncNoteWithCard — card cover (on by default via syncCardCover)", () => {
+	test("writes the largest scaled cover image url to the banner key", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1", scaled: [{ url: "small.jpg", width: 100 }, { url: "big.jpg", width: 800 }] },
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.banner).toBe("big.jpg");
+	});
+
+	test("never creates the key when the card has no image cover", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty("banner");
+	});
+
+	test("removes an existing banner key once the card loses its cover", async () => {
+		const vault = new FakeVault({ [PATH]: { content: '---\ntrello_board_card_id: "board;c1"\nbanner: "old.jpg"\n---\n\nsame', mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty("banner");
+	});
+
+	test("does nothing when syncCardCover is off", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1", scaled: [{ url: "big.jpg", width: 800 }] },
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncCardCover: false });
+
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty("banner");
+	});
+});
+
+describe("syncNoteWithCard — attachment downloads (opt-in via downloadAttachments)", () => {
+	test("does nothing when downloadAttachments is off, even with attachments on the card", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(requests).toHaveLength(0);
+	});
+
+	test("downloads an uploaded attachment to the note's own folder by default", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "spec.pdf", url: "https://trello.com/1/cards/c1/attachments/a1/download/spec.pdf", isUpload: true },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			downloadAttachments: true,
+			fetchBinary: async () => new ArrayBuffer(42),
+		});
+
+		expect(vault.binarySize("WoT/85_Idées/spec.pdf")).toBe(42);
+	});
+
+	test("downloads to the configured global folder instead, when chosen", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "spec.pdf", url: "https://trello.com/1/cards/c1/attachments/a1/download/spec.pdf", isUpload: true },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			downloadAttachments: true,
+			attachmentsDestination: "global-folder",
+			attachmentsFolder: "SharedAttachments",
+			fetchBinary: async () => new ArrayBuffer(7),
+		});
+
+		expect(vault.binarySize("SharedAttachments/spec.pdf")).toBe(7);
+		expect(vault.exists("WoT/85_Idées/spec.pdf")).toBe(false);
+	});
+
+	test("does not re-fetch an attachment already present with the same byte size", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		await vault.writeBinary("WoT/85_Idées/spec.pdf", new ArrayBuffer(42));
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{
+					id: "a1",
+					name: "spec.pdf",
+					url: "https://trello.com/1/cards/c1/attachments/a1/download/spec.pdf",
+					isUpload: true,
+					bytes: 42,
+				},
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+		let calls = 0;
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			downloadAttachments: true,
+			fetchBinary: async () => {
+				calls++;
+				return new ArrayBuffer(42);
+			},
+		});
+
+		expect(calls).toBe(0);
+	});
+
+	test("builds the authenticated download url with this client's own credentials", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "spec.pdf", url: "https://trello.com/1/cards/c1/attachments/a1/download/spec.pdf", isUpload: true },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "my-key", token: "my-token" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+		const seenUrls: string[] = [];
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			downloadAttachments: true,
+			fetchBinary: async (url) => {
+				seenUrls.push(url);
+				return new ArrayBuffer(1);
+			},
+		});
+
+		expect(seenUrls[0]).toContain("key=my-key");
+		expect(seenUrls[0]).toContain("token=my-token");
+	});
+
+	test("skips a download-folder note-vs-global mismatch explicitly instead of writing to the vault root", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "spec.pdf", url: "https://trello.com/1/cards/c1/attachments/a1/download/spec.pdf", isUpload: true },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await expect(
+			syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+				...options,
+				downloadAttachments: true,
+				attachmentsDestination: "global-folder",
+				attachmentsFolder: "",
+				fetchBinary: async () => new ArrayBuffer(1),
+			}),
+		).resolves.toBeDefined();
+		expect(vault.exists("spec.pdf")).toBe(false);
 	});
 });

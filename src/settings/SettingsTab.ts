@@ -1,17 +1,20 @@
 import { Notice, PluginSettingTab, Setting, type App, type ButtonComponent } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
 import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
-import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_LINKED_CARDS_KEY } from "../core/attachmentRef";
+import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_COVER_KEY, DEFAULT_LINKED_CARDS_KEY } from "../core/attachmentRef";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import type { LabelSyncMode } from "../core/labelMerge";
+import type { AutoSyncScope, AutoSyncTrigger } from "../core/autoSyncSchedule";
 import type { ConflictPolicy } from "../core/syncDecision";
 import { TrelloPickerSuggest, type IdName } from "../ui/TrelloPickerSuggest";
 import { VaultPathSuggest } from "../ui/VaultPathSuggest";
 import {
+	AUTO_SYNC_INTERVAL_MINUTES_CEILING,
+	AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
 	BASE_DELAY_MS_CEILING,
 	HISTORY_MAX_RUNS_CEILING,
 	MAX_RETRIES_CEILING,
@@ -30,6 +33,17 @@ const POLICY_LABELS: Record<ConflictPolicy, string> = {
 const LABELS_SYNC_MODE_LABELS: Record<LabelSyncMode, string> = {
 	merge: "Merge (never lose a label)",
 	overwrite: "Overwrite (same rule as arbitration above)",
+};
+
+const AUTO_SYNC_TRIGGER_LABELS: Record<AutoSyncTrigger, string> = {
+	interval: "On a timer",
+	focus: "When Obsidian regains focus",
+	both: "Both",
+};
+
+const AUTO_SYNC_SCOPE_LABELS: Record<AutoSyncScope, string> = {
+	mappings: "Every mapped folder (\"Sync every list with its folder\")",
+	vault: "The whole vault (\"Sync all linked notes\")",
 };
 
 export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
@@ -56,6 +70,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		this.renderCredentials(containerEl);
 		this.renderScope(containerEl);
 		this.renderBehaviour(containerEl);
+		this.renderAutoSync(containerEl);
 		this.renderMappings(containerEl);
 		this.renderRibbon(containerEl);
 		this.renderAdvanced(containerEl);
@@ -353,6 +368,69 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Sync card cover")
+			.setDesc(
+				"Writes the card's cover image url into the note's frontmatter (Cover key, below) — readable by " +
+					"Pixelbanner or any other banner plugin that reads the same key. Pull-only, no extra Trello request.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncCardCover).onChange((value) => {
+					this.plugin.settings.syncCardCover = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Cover key")
+			.setDesc('The frontmatter key holding the cover image url — "banner" is what Pixelbanner itself reads.')
+			.addText((text) =>
+				text.setValue(this.plugin.settings.coverFrontmatterKey).onChange((value) => {
+					this.plugin.settings.coverFrontmatterKey = safeFrontmatterKey(value, DEFAULT_COVER_KEY);
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Download attachments")
+			.setDesc(
+				"⚠️ Writes binary files into the vault: downloads each uploaded (non-link) attachment to the " +
+					"chosen destination below. Off by default. An attachment already present under the same name " +
+					"and byte size is never re-downloaded.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.downloadAttachments).onChange((value) => {
+					this.plugin.settings.downloadAttachments = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Attachment download destination")
+			.setDesc("Where a downloaded attachment is written.")
+			.addDropdown((dropdown) => {
+				dropdown.addOption("note-folder", "Same folder as the note");
+				dropdown.addOption("global-folder", "One shared folder (below)");
+				dropdown.setValue(this.plugin.settings.attachmentsDestination).onChange((value) => {
+					this.plugin.settings.attachmentsDestination = value === "global-folder" ? "global-folder" : "note-folder";
+					void this.save();
+				});
+			});
+
+		new Setting(root)
+			.setName("Attachment download folder")
+			.setDesc('Used only when the destination above is "One shared folder". Required in that mode.')
+			.addText((text) => {
+				text
+					.setPlaceholder("Attachments")
+					.setValue(this.plugin.settings.attachmentsFolder)
+					.onChange((value) => {
+						this.plugin.settings.attachmentsFolder = normalizeVaultPath(value.trim());
+						void this.save();
+					});
+				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+			});
+
+		new Setting(root)
 			.setName("Clock margin (seconds)")
 			.setDesc(
 				"Below this gap, both sides are considered simultaneous: the divergence is " +
@@ -410,6 +488,36 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Confirm before a forced sync")
+			.setDesc(
+				"Shows a confirmation dialog before a force pull/push at folder or vault scope (destructive by " +
+					"nature: it overwrites the older side even when nothing else changed). Off for repeated use.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.confirmForceSync).onChange((value) => {
+					this.plugin.settings.confirmForceSync = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Orphan card fallback folder")
+			.setDesc(
+				'Destination for "Create note from a Trello card" when the card\'s list isn\'t mapped to a folder — ' +
+					"used directly, no prompt. Leave empty to be asked for a folder each time instead.",
+			)
+			.addText((text) => {
+				text
+					.setPlaceholder("Projects")
+					.setValue(this.plugin.settings.orphanCardFolder)
+					.onChange((value) => {
+						this.plugin.settings.orphanCardFolder = normalizeVaultPath(value.trim());
+						void this.save();
+					});
+				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+			});
+
+		new Setting(root)
 			.setName("Sync history")
 			.setDesc(
 				"Records every vault write a sync makes, so it can be undone from \"Undo last sync run\" / " +
@@ -430,6 +538,77 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				text.setValue(String(this.plugin.settings.historyMaxRuns)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
 					this.plugin.settings.historyMaxRuns = safeNonNegativeNumber(parsed, 0, HISTORY_MAX_RUNS_CEILING);
+					void this.save();
+				}),
+			);
+	}
+
+	private renderAutoSync(root: HTMLElement): void {
+		new Setting(root).setName("Auto-sync").setHeading();
+
+		new Setting(root)
+			.setName("Enable auto-sync")
+			.setDesc(
+				"⚠️ Runs a sync without you clicking anything. Off by default. Respects Dry run, Create missing " +
+					"notes, Delete phantom notes and Excluded folders exactly like a manual sync would.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.autoSyncEnabled).onChange((value) => {
+					this.plugin.settings.autoSyncEnabled = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Trigger")
+			.setDesc("What starts an auto-sync.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(AUTO_SYNC_TRIGGER_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(this.plugin.settings.autoSyncTrigger).onChange((value) => {
+					this.plugin.settings.autoSyncTrigger = value as AutoSyncTrigger;
+					void this.save();
+				});
+			});
+
+		new Setting(root)
+			.setName("Interval (minutes)")
+			.setDesc('How often "On a timer" checks whether it\'s time to sync.')
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.autoSyncIntervalMinutes)).onChange((value) => {
+					const parsed = Number.parseInt(value, 10);
+					this.plugin.settings.autoSyncIntervalMinutes = safeNonNegativeNumber(
+						parsed,
+						0,
+						AUTO_SYNC_INTERVAL_MINUTES_CEILING,
+					);
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Scope")
+			.setDesc("What an auto-sync runs.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(AUTO_SYNC_SCOPE_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(this.plugin.settings.autoSyncScope).onChange((value) => {
+					this.plugin.settings.autoSyncScope = value as AutoSyncScope;
+					void this.save();
+				});
+			});
+
+		new Setting(root)
+			.setName("Minimum gap between auto-syncs (seconds)")
+			.setDesc(
+				"However it was triggered, an auto-sync never starts less than this long after the previous one.",
+			)
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.autoSyncMinIdleSeconds)).onChange((value) => {
+					const parsed = Number.parseInt(value, 10);
+					this.plugin.settings.autoSyncMinIdleSeconds = safeNonNegativeNumber(
+						parsed,
+						0,
+						AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
+					);
 					void this.save();
 				}),
 			);

@@ -1,5 +1,7 @@
 import * as auditCommands from "./auditCommands";
 import type { CommandContext } from "./context";
+import { createNoteFromOrphanCard } from "./createNoteCommand";
+import * as forceSyncCommands from "./forceSyncCommands";
 import * as historyCommands from "./historyCommands";
 import * as noteCommands from "./noteCommands";
 import * as syncCommands from "./syncCommands";
@@ -48,6 +50,20 @@ export const COMMANDS: CommandDescriptor[] = [
 		run: (ctx) => noteCommands.syncActive(ctx, "push"),
 	},
 	{
+		id: "force-pull-note",
+		name: "Force pull (active note)",
+		icon: "download",
+		section: "Active note",
+		run: (ctx) => forceSyncCommands.forcePullActiveNote(ctx),
+	},
+	{
+		id: "force-push-note",
+		name: "Force push (active note)",
+		icon: "upload",
+		section: "Active note",
+		run: (ctx) => forceSyncCommands.forcePushActiveNote(ctx),
+	},
+	{
 		id: "link-active-note",
 		name: "Link active note to a card",
 		icon: "link",
@@ -83,11 +99,46 @@ export const COMMANDS: CommandDescriptor[] = [
 		run: (ctx) => syncCommands.syncAllMappings(ctx),
 	},
 	{
+		id: "force-pull-folder",
+		name: "Force pull (mapped folder)",
+		icon: "folder-down",
+		section: "Folders",
+		run: (ctx) => forceSyncCommands.forcePullFolder(ctx),
+	},
+	{
+		id: "force-push-folder",
+		name: "Force push (mapped folder)",
+		icon: "folder-up",
+		section: "Folders",
+		run: (ctx) => forceSyncCommands.forcePushFolder(ctx),
+	},
+	{
 		id: "sync-vault",
 		name: "Sync all linked notes",
 		icon: "kanban-square",
 		section: "Vault",
 		run: (ctx) => syncCommands.syncAllLinked(ctx),
+	},
+	{
+		id: "force-pull-vault",
+		name: "Force pull (vault)",
+		icon: "download",
+		section: "Vault",
+		run: (ctx) => forceSyncCommands.forcePullVault(ctx),
+	},
+	{
+		id: "force-push-vault",
+		name: "Force push (vault)",
+		icon: "upload",
+		section: "Vault",
+		run: (ctx) => forceSyncCommands.forcePushVault(ctx),
+	},
+	{
+		id: "create-note-from-card",
+		name: "Create note from a Trello card",
+		icon: "file-plus",
+		section: "Vault",
+		run: (ctx) => createNoteFromOrphanCard(ctx),
 	},
 	{
 		id: "audit-links",

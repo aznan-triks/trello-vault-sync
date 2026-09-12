@@ -44,6 +44,23 @@ describe("syncVault", () => {
 		expect(stats.skipped).toBe(3);
 	});
 
+	test("force push at vault scope, with dryRun, makes zero write requests", async () => {
+		const vault = new FakeVault({
+			"WoT/a.md": { content: linked("c1", "local"), mtime: at("2026-01-01") },
+		});
+		const { client, requests } = clientFor([card({ id: "c1", name: "a", desc: "remote", dateLastActivity: "2026-03-01" })]);
+
+		const stats = await syncVault(vault, client, { scope: "WoT", boardId: "board" }, {
+			...options,
+			force: "push",
+			dryRun: true,
+		});
+
+		expect(stats.pushed).toBe(1);
+		expect(requests.filter((r) => r.method === "PUT")).toHaveLength(0);
+		expect(vault.contentOf("WoT/a.md")).toBe(linked("c1", "local"));
+	});
+
 	test("pulls the notes whose card moved ahead", async () => {
 		const vault = new FakeVault({
 			"WoT/a.md": { content: linked("c1", "old"), mtime: at("2026-01-01") },

@@ -45,3 +45,21 @@ export function extractCardShortLink(url: string): string | null {
 export function formatWikilink(name: string): string {
 	return `[[${name}]]`;
 }
+
+/** Default frontmatter key for a card's cover image — `"banner"` is the key Pixelbanner itself reads. */
+export const DEFAULT_COVER_KEY = "banner";
+
+/** On by default — no extra Trello request: `cover` rides the same card object every fetch already pulls. */
+export const DEFAULT_SYNC_CARD_COVER = true;
+
+/** A card's cover, as much of Trello's `cover` field as this plugin reads (see `trello/client.ts::TrelloCard`). */
+export interface CardCoverLike {
+	scaled?: { url: string; width: number }[];
+}
+
+/** The largest "scaled" rendition's url from a card's cover, or `null` when the cover isn't image-based (a plain color, nothing set, or an old cached card with no `cover` at all). */
+export function coverImageUrl(cover: CardCoverLike | null | undefined): string | null {
+	const images = cover?.scaled;
+	if (!images || images.length === 0) return null;
+	return images.reduce((largest, image) => (image.width > largest.width ? image : largest)).url;
+}

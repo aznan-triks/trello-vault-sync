@@ -9,6 +9,8 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 	private files = new Map<string, { content: string; mtime: number }>();
 	readonly templates = new Map<string, string>();
 	readonly trashed: string[] = [];
+	/** Binary files (attachments), tracked separately from notes — path -> byte size, matching what `binarySize` needs. */
+	private binaries = new Map<string, number>();
 
 	constructor(files: Record<string, { content: string; mtime?: number }> = {}) {
 		for (const [path, file] of Object.entries(files)) {
@@ -165,6 +167,14 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 
 	async readTemplate(name: string): Promise<string | null> {
 		return this.templates.get(name) ?? null;
+	}
+
+	binarySize(path: string): number | null {
+		return this.binaries.get(path) ?? null;
+	}
+
+	async writeBinary(path: string, data: ArrayBuffer): Promise<void> {
+		this.binaries.set(path, data.byteLength);
 	}
 }
 

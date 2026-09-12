@@ -202,6 +202,20 @@ describe("syncFolder — existing pairs", () => {
 		expect((await syncFolder(vault, client, MAPPING, options)).skipped).toBe(1);
 	});
 
+	test("force propagates end to end: a forced pull overwrites the note even though it is the newer side", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Sagondo.md`]: { content: linked("c1", "local"), mtime: at("2026-03-01") },
+		});
+		const { client } = clientFor([
+			card({ id: "c1", name: "Sagondo", desc: "remote", dateLastActivity: "2026-01-01" }),
+		]);
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...options, force: "pull" });
+
+		expect(stats.pulled).toBe(1);
+		expect(vault.contentOf(`${FOLDER}/Sagondo.md`)).toContain("remote");
+	});
+
 	test("counts a simultaneous divergence as a conflict instead of guessing", async () => {
 		const vault = new FakeVault({
 			[`${FOLDER}/Sagondo.md`]: { content: linked("c1", "mine"), mtime: at("2026-01-01T00:00:00") },
@@ -245,6 +259,16 @@ describe("syncFolder — deletion", () => {
 
 		await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true, dryRun: true });
 
+		expect(vault.trashed).toEqual([]);
+	});
+
+	test("a forced pull never deletes a phantom note when allowDelete stays off — force imposes a direction, not a permission", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
+		const { client } = clientFor([]);
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...options, force: "pull" });
+
+		expect(stats.deleted).toBe(0);
 		expect(vault.trashed).toEqual([]);
 	});
 });
@@ -426,6 +450,16 @@ describe("syncFolder — duplicates & unlinked notes", () => {
 		const { client } = clientFor([]);
 
 		const stats = await syncFolder(vault, client, MAPPING, options);
+
+		expect(stats.unlinked).toBe(1);
+		expect(vault.contentOf(`${FOLDER}/Libre.md`)).toBe("no frontmatter");
+	});
+
+	test("a forced resync still ignores an unlinked note instead of creating a link for it", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Libre.md`]: { content: "no frontmatter" } });
+		const { client } = clientFor([]);
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...options, force: "pull" });
 
 		expect(stats.unlinked).toBe(1);
 		expect(vault.contentOf(`${FOLDER}/Libre.md`)).toBe("no frontmatter");

@@ -46,12 +46,20 @@ export interface TrelloAttachment {
 	name: string;
 	url: string;
 	isUpload: boolean;
+	/** File size in bytes — `null`/missing for a link attachment, or an old upload Trello never recorded a size for. */
+	bytes?: number | null;
 }
 
 export interface TrelloLabel {
 	id: string;
 	name: string;
 	color: string | null;
+}
+
+/** A card's cover, requested via `cover_scaled=true` — only the "is it an image, and how big" subset this plugin reads. */
+export interface TrelloCardCover {
+	idAttachment: string | null;
+	scaled?: { url: string; width: number }[];
 }
 
 export interface TrelloCard {
@@ -66,6 +74,8 @@ export interface TrelloCard {
 	due: string | null;
 	/** Optional so `PlannedCard` (a deliberate subset used by the folder planner, out of this feature's scope) keeps satisfying this shape unchanged. */
 	labels?: TrelloLabel[];
+	/** `null`/missing when the card has no cover (a plain color cover carries no `scaled` images — see `core/attachmentRef.ts::coverImageUrl`). */
+	cover?: TrelloCardCover | null;
 }
 
 export interface TrelloList {
@@ -112,11 +122,13 @@ export interface TrelloClientOptions {
 }
 
 const API_ROOT = "https://api.trello.com/1";
-const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed,due,labels";
+const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed,due,labels,cover";
+/** Without this, Trello's `cover` field omits `scaled` (the image renditions `coverImageUrl` needs) even when the cover is an attachment. */
+const CARD_COVER_PARAMS = { cover_scaled: "true" };
 /** Only the name and color are used — id is always returned regardless of `fields`. */
 const LABEL_FIELDS = "name,color";
-/** id is always returned regardless of `fields`. */
-const ATTACHMENT_FIELDS = "name,url,isUpload";
+/** id is always returned regardless of `fields`. `bytes` lets a download be skipped before ever fetching it (see `features/attachmentDownload.ts`). */
+const ATTACHMENT_FIELDS = "name,url,isUpload,bytes";
 /** id is always returned on both the checklist and its items, regardless of `fields`/`checkItem_fields`. */
 const CHECKLIST_FIELDS = "name";
 const CHECK_ITEM_FIELDS = "name,state";
@@ -132,8 +144,8 @@ const timers: { setTimeout: typeof globalThis.setTimeout } =
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => timers.setTimeout(resolve, ms));
 
-/** Replace every occurrence of a secret with a marker, for logs and errors. */
-function redactSecrets(text: string, secrets: readonly string[]): string {
+/** Replace every occurrence of a secret with a marker, for logs and errors — exported so a caller building its own error message from an already-authenticated url (e.g. `features/attachmentDownload.ts`) can mask the same credentials without needing a `TrelloClient` instance. */
+export function redactSecrets(text: string, secrets: readonly string[]): string {
 	let out = text;
 	for (const secret of secrets) {
 		if (secret.length >= 4) out = out.split(secret).join("«masked»");
@@ -168,14 +180,18 @@ export class TrelloClient {
 	}
 
 	async getCard(cardId: string, signal?: AbortSignal): Promise<TrelloCard> {
-		return this.json<TrelloCard>(`/cards/${encodeURIComponent(cardId)}`, { fields: CARD_FIELDS }, signal);
+		return this.json<TrelloCard>(
+			`/cards/${encodeURIComponent(cardId)}`,
+			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS },
+			signal,
+		);
 	}
 
 	/** `filter: "all"` includes archived (closed) cards, which "visible" (the default) excludes. */
 	async getBoardCards(boardId: string, filter: "visible" | "all" = "visible", signal?: AbortSignal): Promise<TrelloCard[]> {
 		return this.json<TrelloCard[]>(
 			`/boards/${encodeURIComponent(boardId)}/cards`,
-			{ fields: CARD_FIELDS, filter },
+			{ fields: CARD_FIELDS, filter, ...CARD_COVER_PARAMS },
 			signal,
 		);
 	}
@@ -204,7 +220,11 @@ export class TrelloClient {
 	}
 
 	async getListCards(listId: string, signal?: AbortSignal): Promise<TrelloCard[]> {
-		return this.json<TrelloCard[]>(`/lists/${encodeURIComponent(listId)}/cards`, { fields: CARD_FIELDS }, signal);
+		return this.json<TrelloCard[]>(
+			`/lists/${encodeURIComponent(listId)}/cards`,
+			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS },
+			signal,
+		);
 	}
 
 	/** A card's attachments — includes both uploaded files and links, and links to other Trello cards. */
@@ -290,6 +310,30 @@ export class TrelloClient {
 			},
 			signal,
 		);
+	}
+
+	/**
+	 * Appends this client's own credentials to an uploaded attachment's
+	 * "download" url — that endpoint requires the same key/token as every
+	 * other Trello API call (unlike a public avatar url). Kept on the client
+	 * so credentials never travel outside it: the caller passes this method
+	 * itself down to `features/attachmentDownload.ts`, never the raw key/token.
+	 */
+	authenticatedAttachmentUrl(url: string): string {
+		const separator = url.includes("?") ? "&" : "?";
+		return `${url}${separator}key=${encodeURIComponent(this.credentials.apiKey)}&token=${encodeURIComponent(this.credentials.token)}`;
+	}
+
+	/**
+	 * Redacts this client's own credentials from arbitrary text. Defense in
+	 * depth for `features/attachmentDownload.ts`, whose `fetchBinary` dependency
+	 * is contractually never supposed to throw (it resolves to `null` on
+	 * failure) — if a future transport swap broke that contract, an error
+	 * message built from an `authenticatedAttachmentUrl` could otherwise carry
+	 * the key/token into a console warning unredacted.
+	 */
+	redactOwnSecrets(text: string): string {
+		return this.redact(text);
 	}
 
 	private buildUrl(path: string, params: Record<string, string>): string {

@@ -1,4 +1,12 @@
-import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_LINKED_CARDS_KEY, DEFAULT_SYNC_ATTACHMENTS } from "../core/attachmentRef";
+import {
+	DEFAULT_ATTACHMENTS_KEY,
+	DEFAULT_COVER_KEY,
+	DEFAULT_LINKED_CARDS_KEY,
+	DEFAULT_SYNC_ATTACHMENTS,
+	DEFAULT_SYNC_CARD_COVER,
+} from "../core/attachmentRef";
+import type { AttachmentsDestination } from "../core/attachmentPath";
+import type { AutoSyncScope, AutoSyncTrigger } from "../core/autoSyncSchedule";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import { DEFAULT_CHECKLIST_HEADING, DEFAULT_SYNC_CHECKLISTS } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
@@ -79,6 +87,29 @@ export interface TrelloVaultSyncSettings {
 	historyEnabled: boolean;
 	/** Oldest run is dropped once this many are recorded. */
 	historyMaxRuns: number;
+
+	/** Pull-only, no extra Trello request. */
+	syncCardCover: boolean;
+	coverFrontmatterKey: string;
+	/** Off by default — writes binary files into the vault, unlike every other sync feature here. */
+	downloadAttachments: boolean;
+	attachmentsDestination: AttachmentsDestination;
+	/** Required (non-empty) only when `attachmentsDestination` is `"global-folder"`. */
+	attachmentsFolder: string;
+
+	/** On by default — shows a confirmation modal before a force pull/push at folder or vault scope (destructive by nature). Off disables the modal for repeated use. */
+	confirmForceSync: boolean;
+
+	/** Fallback folder for "Create note from a Trello card" when the card's list isn't mapped to one. Empty means the user is prompted at creation time instead of a silent guess. */
+	orphanCardFolder: string;
+
+	/** Off by default — an unsolicited sync writes to the vault. */
+	autoSyncEnabled: boolean;
+	autoSyncTrigger: AutoSyncTrigger;
+	autoSyncIntervalMinutes: number;
+	autoSyncScope: AutoSyncScope;
+	/** Anti-burst floor, in seconds, between two auto-sync attempts regardless of what triggered either. */
+	autoSyncMinIdleSeconds: number;
 }
 
 export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
@@ -115,7 +146,24 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	checklistHeading: DEFAULT_CHECKLIST_HEADING,
 	historyEnabled: true,
 	historyMaxRuns: 20,
+	syncCardCover: DEFAULT_SYNC_CARD_COVER,
+	coverFrontmatterKey: DEFAULT_COVER_KEY,
+	downloadAttachments: false,
+	attachmentsDestination: "note-folder",
+	attachmentsFolder: "",
+	confirmForceSync: true,
+	orphanCardFolder: "",
+	autoSyncEnabled: false,
+	autoSyncTrigger: "interval",
+	autoSyncIntervalMinutes: 15,
+	autoSyncScope: "mappings",
+	autoSyncMinIdleSeconds: 60,
 };
+
+/** Highest interval, in minutes, `autoSyncIntervalMinutes` will accept before clamping. */
+export const AUTO_SYNC_INTERVAL_MINUTES_CEILING = 1440;
+/** Highest anti-burst floor, in seconds, `autoSyncMinIdleSeconds` will accept before clamping. */
+export const AUTO_SYNC_MIN_IDLE_SECONDS_CEILING = 3600;
 
 /** Highest number of runs `historyMaxRuns` will accept before clamping — a corrupted setting must not turn into an unbounded `data.json`. */
 export const HISTORY_MAX_RUNS_CEILING = 200;
@@ -245,5 +293,22 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			DEFAULT_SETTINGS.linkedCardsFrontmatterKey,
 		),
 		checklistHeading: safeFrontmatterKey(input.checklistHeading, DEFAULT_SETTINGS.checklistHeading),
+		coverFrontmatterKey: safeFrontmatterKey(input.coverFrontmatterKey, DEFAULT_SETTINGS.coverFrontmatterKey),
+		attachmentsDestination: input.attachmentsDestination === "global-folder" ? "global-folder" : "note-folder",
+		attachmentsFolder: normalizeVaultPath(safeString(input.attachmentsFolder, DEFAULT_SETTINGS.attachmentsFolder)),
+		orphanCardFolder: normalizeVaultPath(safeString(input.orphanCardFolder, DEFAULT_SETTINGS.orphanCardFolder)),
+		autoSyncTrigger:
+			input.autoSyncTrigger === "focus" || input.autoSyncTrigger === "both" ? input.autoSyncTrigger : "interval",
+		autoSyncScope: input.autoSyncScope === "vault" ? "vault" : "mappings",
+		autoSyncIntervalMinutes: safeNonNegativeNumber(
+			input.autoSyncIntervalMinutes,
+			DEFAULT_SETTINGS.autoSyncIntervalMinutes,
+			AUTO_SYNC_INTERVAL_MINUTES_CEILING,
+		),
+		autoSyncMinIdleSeconds: safeNonNegativeNumber(
+			input.autoSyncMinIdleSeconds,
+			DEFAULT_SETTINGS.autoSyncMinIdleSeconds,
+			AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
+		),
 	};
 }

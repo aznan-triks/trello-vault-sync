@@ -1,12 +1,16 @@
 import {
 	DEFAULT_ATTACHMENTS_KEY,
+	DEFAULT_COVER_KEY,
 	DEFAULT_LINKED_CARDS_KEY,
 	DEFAULT_SYNC_ATTACHMENTS,
+	DEFAULT_SYNC_CARD_COVER,
+	coverImageUrl,
 	formatAttachmentsRef,
 	formatLinkedCardsRef,
 	parseAttachmentsRef,
 	parseLinkedCardsRef,
 } from "../core/attachmentRef";
+import type { AttachmentsDestination } from "../core/attachmentPath";
 import { DEFAULT_CHECKLIST_HEADING, DEFAULT_SYNC_CHECKLISTS } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY, formatDueRef, parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
@@ -16,6 +20,7 @@ import { DEFAULT_LABELS_SYNC_MODE, resolveLabelSync, type LabelSyncMode } from "
 import { extractBody, insertChecklistSection, replaceBody, splitChecklistSection } from "../core/noteBody";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
 import { buildCardIndex, resolveAttachments } from "./attachmentSync";
+import { downloadAttachments } from "./attachmentDownload";
 import { resolveChecklists } from "./checklistSync";
 import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient, TrelloLabel } from "../trello/client";
@@ -44,6 +49,23 @@ export interface NoteSyncOptions {
 	syncChecklists?: boolean;
 	/** `undefined` behaves as `DEFAULT_CHECKLIST_HEADING`. */
 	checklistHeading?: string;
+	/** Pull-only, no extra Trello request (`cover` rides the already-fetched card). `undefined` behaves as `DEFAULT_SYNC_CARD_COVER`. */
+	syncCardCover?: boolean;
+	/** `undefined` behaves as `DEFAULT_COVER_KEY`. */
+	coverFrontmatterKey?: string;
+	/** Off by default — downloads uploaded (non-link) attachments into the vault. */
+	downloadAttachments?: boolean;
+	/** `undefined` behaves as `"note-folder"`. */
+	attachmentsDestination?: AttachmentsDestination;
+	/** Required (non-empty) only when `attachmentsDestination` is `"global-folder"`. */
+	attachmentsFolder?: string;
+	/**
+	 * Fetches a url's bytes, `null` on failure — only consulted when
+	 * `downloadAttachments` is on. Bundled into options rather than threaded as
+	 * its own parameter through `syncFolder`/`syncVault`: it's off by default,
+	 * so every other caller of those two engines is unaffected by its absence.
+	 */
+	fetchBinary?: (url: string, signal?: AbortSignal) => Promise<ArrayBuffer | null>;
 }
 
 export interface NoteSyncResult {
@@ -241,6 +263,59 @@ async function convergeChecklists(
 	}
 }
 
+/**
+ * Converges a note's cover-image frontmatter key from the card's own cover —
+ * pull-only, no network call of its own (`cover` rides the already-fetched
+ * card), so unlike `convergeAttachments`/`convergeChecklists` this never needs
+ * a try/catch around it. Deletes the key when the card has no image cover
+ * (a plain color, or nothing set) instead of leaving a stale url behind.
+ */
+async function convergeCover(vault: VaultGateway, note: NoteHandle, card: TrelloCard, coverKey: string): Promise<void> {
+	const desired = coverImageUrl(card.cover);
+	const current = vault.readFrontmatter(note)?.[coverKey];
+	if (current === desired || (desired === null && current === undefined)) return;
+	await vault.writeFrontmatter(note, (frontmatter) => {
+		if (desired === null) delete frontmatter[coverKey];
+		else frontmatter[coverKey] = desired;
+	});
+}
+
+/**
+ * Downloads the card's uploaded attachments into the vault — off by default,
+ * its own Trello request (`getCardAttachments`) independent of `syncAttachments`'s
+ * own fetch of the same endpoint for the frontmatter-url feature; a sync with
+ * both on pays for two calls, a documented, minor cost of keeping the two
+ * features decoupled rather than threading a shared attachments list through.
+ * Never throws — a failure here must not fail the rest of the note's sync.
+ */
+async function convergeAttachmentDownloads(
+	vault: VaultGateway,
+	client: TrelloClient,
+	note: NoteHandle,
+	card: TrelloCard,
+	destination: AttachmentsDestination,
+	globalFolder: string,
+	fetchBinary: (url: string, signal?: AbortSignal) => Promise<ArrayBuffer | null>,
+): Promise<void> {
+	try {
+		const attachments = await client.getCardAttachments(card.id);
+		const result = await downloadAttachments(attachments, { destination, noteFolder: note.folder, globalFolder }, {
+			binarySize: (path) => vault.binarySize(path),
+			writeBinary: (path, data) => vault.writeBinary(path, data),
+			authenticatedUrl: (url) => client.authenticatedAttachmentUrl(url),
+			fetchBinary,
+			redact: (text) => client.redactOwnSecrets(text),
+		});
+		for (const message of result.errors) {
+			console.warn(`[trello-vault-sync] ${message}`);
+		}
+	} catch (error) {
+		console.warn(
+			`[trello-vault-sync] Could not download attachments for card "${card.name}" (${card.id}): ${client.redactOwnSecrets(errorMessage(error))}`,
+		);
+	}
+}
+
 /** Sync one note against a card that has already been fetched. */
 export async function syncNoteWithCard(
 	vault: VaultGateway & CardRefStore,
@@ -263,7 +338,11 @@ export async function syncNoteWithCard(
 	const labelsSyncMode = options.labelsSyncMode ?? DEFAULT_LABELS_SYNC_MODE;
 
 	const decision = decideForCard(note, card, localBody, options, localDue, localLabels);
-	const direction = options.force ?? decision.direction;
+	// `decision.direction === "skip"` only ever means "identical" (see
+	// `core/syncDecision.ts`) — even a forced pull/push must not overwrite
+	// either side, or bump a note's mtime, when there is genuinely nothing to
+	// change (the "identical = no-op" guarantee force pull/push relies on).
+	const direction = decision.direction === "skip" ? "skip" : (options.force ?? decision.direction);
 
 	// Independent of the direction decided above for title/body/due — it can
 	// write both sides in the same pass, and runs even when that direction ends
@@ -294,6 +373,30 @@ export async function syncNoteWithCard(
 	if (syncChecklists && !options.dryRun) {
 		await convergeChecklists(vault, client, note, card, checklistHeading);
 		content = await vault.read(note);
+	}
+
+	const syncCardCover = options.syncCardCover ?? DEFAULT_SYNC_CARD_COVER;
+	if (syncCardCover && !options.dryRun) {
+		await convergeCover(vault, note, card, options.coverFrontmatterKey ?? DEFAULT_COVER_KEY);
+		content = await vault.read(note);
+	}
+
+	if (options.downloadAttachments && !options.dryRun) {
+		if (options.fetchBinary) {
+			await convergeAttachmentDownloads(
+				vault,
+				client,
+				note,
+				card,
+				options.attachmentsDestination ?? "note-folder",
+				options.attachmentsFolder ?? "",
+				options.fetchBinary,
+			);
+		} else {
+			console.warn(
+				`[trello-vault-sync] Attachment download is enabled but no downloader was wired — skipped for "${card.name}".`,
+			);
+		}
 	}
 
 	if (direction === "skip" || direction === "conflict") {

@@ -26,17 +26,19 @@ export interface CommandContext {
 	/** Replaces `history` wholesale — how "Undo last sync run"/"Undo last sync for the active note" consume a run after applying it. */
 	setHistory(next: readonly SyncRun[]): Promise<void>;
 	client(reporter?: Reporter): TrelloClient;
-	/** Downloads a public url (a Trello avatar, not the authenticated API) — `null` on anything short of success. */
-	fetchBinary(url: string, signal?: AbortSignal): Promise<ArrayBuffer | null>;
+	/** Downloads a url's bytes — `null` on anything short of success. `redactFrom` masks secrets out of a failure's console warning, for an authenticated attachment url (see `TrelloClient.authenticatedAttachmentUrl`); omitted for a public url (a Trello avatar) with nothing to redact. */
+	fetchBinary(url: string, signal?: AbortSignal, redactFrom?: (text: string) => string): Promise<ArrayBuffer | null>;
 	run(
 		title: string,
 		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
 		opts?: { cancellable?: boolean },
 	): Promise<void>;
 	activeNote(): NoteHandle | null;
+	/** Whether a sync (manual or auto) is already running — the single-sync-at-a-time lock `run()` enforces. */
+	isSyncing(): boolean;
 	ready(needsBoard?: boolean): boolean;
 	noteOptions(force?: "pull" | "push"): NoteSyncOptions;
-	folderOptions(): FolderSyncOptions;
+	folderOptions(force?: "pull" | "push"): FolderSyncOptions;
 	auditOptions(): AuditOptions;
 	saveSettings(): Promise<void>;
 }
