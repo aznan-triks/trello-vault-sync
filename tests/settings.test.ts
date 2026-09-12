@@ -283,4 +283,40 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ autoSyncIntervalMinutes: 999_999 }).autoSyncIntervalMinutes).toBe(1440);
 		expect(normalizeSettings({ autoSyncMinIdleSeconds: 999_999 }).autoSyncMinIdleSeconds).toBe(3600);
 	});
+
+	test("defaults syncMembers to on and membersFrontmatterKey to its historical value", () => {
+		const settings = normalizeSettings({});
+		expect(settings.syncMembers).toBe(true);
+		expect(settings.membersFrontmatterKey).toBe("trello_members");
+	});
+
+	test("keeps an explicit syncMembers: false", () => {
+		expect(normalizeSettings({ syncMembers: false }).syncMembers).toBe(false);
+	});
+
+	test("falls back membersFrontmatterKey to the default when blank or not a string", () => {
+		expect(normalizeSettings({ membersFrontmatterKey: "   " }).membersFrontmatterKey).toBe("trello_members");
+		expect(normalizeSettings({ membersFrontmatterKey: 42 as unknown as string }).membersFrontmatterKey).toBe(
+			"trello_members",
+		);
+	});
+
+	test("defaults syncCustomFields to on and customFieldsFrontmatterKey to its historical value", () => {
+		const settings = normalizeSettings({});
+		expect(settings.syncCustomFields).toBe(true);
+		expect(settings.customFieldsFrontmatterKey).toBe("trello_custom_fields");
+	});
+
+	test("keeps an explicit syncCustomFields: false", () => {
+		expect(normalizeSettings({ syncCustomFields: false }).syncCustomFields).toBe(false);
+	});
+
+	test("falls back customFieldsFrontmatterKey to the default when blank or not a string", () => {
+		expect(normalizeSettings({ customFieldsFrontmatterKey: "   " }).customFieldsFrontmatterKey).toBe(
+			"trello_custom_fields",
+		);
+		expect(
+			normalizeSettings({ customFieldsFrontmatterKey: 42 as unknown as string }).customFieldsFrontmatterKey,
+		).toBe("trello_custom_fields");
+	});
 });

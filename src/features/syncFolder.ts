@@ -1,4 +1,5 @@
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
+import type { CustomFieldDefinitionLike } from "../core/customFieldRef";
 import { errorMessage } from "../core/errorMessage";
 import { notesInFolder, sanitizeFileName } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
@@ -15,7 +16,7 @@ import {
 import type { TrelloCard, TrelloClient } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
 import { createNoteFromCard } from "./createNoteFromCard";
-import { syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
+import { buildCustomFieldDefinitions, buildMemberDirectory, syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
 
 /** One Trello list mirrored into one vault folder. */
 export interface FolderMapping {
@@ -91,6 +92,10 @@ export async function syncFolder(
 	noteHandles?: NoteHandle[],
 	/** Pre-built vault-wide card index for resolving card-link attachments — lets a multi-mapping run share one build; built from its own vault scan when omitted and attachments syncing is on. */
 	cardIndex?: Map<string, NoteHandle>,
+	/** Pre-built board member id→name directory — lets a multi-mapping run share one `getBoardMembers` call; fetched once here when omitted and member syncing is on. */
+	memberDirectory?: Map<string, string>,
+	/** Pre-built board custom-field definition directory — lets a multi-mapping run share one `getBoardCustomFields` call; fetched once here when omitted and custom-field syncing is on. */
+	customFieldDefinitions?: Map<string, CustomFieldDefinitionLike>,
 ): Promise<FolderSyncStats> {
 	const stats = emptyStats();
 	const cardRefKey = options.cardRefFrontmatterKey ?? DEFAULT_CARD_REF_KEY;
@@ -99,6 +104,15 @@ export async function syncFolder(
 
 	const attachmentsCardIndex =
 		options.syncAttachments === false ? undefined : (cardIndex ?? buildCardIndex(vault, vault.listNotes("")));
+	const members =
+		options.syncMembers === false
+			? undefined
+			: (memberDirectory ?? buildMemberDirectory(await client.getBoardMembers(options.boardId, signal)));
+	const customFields =
+		options.syncCustomFields === false
+			? undefined
+			: (customFieldDefinitions ??
+				buildCustomFieldDefinitions(await client.getBoardCustomFields(options.boardId, signal)));
 
 	const handles = noteHandles ?? vault.listNotes(mapping.folder);
 	const planned: PlannedNote[] = handles.map((note) => ({
@@ -156,6 +170,8 @@ export async function syncFolder(
 					...(pair.adopted ? { force: "pull" as const } : {}),
 				},
 				attachmentsCardIndex,
+				members,
+				customFields,
 			);
 
 			if (pair.adopted) {
@@ -272,6 +288,14 @@ export async function syncAllMappings(
 		: undefined;
 	const allNotes = vault.listNotes("");
 	const cardIndex = options.syncAttachments === false ? undefined : buildCardIndex(vault, allNotes);
+	const memberDirectory =
+		options.syncMembers === false
+			? undefined
+			: buildMemberDirectory(await client.getBoardMembers(options.boardId, signal));
+	const customFieldDefinitions =
+		options.syncCustomFields === false
+			? undefined
+			: buildCustomFieldDefinitions(await client.getBoardCustomFields(options.boardId, signal));
 
 	for (const mapping of mappings) {
 		if (signal?.aborted) break;
@@ -287,6 +311,8 @@ export async function syncAllMappings(
 				signal,
 				notesInFolder(allNotes, mapping.folder),
 				cardIndex,
+				memberDirectory,
+				customFieldDefinitions,
 			);
 			addCounts(total, stats);
 		} catch (error) {

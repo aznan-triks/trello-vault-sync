@@ -60,50 +60,94 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 		return parseCardRef(match?.[1]);
 	}
 
-	/** Minimal `key: value` YAML parsing — enough for the generic frontmatter tests need, plus a block list (`key:` then `  - "item"` lines) for array-valued keys. */
+	/** One frontmatter scalar, parsed from its raw (already-trimmed) text form. */
+	private parseScalar(raw: string): unknown {
+		const quoted = raw.match(/^"(.*)"$/);
+		if (quoted) return quoted[1];
+		if (raw === "true") return true;
+		if (raw === "false") return false;
+		if (raw !== "" && !Number.isNaN(Number(raw))) return Number(raw);
+		return raw;
+	}
+
+	/** One array item, parsed the same way this class always has: unquote if quoted, otherwise keep the literal string — no bool/number coercion (every array-valued key here — labels, members, attachments — is a string list; `serializeEntry` always quotes them on the way out anyway). */
+	private parseArrayItem(raw: string): unknown {
+		const quoted = raw.match(/^"(.*)"$/);
+		return quoted ? quoted[1] : raw;
+	}
+
+	/**
+	 * Minimal `key: value` YAML parsing — enough for what the generic
+	 * frontmatter tests need: a block list (`key:` then `  - "item"` lines) for
+	 * array-valued keys, and one level of nested `key:` then `  sub: value`
+	 * lines for an object-valued key (the custom-fields feature's shape).
+	 */
 	private parseFrontmatterBlock(block: string): Record<string, unknown> {
-		const result: Record<string, unknown> = {};
 		const lines = block.replace(/\r\n/g, "\n").split("\n").slice(1, -1);
-		let arrayKey: string | null = null;
-		for (const line of lines) {
-			const item = arrayKey ? line.match(/^\s*-\s*(.*)$/) : null;
-			if (arrayKey && item) {
-				const raw = (item[1] ?? "").trim();
-				const quoted = raw.match(/^"(.*)"$/);
-				(result[arrayKey] as unknown[]).push(quoted ? quoted[1] : raw);
+		const result: Record<string, unknown> = {};
+		let i = 0;
+		while (i < lines.length) {
+			const line = lines[i] ?? "";
+			const match = line.match(/^([^:]+):\s*(.*)$/);
+			if (!match) {
+				i++;
 				continue;
 			}
-			arrayKey = null;
-			const match = line.match(/^([^:]+):\s*(.*)$/);
-			if (!match) continue;
 			const key = (match[1] ?? "").trim();
 			const raw = (match[2] ?? "").trim();
-			if (raw === "") {
-				result[key] = [];
-				arrayKey = key;
+			if (raw !== "") {
+				result[key] = this.parseScalar(raw);
+				i++;
 				continue;
 			}
-			const quoted = raw.match(/^"(.*)"$/);
-			result[key] = quoted
-				? quoted[1]
-				: raw === "true"
-					? true
-					: raw === "false"
-						? false
-						: raw !== "" && !Number.isNaN(Number(raw))
-							? Number(raw)
-							: raw;
+
+			const next = lines[i + 1] ?? "";
+			if (/^\s*-\s*/.test(next)) {
+				const items: unknown[] = [];
+				i++;
+				let itemMatch: RegExpMatchArray | null;
+				while (i < lines.length && (itemMatch = (lines[i] ?? "").match(/^\s*-\s*(.*)$/))) {
+					items.push(this.parseArrayItem((itemMatch[1] ?? "").trim()));
+					i++;
+				}
+				result[key] = items;
+				continue;
+			}
+			if (/^\s{2}\S[^:]*:\s*/.test(next)) {
+				const nested: Record<string, unknown> = {};
+				i++;
+				let subMatch: RegExpMatchArray | null;
+				while (i < lines.length && (subMatch = (lines[i] ?? "").match(/^\s{2}([^:]+):\s*(.*)$/))) {
+					nested[(subMatch[1] ?? "").trim()] = this.parseScalar((subMatch[2] ?? "").trim());
+					i++;
+				}
+				result[key] = nested;
+				continue;
+			}
+			result[key] = [];
+			i++;
 		}
 		return result;
 	}
 
+	/** One frontmatter entry's serialized lines — recurses one level for an object value (never deeper, matching `parseFrontmatterBlock`). */
+	private serializeEntry(key: string, value: unknown, indent: string): string[] {
+		if (Array.isArray(value)) {
+			return value.length === 0
+				? [`${indent}${key}: []`]
+				: [`${indent}${key}:`, ...value.map((entry) => `${indent}  - "${entry}"`)];
+		}
+		if (value !== null && typeof value === "object") {
+			const entries = Object.entries(value as Record<string, unknown>);
+			return entries.length === 0
+				? [`${indent}${key}: {}`]
+				: [`${indent}${key}:`, ...entries.flatMap(([k, v]) => this.serializeEntry(k, v, `${indent}  `))];
+		}
+		return [typeof value === "string" ? `${indent}${key}: "${value}"` : `${indent}${key}: ${value}`];
+	}
+
 	private serializeFrontmatterBlock(frontmatter: Record<string, unknown>): string {
-		const lines = Object.entries(frontmatter).flatMap(([key, value]) => {
-			if (Array.isArray(value)) {
-				return value.length === 0 ? [`${key}: []`] : [`${key}:`, ...value.map((entry) => `  - "${entry}"`)];
-			}
-			return [typeof value === "string" ? `${key}: "${value}"` : `${key}: ${value}`];
-		});
+		const lines = Object.entries(frontmatter).flatMap(([key, value]) => this.serializeEntry(key, value, ""));
 		return `---\n${lines.join("\n")}\n---`;
 	}
 

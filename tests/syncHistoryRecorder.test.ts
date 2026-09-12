@@ -81,6 +81,8 @@ describe("wrapWithHistoryRecorder", () => {
 			dryRun: true,
 			syncAttachments: false,
 			syncChecklists: false,
+			syncMembers: false,
+			syncCustomFields: false,
 		};
 
 		const result = await syncNoteWithCard(wrapped, client, vault.note(path), remote, options);

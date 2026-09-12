@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] — 2026-09-12
+
+### Added
+
+- **Plain**: A card's assigned members now show up in the note as readable
+  names (never raw Trello ids) — added and removed as the card's assignments
+  change. Pull-only, on by default.
+  **Technical**: `src/core/memberRef.ts` (parse/format/resolve, id→name via a
+  directory built once per sync run — not once per note). `TrelloClient`
+  gained `getBoardMembers` and `idMembers` on `CARD_FIELDS`. New settings
+  `syncMembers` (default on) and `membersFrontmatterKey` (default
+  `trello_members`).
+- **Plain**: A card's custom fields (text, number, date, checkbox, dropdown)
+  now land in the note as one grouped, typed frontmatter object — a dropdown
+  option removed from the board is simply skipped, never an error. Pull-only,
+  on by default, no extra request per note (values ride the card already
+  fetched).
+  **Technical**: `src/core/customFieldRef.ts` resolves each field type
+  (`text`/`number`/`date`/`checkbox`/`list`) against the board's field
+  definitions, fetched once per run via the new `TrelloClient.getBoardCustomFields`.
+  Card fetches now request `customFieldItems=true`. New settings
+  `syncCustomFields` (default on) and `customFieldsFrontmatterKey` (default
+  `trello_custom_fields`).
+
 ## [1.12.0] — 2026-09-12
 
 ### Added

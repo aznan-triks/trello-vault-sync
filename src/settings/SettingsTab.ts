@@ -2,6 +2,8 @@ import { Notice, PluginSettingTab, Setting, type App, type ButtonComponent } fro
 import type TrelloVaultSyncPlugin from "../main";
 import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
 import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_COVER_KEY, DEFAULT_LINKED_CARDS_KEY } from "../core/attachmentRef";
+import { DEFAULT_CUSTOM_FIELDS_KEY } from "../core/customFieldRef";
+import { DEFAULT_MEMBERS_KEY } from "../core/memberRef";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
@@ -363,6 +365,54 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(this.plugin.settings.checklistHeading).onChange((value) => {
 					this.plugin.settings.checklistHeading = safeFrontmatterKey(value, DEFAULT_CHECKLIST_HEADING);
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Sync members")
+			.setDesc(
+				"Writes the card's assigned members as readable names into the note's frontmatter (Members key, " +
+					"below) — removed when they leave the card. Pull-only. Costs one extra Trello request per " +
+					"sync run (the board's member directory), not per note.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncMembers).onChange((value) => {
+					this.plugin.settings.syncMembers = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Members key")
+			.setDesc("The frontmatter key holding the card's assigned members.")
+			.addText((text) =>
+				text.setValue(this.plugin.settings.membersFrontmatterKey).onChange((value) => {
+					this.plugin.settings.membersFrontmatterKey = safeFrontmatterKey(value, DEFAULT_MEMBERS_KEY);
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Sync custom fields")
+			.setDesc(
+				"Writes the card's custom fields into a single frontmatter object (Custom fields key, below), " +
+					"keyed by each field's own label. Pull-only. No extra Trello request per note (values ride the " +
+					"card already fetched); the board's field-definition directory costs one request per sync run.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncCustomFields).onChange((value) => {
+					this.plugin.settings.syncCustomFields = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Custom fields key")
+			.setDesc("The frontmatter key holding the card's custom fields, grouped under one object.")
+			.addText((text) =>
+				text.setValue(this.plugin.settings.customFieldsFrontmatterKey).onChange((value) => {
+					this.plugin.settings.customFieldsFrontmatterKey = safeFrontmatterKey(value, DEFAULT_CUSTOM_FIELDS_KEY);
 					void this.save();
 				}),
 			);

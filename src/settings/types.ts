@@ -8,6 +8,8 @@ import {
 import type { AttachmentsDestination } from "../core/attachmentPath";
 import type { AutoSyncScope, AutoSyncTrigger } from "../core/autoSyncSchedule";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
+import { DEFAULT_CUSTOM_FIELDS_KEY, DEFAULT_SYNC_CUSTOM_FIELDS } from "../core/customFieldRef";
+import { DEFAULT_MEMBERS_KEY, DEFAULT_SYNC_MEMBERS } from "../core/memberRef";
 import { DEFAULT_CHECKLIST_HEADING, DEFAULT_SYNC_CHECKLISTS } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
@@ -110,6 +112,14 @@ export interface TrelloVaultSyncSettings {
 	autoSyncScope: AutoSyncScope;
 	/** Anti-burst floor, in seconds, between two auto-sync attempts regardless of what triggered either. */
 	autoSyncMinIdleSeconds: number;
+
+	/** Pull-only — costs one extra Trello request per *run* (the board's member directory), not per note. */
+	syncMembers: boolean;
+	membersFrontmatterKey: string;
+
+	/** Pull-only — no extra request per note (values ride the card); one extra request per *run* for the field-definition directory. */
+	syncCustomFields: boolean;
+	customFieldsFrontmatterKey: string;
 }
 
 export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
@@ -158,6 +168,10 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	autoSyncIntervalMinutes: 15,
 	autoSyncScope: "mappings",
 	autoSyncMinIdleSeconds: 60,
+	syncMembers: DEFAULT_SYNC_MEMBERS,
+	membersFrontmatterKey: DEFAULT_MEMBERS_KEY,
+	syncCustomFields: DEFAULT_SYNC_CUSTOM_FIELDS,
+	customFieldsFrontmatterKey: DEFAULT_CUSTOM_FIELDS_KEY,
 };
 
 /** Highest interval, in minutes, `autoSyncIntervalMinutes` will accept before clamping. */
@@ -309,6 +323,11 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			input.autoSyncMinIdleSeconds,
 			DEFAULT_SETTINGS.autoSyncMinIdleSeconds,
 			AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
+		),
+		membersFrontmatterKey: safeFrontmatterKey(input.membersFrontmatterKey, DEFAULT_SETTINGS.membersFrontmatterKey),
+		customFieldsFrontmatterKey: safeFrontmatterKey(
+			input.customFieldsFrontmatterKey,
+			DEFAULT_SETTINGS.customFieldsFrontmatterKey,
 		),
 	};
 }
