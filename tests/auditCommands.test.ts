@@ -22,6 +22,7 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 			await body(silentReporter, new AbortController().signal);
 		},
 		activeNote: () => null,
+		isSyncing: () => false,
 		ready: () => true,
 		noteOptions: () => ({ policy: "newer-wins", marginMs: 0, syncTitle: true, dryRun: false }),
 		folderOptions: () => ({

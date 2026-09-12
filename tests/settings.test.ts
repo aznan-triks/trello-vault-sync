@@ -215,4 +215,72 @@ describe("normalizeSettings", () => {
 	test("falls back historyMaxRuns to the default when corrupted", () => {
 		expect(normalizeSettings({ historyMaxRuns: "lots" as unknown as number }).historyMaxRuns).toBe(20);
 	});
+
+	test("defaults the cover/attachment-download settings", () => {
+		const settings = normalizeSettings({});
+		expect(settings.syncCardCover).toBe(true);
+		expect(settings.coverFrontmatterKey).toBe("banner");
+		expect(settings.downloadAttachments).toBe(false);
+		expect(settings.attachmentsDestination).toBe("note-folder");
+		expect(settings.attachmentsFolder).toBe("");
+	});
+
+	test("keeps an explicit global-folder destination and normalizes its folder", () => {
+		const settings = normalizeSettings({ attachmentsDestination: "global-folder", attachmentsFolder: "\\Attachments\\" });
+		expect(settings.attachmentsDestination).toBe("global-folder");
+		expect(settings.attachmentsFolder).toBe("Attachments");
+	});
+
+	test("falls back attachmentsDestination to note-folder when corrupted", () => {
+		expect(normalizeSettings({ attachmentsDestination: "somewhere-else" as never }).attachmentsDestination).toBe(
+			"note-folder",
+		);
+	});
+
+	test("falls back coverFrontmatterKey to the default when blank or not a string", () => {
+		expect(normalizeSettings({ coverFrontmatterKey: "   " }).coverFrontmatterKey).toBe("banner");
+		expect(normalizeSettings({ coverFrontmatterKey: 42 as unknown as string }).coverFrontmatterKey).toBe("banner");
+	});
+
+	test("defaults confirmForceSync to on", () => {
+		expect(normalizeSettings({}).confirmForceSync).toBe(true);
+	});
+
+	test("keeps an explicit confirmForceSync: false", () => {
+		expect(normalizeSettings({ confirmForceSync: false }).confirmForceSync).toBe(false);
+	});
+
+	test("defaults orphanCardFolder to empty and normalizes an explicit value", () => {
+		expect(normalizeSettings({}).orphanCardFolder).toBe("");
+		expect(normalizeSettings({ orphanCardFolder: "\\Projects\\" }).orphanCardFolder).toBe("Projects");
+	});
+
+	test("defaults every auto-sync setting", () => {
+		const settings = normalizeSettings({});
+		expect(settings.autoSyncEnabled).toBe(false);
+		expect(settings.autoSyncTrigger).toBe("interval");
+		expect(settings.autoSyncIntervalMinutes).toBe(15);
+		expect(settings.autoSyncScope).toBe("mappings");
+		expect(settings.autoSyncMinIdleSeconds).toBe(60);
+	});
+
+	test("keeps an explicit autoSyncEnabled: true", () => {
+		expect(normalizeSettings({ autoSyncEnabled: true }).autoSyncEnabled).toBe(true);
+	});
+
+	test("keeps a valid autoSyncTrigger and falls back to interval when corrupted", () => {
+		expect(normalizeSettings({ autoSyncTrigger: "focus" }).autoSyncTrigger).toBe("focus");
+		expect(normalizeSettings({ autoSyncTrigger: "both" }).autoSyncTrigger).toBe("both");
+		expect(normalizeSettings({ autoSyncTrigger: "always" as never }).autoSyncTrigger).toBe("interval");
+	});
+
+	test("keeps a valid autoSyncScope and falls back to mappings when corrupted", () => {
+		expect(normalizeSettings({ autoSyncScope: "vault" }).autoSyncScope).toBe("vault");
+		expect(normalizeSettings({ autoSyncScope: "everything" as never }).autoSyncScope).toBe("mappings");
+	});
+
+	test("clamps autoSyncIntervalMinutes and autoSyncMinIdleSeconds to their ceilings", () => {
+		expect(normalizeSettings({ autoSyncIntervalMinutes: 999_999 }).autoSyncIntervalMinutes).toBe(1440);
+		expect(normalizeSettings({ autoSyncMinIdleSeconds: 999_999 }).autoSyncMinIdleSeconds).toBe(3600);
+	});
 });

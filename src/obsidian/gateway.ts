@@ -33,6 +33,11 @@ export interface VaultGateway {
 	readFrontmatter(note: NoteHandle): Record<string, unknown> | null;
 	/** Mutate the note's frontmatter in place; created if missing. */
 	writeFrontmatter(note: NoteHandle, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void>;
+
+	/** Byte size of a binary file (an attachment, not a note) at `path`, or `null` if missing — cheap enough to call once per attachment to decide whether a download is a no-op. */
+	binarySize(path: string): number | null;
+	/** Writes bytes to `path` (an attachment, not a note), creating parent folders as needed — replaces the file if one is already there. */
+	writeBinary(path: string, data: ArrayBuffer): Promise<void>;
 }
 
 /** The Trello card concept, kept out of `VaultGateway` so generic-IO consumers never see it. */

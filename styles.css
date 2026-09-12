@@ -289,3 +289,12 @@
 	gap: 8px;
 	justify-content: flex-end;
 }
+
+/* Confirm / folder-picker modals (force sync, create note from card) */
+
+.tvs-confirm__actions {
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	margin-top: 12px;
+}

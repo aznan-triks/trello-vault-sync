@@ -83,11 +83,16 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 		return this.toHandle(file);
 	}
 
-	async create(path: string, content: string): Promise<NoteHandle> {
+	/** Creates `path`'s parent folder if it doesn't exist yet — shared by `create` and `writeBinary`. */
+	private async ensureParentFolder(path: string): Promise<void> {
 		const folder = path.split("/").slice(0, -1).join("/");
 		if (folder && !this.app.vault.getAbstractFileByPath(folder)) {
 			await this.app.vault.createFolder(folder);
 		}
+	}
+
+	async create(path: string, content: string): Promise<NoteHandle> {
+		await this.ensureParentFolder(path);
 		return this.toHandle(await this.app.vault.create(path, content));
 	}
 
@@ -99,6 +104,18 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 
 	exists(path: string): boolean {
 		return this.app.vault.getAbstractFileByPath(path) !== null;
+	}
+
+	binarySize(path: string): number | null {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		return file instanceof TFile ? file.stat.size : null;
+	}
+
+	async writeBinary(path: string, data: ArrayBuffer): Promise<void> {
+		await this.ensureParentFolder(path);
+		const existing = this.app.vault.getAbstractFileByPath(path);
+		if (existing instanceof TFile) await this.app.vault.modifyBinary(existing, data);
+		else await this.app.vault.createBinary(path, data);
 	}
 
 	async readTemplate(name: string): Promise<string | null> {

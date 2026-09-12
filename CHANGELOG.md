@@ -4,6 +4,54 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] — 2026-09-12
+
+### Added
+
+- **Plain**: A card's cover photo now shows up as the note's banner (works
+  with the Pixelbanner plugin, or any other that reads the same frontmatter
+  key), and uploaded attachments can be downloaded straight into the vault
+  instead of staying links. Both pull-only. Downloading is off by default;
+  choose whether files land next to the note or in one shared folder.
+  **Technical**: `src/core/attachmentRef.ts::coverImageUrl` picks the largest
+  `cover.scaled` rendition; `TrelloClient` now requests `cover`/`cover_scaled`
+  and attachment `bytes`. `src/core/attachmentPath.ts` resolves the download
+  destination (refuses instead of guessing when "one shared folder" has no
+  folder set). `src/features/attachmentDownload.ts` dedupes by name+size,
+  skipping the fetch entirely when the size is already known to match.
+  `VaultGateway` gained `binarySize`/`writeBinary`; downloads reuse the
+  existing `ctx.fetchBinary` (now redaction-aware) via
+  `TrelloClient.authenticatedAttachmentUrl`, so no new network plumbing was
+  needed. New settings: `syncCardCover`, `coverFrontmatterKey`,
+  `downloadAttachments`, `attachmentsDestination`, `attachmentsFolder`.
+- **Plain**: Six new commands force a pull or push — for the active note, a
+  mapped folder, or the whole vault — ignoring which side changed last.
+  Folder/vault scope asks for confirmation first (skippable in settings).
+  Nothing happens when both sides already agree, even when forced.
+  **Technical**: `src/commands/forceSyncCommands.ts` reuses the existing
+  `force` option (already threaded through `syncFolder`/`syncVault`) — the
+  only engine change is in `src/features/syncNote.ts`: identical content now
+  stays a no-op even under a forced direction. New `src/ui/ConfirmModal.ts`
+  and setting `confirmForceSync` (default on).
+- **Plain**: A new command creates a note straight from a Trello card that
+  has none yet — pick a card, and it lands (linked) in its mapped folder, or
+  wherever you choose if the list isn't mapped. A card already linked to a
+  note never shows up in the list.
+  **Technical**: `src/features/createNoteFromCard.ts` extracts `syncFolder`'s
+  existing "create missing note" logic so both paths fabricate a note the
+  same way. New `src/ui/FolderPickerModal.ts` and setting `orphanCardFolder`
+  (empty = prompt each time).
+- **Plain**: Optional auto-sync — on a timer, when Obsidian regains focus, or
+  both. Off by default; a sync already running is skipped silently, and two
+  triggers can't fire closer together than the configured minimum gap.
+  **Technical**: `src/core/autoSyncSchedule.ts::decideAutoSync` is the pure
+  decision (disabled / wrong trigger / already syncing / too soon / run);
+  `main.ts` polls it every 30s (a fixed internal cadence, not a setting) and
+  listens for window focus via `registerDomEvent`, so enabling/disabling or
+  changing the interval takes effect on the next tick with no reload. New
+  settings: `autoSyncEnabled`, `autoSyncTrigger`, `autoSyncIntervalMinutes`,
+  `autoSyncScope`, `autoSyncMinIdleSeconds`.
+
 ## [1.11.0] — 2026-09-12
 
 ### Added

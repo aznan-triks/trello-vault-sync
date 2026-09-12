@@ -2,6 +2,8 @@ import { Notice, Plugin, TFile } from "obsidian";
 import type { CommandContext } from "./commands/context";
 import * as noteCommands from "./commands/noteCommands";
 import { COMMANDS } from "./commands/registry";
+import * as syncCommands from "./commands/syncCommands";
+import { decideAutoSync } from "./core/autoSyncSchedule";
 import { errorMessage } from "./core/errorMessage";
 import { appendJournalEntry, type JournalEntry, type LogLevel } from "./core/journal";
 import { normalizePersistedData } from "./core/pluginData";
@@ -14,7 +16,7 @@ import { obsidianDownloadBinary, obsidianTransport } from "./obsidian/transport"
 import { silentReporter, type NoteHandle, type Reporter } from "./obsidian/gateway";
 import { TrelloVaultSyncSettingsTab } from "./settings/SettingsTab";
 import { DEFAULT_SETTINGS, hasCredentials, normalizeSettings, type TrelloVaultSyncSettings } from "./settings/types";
-import { TrelloClient } from "./trello/client";
+import { redactSecrets, TrelloClient } from "./trello/client";
 import { MAX_LOG_ROWS, ProgressPanel } from "./ui/ProgressPanel";
 import { SidebarView, VIEW_TYPE_TVS_SIDEBAR } from "./ui/SidebarView";
 
@@ -25,6 +27,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	history: SyncRun[] = [];
 	/** Guards every command in `run()` — two commands writing to the vault at once can race. */
 	private syncing = false;
+	/** Epoch ms of the last auto-sync attempt this session — in-memory only, reset on reload (see `decideAutoSync`). */
+	private lastAutoSyncAt: number | null = null;
+	/** Fixed scheduling detail, not a setting — how often `checkAutoSync("interval")` is polled; `decideAutoSync` (fed live settings each tick) is what actually decides whether that tick fires a sync. */
+	private static readonly AUTO_SYNC_POLL_MS = 30_000;
 	/** The panel of the sync currently running, if any — torn down on unload. */
 	private activePanel: ProgressPanel | null = null;
 	/** Icons added from `settings.ribbonCommandIds` — tracked so `rebuildRibbon()` can remove them, unlike the fixed "Open Trello Vault Sync" icon. */
@@ -40,6 +46,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
 		this.registerCommands();
 		this.registerRibbon();
+		this.registerAutoSync();
 	}
 
 	override onunload(): void {
@@ -112,8 +119,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		);
 	}
 
-	fetchBinary(url: string, signal?: AbortSignal): Promise<ArrayBuffer | null> {
-		return obsidianDownloadBinary(url, signal);
+	fetchBinary(url: string, signal?: AbortSignal, redactFrom?: (text: string) => string): Promise<ArrayBuffer | null> {
+		return obsidianDownloadBinary(url, signal, redactFrom);
 	}
 
 	noteOptions(force?: "pull" | "push"): NoteSyncOptions {
@@ -130,13 +137,20 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			linkedCardsFrontmatterKey: this.settings.linkedCardsFrontmatterKey,
 			syncChecklists: this.settings.syncChecklists,
 			checklistHeading: this.settings.checklistHeading,
+			syncCardCover: this.settings.syncCardCover,
+			coverFrontmatterKey: this.settings.coverFrontmatterKey,
+			downloadAttachments: this.settings.downloadAttachments,
+			attachmentsDestination: this.settings.attachmentsDestination,
+			attachmentsFolder: this.settings.attachmentsFolder,
+			fetchBinary: (url, signal) =>
+				this.fetchBinary(url, signal, (text) => redactSecrets(text, [this.settings.token, this.settings.apiKey])),
 			...(force ? { force } : {}),
 		};
 	}
 
-	folderOptions(): FolderSyncOptions {
+	folderOptions(force?: "pull" | "push"): FolderSyncOptions {
 		return {
-			...this.noteOptions(),
+			...this.noteOptions(force),
 			allowCreate: this.settings.allowCreate,
 			allowDelete: this.settings.allowDelete,
 			boardId: this.settings.boardId,
@@ -215,6 +229,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			return null;
 		}
 		return this.vault.noteAt(file.path);
+	}
+
+	isSyncing(): boolean {
+		return this.syncing;
 	}
 
 	/**
@@ -313,5 +331,39 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			.map((id) => COMMANDS.find((entry) => entry.id === id))
 			.filter((command) => command !== undefined)
 			.map((command) => this.addRibbonIcon(command.icon, command.name, () => command.run(this)));
+	}
+
+	/**
+	 * Wires the two possible auto-sync triggers, once, for the plugin's whole
+	 * lifetime — `registerInterval`/`registerDomEvent` tear both down automatically
+	 * on unload, so there is nothing to clean up when a setting changes: every
+	 * tick re-reads `this.settings` live, `decideAutoSync` (pure) does the
+	 * actual gating. This means disabling auto-sync, or changing its interval,
+	 * takes effect on the very next tick — no reload needed.
+	 */
+	private registerAutoSync(): void {
+		this.registerInterval(
+			window.setInterval(() => this.checkAutoSync("interval"), TrelloVaultSyncPlugin.AUTO_SYNC_POLL_MS),
+		);
+		this.registerDomEvent(window, "focus", () => this.checkAutoSync("focus"));
+	}
+
+	private checkAutoSync(event: "interval" | "focus"): void {
+		const decision = decideAutoSync({
+			enabled: this.settings.autoSyncEnabled,
+			trigger: this.settings.autoSyncTrigger,
+			event,
+			now: Date.now(),
+			lastRunAt: this.lastAutoSyncAt,
+			syncing: this.isSyncing(),
+			intervalMinutes: this.settings.autoSyncIntervalMinutes,
+			minIdleSeconds: this.settings.autoSyncMinIdleSeconds,
+		});
+		if (decision.action !== "run") return;
+
+		this.lastAutoSyncAt = Date.now();
+		void (this.settings.autoSyncScope === "vault"
+			? syncCommands.syncAllLinked(this)
+			: syncCommands.syncAllMappings(this));
 	}
 }
