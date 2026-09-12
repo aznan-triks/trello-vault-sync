@@ -4,65 +4,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.13.0] — 2026-09-12
+## [1.10.4] — 2026-09-12
+
+> Correction (2026-09-12) : cette livraison remplace ce qui avait été publié
+> sous 1.11.0/1.12.0/1.13.0 — trois versions MINEUR taguées à tort pour de la
+> plomberie interne sans aucune fonctionnalité visible (voir `CONTEXT.md` §6).
+> Les 3 releases/tags GitHub correspondants ont été supprimés et republiés
+> sous ce seul numéro PATCH.
 
 ### Changed
 
-- **Plain**: ⚠️ Reverted: the plugin works on Obsidian 1.7 and up again. v1.12.0
-  had raised the requirement to Obsidian 1.13, which silently made the plugin
-  unloadable for anyone on an older release — including the machine it is
-  developed on.
-  **Technical**: `manifest.json`.minAppVersion `1.13.0` → `1.7.2`;
-  `src/settings/SettingsTab.ts` goes back to rendering imperatively from
-  `display()`. `getSettingDefinitions()`, the group/row description
-  (`SettingGroupSpec`/`SettingRow`) introduced in v1.11.0, and the `update()`
-  call are all gone — they are 1.13-only, and the analyzer rejects any 1.13 API
-  under a lower `minAppVersion`, guard or no guard. The analyzer's remaining
-  complaint about `display()` is a deprecation *recommendation*, not an error.
-- **Plain**: What that costs: the plugin's settings no longer show up in
-  Obsidian's own settings search. Everything else about the settings tab is
-  unchanged.
-  **Technical**: the declarative path is the only way to be indexed by the
-  1.13 settings search; supporting 1.7–1.12 and being indexed are mutually
-  exclusive for now. `setDynamicTooltip()` is restored with it — on 1.12 and
-  below it is the only way to see the slider's value while dragging.
+- **Plain**: Nothing changes in how the settings tab looks or behaves. An
+  attempt was made to also index every setting in Obsidian's own settings
+  search (available from Obsidian 1.13), but that required raising the
+  plugin's minimum Obsidian version to 1.13 — which would have made the
+  plugin unloadable for anyone still on an older release, including the
+  machine it is developed on. That path was reverted; the tab keeps rendering
+  the way it always has.
+  **Technical**: `src/settings/SettingsTab.ts` renders imperatively from
+  `display()`, as before. The declarative path added and removed during this
+  round-trip (`getSettingDefinitions()`, `SettingGroupSpec`/`SettingRow`,
+  `update()`) is gone from the working tree but stays recoverable at commit
+  `fb124d0` if `minAppVersion` can move to 1.13 later. `manifest.json`
+  `minAppVersion` stays `1.7.2`.
 
 ### Fixed
 
-- **Plain**: Saving a setting still does not make the interface wait for the
-  write to land on disk — that improvement survives the revert.
-  **Technical**: every settings handler stays synchronous and fires the persist
-  with `void this.save()`; "Test connection" keeps its round trip in the private
-  `testConnection()` method. Same for `src/obsidian/transport.ts` (always
-  rejects with an `Error`) and the explicit timer host in `src/core/asyncUtil.ts`
-  and `src/trello/client.ts`, both introduced in v1.12.0 and kept.
-
-## [1.12.0] — 2026-09-12
-
-### Changed
-
-- **Plain**: ⚠️ The plugin now requires Obsidian 1.13 or newer. That is the
-  version whose settings API it is built on — declaring anything older was a
-  promise it could not keep.
-  **Technical**: `manifest.json`.minAppVersion `1.7.2` → `1.13.0`, clearing
-  the analyzer's `obsidianmd/no-unsupported-api` error. The 1.7–1.12 fallback
-  added in v1.11.0 is gone: `display()` and its group walker are removed, so
-  `getSettingDefinitions()` is the tab's only render path and `update()` is
-  called unguarded.
-- **Plain**: The slider in the settings shows its value inline now, the way
-  Obsidian shows every other slider.
-  **Technical**: the deprecated `setDynamicTooltip()` call is gone — 1.13
-  renders the value next to the slider on its own.
-- **Plain**: Saving a setting no longer makes the interface wait for the write
-  to land on disk.
+- **Plain**: Saving a setting no longer makes the interface wait for the
+  write to land on disk.
   **Technical**: every settings handler is synchronous and fires the persist
   with `void this.save()`, instead of handing an `async` callback to a
-  component property typed to return nothing (36 sites in `SettingsTab.ts`,
-  plus the sidebar's Dry-run toggle found by the same grep). "Test connection"
-  keeps its round trip in a private async method.
-
-### Fixed
-
+  component property typed to return nothing (37 sites in `SettingsTab.ts`
+  plus the sidebar's Dry-run toggle). "Test connection" keeps its round trip
+  in a private `testConnection()` method.
 - **Plain**: When a sync is cancelled, what the plugin reports internally is
   now always a real error object, so nothing downstream can mistake it for a
   plain value.
@@ -75,38 +49,6 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `timers.setTimeout`, resolved once to `window` under Obsidian and to
   `globalThis` under the Node test run — `core/` and `trello/` must stay
   importable outside Obsidian.
-
-## [1.11.0] — 2026-09-11
-
-### Added
-
-- **Plain**: On Obsidian 1.13 and newer, every plugin setting now shows up in
-  Obsidian's own settings search — type "checklist" or "token" in the search
-  box and the matching rows are found, instead of having to scroll the tab.
-  **Technical**: `src/settings/SettingsTab.ts` implements
-  `getSettingDefinitions()` (Obsidian 1.13+), which Obsidian renders and
-  indexes itself. Rows with no name (lone buttons, guidance paragraphs) are
-  marked `searchable: false` so they stay out of the index.
-
-### Changed
-
-- **Plain**: The settings tab was rebuilt around a single description of its
-  own content. Nothing moves, nothing is renamed — it just stops being
-  written twice.
-  **Technical**: the tab is now one list of groups and rows
-  (`SettingGroupSpec`/`SettingRow`), consumed by two render paths:
-  `getSettingDefinitions()` on 1.13+, and `display()` (deliberately kept, as
-  Obsidian's own typings recommend, for 1.7–1.12) which walks the very same
-  groups. Each row's body lives once. Each mapping becomes its own group
-  keeping its `.tvs-mapping` frame, since a settings group cannot nest
-  another. `minAppVersion` stays `1.7.2`: no new requirement, the new API is
-  additive.
-- **Plain**: Anything that rebuilds the settings tab (picking a board or a
-  list, adding or removing a row, testing the connection) now refreshes both
-  render paths.
-  **Technical**: those call sites go through `refresh()`, which calls
-  `update()` — guarded, since it only exists from 1.13 on — before
-  `display()`.
 
 ## [1.10.3] — 2026-09-11
 
