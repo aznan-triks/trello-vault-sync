@@ -76,6 +76,36 @@ export interface TrelloCard {
 	labels?: TrelloLabel[];
 	/** `null`/missing when the card has no cover (a plain color cover carries no `scaled` images — see `core/attachmentRef.ts::coverImageUrl`). */
 	cover?: TrelloCardCover | null;
+	/** Ids of the card's assigned members — resolved to names via `getBoardMembers`, see `core/memberRef.ts`. */
+	idMembers?: string[];
+	/** The card's custom-field values, requested via `customFieldItems=true` — resolved against `getBoardCustomFields`, see `core/customFieldRef.ts`. */
+	customFieldItems?: TrelloCustomFieldItem[];
+}
+
+export interface TrelloCustomFieldItem {
+	idCustomField: string;
+	/** For a "list"-type field: the chosen option's id. */
+	idValue?: string;
+	value?: { text?: string; number?: string; checked?: string; date?: string };
+}
+
+export interface TrelloCustomFieldOption {
+	id: string;
+	value: { text: string };
+}
+
+export interface TrelloCustomFieldDefinition {
+	id: string;
+	name: string;
+	type: "text" | "number" | "date" | "checkbox" | "list";
+	/** Only present for a "list"-type field. */
+	options?: TrelloCustomFieldOption[];
+}
+
+export interface TrelloMember {
+	id: string;
+	fullName: string;
+	username: string;
 }
 
 export interface TrelloList {
@@ -122,9 +152,15 @@ export interface TrelloClientOptions {
 }
 
 const API_ROOT = "https://api.trello.com/1";
-const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed,due,labels,cover";
+const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed,due,labels,cover,idMembers";
+/** Only the display name is used — id is always returned regardless of `fields`. */
+const MEMBER_FIELDS = "fullName,username";
 /** Without this, Trello's `cover` field omits `scaled` (the image renditions `coverImageUrl` needs) even when the cover is an attachment. */
 const CARD_COVER_PARAMS = { cover_scaled: "true" };
+/** Without this, `TrelloCard.customFieldItems` is always omitted — a card's custom-field values travel with the card only when explicitly requested. */
+const CARD_CUSTOM_FIELD_PARAMS = { customFieldItems: "true" };
+/** Only the type and (for a "list" field) its options are used — id/name are always returned regardless of `fields`. */
+const CUSTOM_FIELD_FIELDS = "name,type";
 /** Only the name and color are used — id is always returned regardless of `fields`. */
 const LABEL_FIELDS = "name,color";
 /** id is always returned regardless of `fields`. `bytes` lets a download be skipped before ever fetching it (see `features/attachmentDownload.ts`). */
@@ -182,7 +218,7 @@ export class TrelloClient {
 	async getCard(cardId: string, signal?: AbortSignal): Promise<TrelloCard> {
 		return this.json<TrelloCard>(
 			`/cards/${encodeURIComponent(cardId)}`,
-			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS },
+			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS, ...CARD_CUSTOM_FIELD_PARAMS },
 			signal,
 		);
 	}
@@ -191,7 +227,7 @@ export class TrelloClient {
 	async getBoardCards(boardId: string, filter: "visible" | "all" = "visible", signal?: AbortSignal): Promise<TrelloCard[]> {
 		return this.json<TrelloCard[]>(
 			`/boards/${encodeURIComponent(boardId)}/cards`,
-			{ fields: CARD_FIELDS, filter, ...CARD_COVER_PARAMS },
+			{ fields: CARD_FIELDS, filter, ...CARD_COVER_PARAMS, ...CARD_CUSTOM_FIELD_PARAMS },
 			signal,
 		);
 	}
@@ -219,10 +255,28 @@ export class TrelloClient {
 		);
 	}
 
+	/** The board's member directory — needed to resolve a card's `idMembers` to display names. One call per run, not per note (see `features/syncNote.ts::convergeMembers`). */
+	async getBoardMembers(boardId: string, signal?: AbortSignal): Promise<TrelloMember[]> {
+		return this.json<TrelloMember[]>(
+			`/boards/${encodeURIComponent(boardId)}/members`,
+			{ fields: MEMBER_FIELDS },
+			signal,
+		);
+	}
+
+	/** The board's custom-field definitions — needed to resolve a card's `customFieldItems` (raw ids/values) to a name and a typed value. One call per run, not per note (see `features/syncNote.ts::convergeCustomFields`). */
+	async getBoardCustomFields(boardId: string, signal?: AbortSignal): Promise<TrelloCustomFieldDefinition[]> {
+		return this.json<TrelloCustomFieldDefinition[]>(
+			`/boards/${encodeURIComponent(boardId)}/customFields`,
+			{ fields: CUSTOM_FIELD_FIELDS },
+			signal,
+		);
+	}
+
 	async getListCards(listId: string, signal?: AbortSignal): Promise<TrelloCard[]> {
 		return this.json<TrelloCard[]>(
 			`/lists/${encodeURIComponent(listId)}/cards`,
-			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS },
+			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS, ...CARD_CUSTOM_FIELD_PARAMS },
 			signal,
 		);
 	}

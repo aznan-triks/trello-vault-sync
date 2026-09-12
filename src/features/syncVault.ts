@@ -3,7 +3,7 @@ import { tallyNoteResult } from "../core/syncTally";
 import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
-import { syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
+import { buildCustomFieldDefinitions, buildMemberDirectory, syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
 
 export interface VaultSyncScope {
 	/** Folder to restrict the run to; "" walks the whole vault. */
@@ -66,6 +66,14 @@ export async function syncVault(
 	// A card-link attachment can point anywhere in the vault, not just `target.scope` —
 	// this index always covers the whole vault, built once for the whole run.
 	const cardIndex = options.syncAttachments === false ? undefined : buildCardIndex(vault, vault.listNotes(""));
+	const memberDirectory =
+		options.syncMembers === false
+			? undefined
+			: buildMemberDirectory(await client.getBoardMembers(target.boardId, signal));
+	const customFieldDefinitions =
+		options.syncCustomFields === false
+			? undefined
+			: buildCustomFieldDefinitions(await client.getBoardCustomFields(target.boardId, signal));
 
 	for (const { note, ref } of linked) {
 		if (signal?.aborted) break;
@@ -78,7 +86,16 @@ export async function syncVault(
 		}
 
 		try {
-			const result = await syncNoteWithCard(vault, client, note, card, options, cardIndex);
+			const result = await syncNoteWithCard(
+				vault,
+				client,
+				note,
+				card,
+				options,
+				cardIndex,
+				memberDirectory,
+				customFieldDefinitions,
+			);
 			tallyNoteResult(stats, result, (level, message) => reporter.log(level, message), note.basename);
 		} catch (error) {
 			stats.errors++;

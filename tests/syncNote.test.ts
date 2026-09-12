@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_LINKED_CARDS_KEY } from "../src/core/attachmentRef";
 import { DEFAULT_CHECKLIST_HEADING } from "../src/core/checklistRef";
 import { DEFAULT_DUE_KEY as DUE_KEY } from "../src/core/dueRef";
@@ -15,11 +15,13 @@ const options: NoteSyncOptions = {
 	marginMs: 0,
 	syncTitle: true,
 	dryRun: false,
-	// Off by default in this shared fixture so tests unrelated to attachments/checklists
-	// keep their existing "zero Trello requests on skip/conflict" guarantees — see the
-	// dedicated describe blocks below for coverage of each feature itself.
+	// Off by default in this shared fixture so tests unrelated to attachments/checklists/
+	// members keep their existing "zero Trello requests on skip/conflict" guarantees — see
+	// the dedicated describe blocks below for coverage of each feature itself.
 	syncAttachments: false,
 	syncChecklists: false,
+	syncMembers: false,
+	syncCustomFields: false,
 };
 
 function setup(noteBody: string, noteMtime: number) {
@@ -1051,5 +1053,196 @@ describe("syncNoteWithCard — attachment downloads (opt-in via downloadAttachme
 			}),
 		).resolves.toBeDefined();
 		expect(vault.exists("spec.pdf")).toBe(false);
+	});
+});
+
+describe("syncNoteWithCard — members (opt-in via syncMembers)", () => {
+	test("writes assigned members as readable names, not raw ids", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/boards/board/members": [{ id: "u1", fullName: "Alice", username: "alice" }, { id: "u2", fullName: "Bob", username: "bob" }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", idMembers: ["u2", "u1"] });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncMembers: true });
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.trello_members).toEqual(["Bob", "Alice"]);
+	});
+
+	test("removes the members key once the card loses every member", async () => {
+		const vault = new FakeVault({
+			[PATH]: { content: '---\ntrello_board_card_id: "board;c1"\ntrello_members:\n  - "Alice"\n---\n\nsame', mtime: at("2026-01-01") },
+		});
+		const { transport } = routedTransport({ "/boards/board/members": [{ id: "u1", fullName: "Alice", username: "alice" }] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", idMembers: [] });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncMembers: true });
+
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty("trello_members");
+	});
+
+	test("omits a member id no longer on the board instead of writing it raw", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/boards/board/members": [{ id: "u1", fullName: "Alice", username: "alice" }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", idMembers: ["u1", "gone"] });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncMembers: true });
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.trello_members).toEqual(["Alice"]);
+	});
+
+	test("logs the unresolved id instead of failing or writing it silently", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/boards/board/members": [{ id: "u1", fullName: "Alice", username: "alice" }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", idMembers: ["gone"] });
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		try {
+			await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncMembers: true });
+			expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("gone"));
+		} finally {
+			warnSpy.mockRestore();
+		}
+	});
+
+	test("makes zero requests when syncMembers is off", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", idMembers: ["u1"] });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncMembers: false });
+
+		expect(requests).toHaveLength(0);
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty("trello_members");
+	});
+
+	test("reuses a pre-built member directory instead of fetching its own", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", idMembers: ["u1"] });
+		const directory = new Map([["u1", "Alice"]]);
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncMembers: true }, undefined, directory);
+
+		expect(requests).toHaveLength(0);
+		expect(vault.readFrontmatter(vault.note(PATH))?.trello_members).toEqual(["Alice"]);
+	});
+});
+
+describe("syncNoteWithCard — custom fields (opt-in via syncCustomFields)", () => {
+	test("writes every field type into a single object, keyed by the field's own label", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/boards/board/customFields": [
+				{ id: "f1", name: "Notes", type: "text" },
+				{ id: "f2", name: "Estimate", type: "number" },
+				{
+					id: "f3",
+					name: "Priority",
+					type: "list",
+					options: [{ id: "opt-high", value: { text: "High" } }],
+				},
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			customFieldItems: [
+				{ idCustomField: "f1", value: { text: "some notes" } },
+				{ idCustomField: "f2", value: { number: "8" } },
+				{ idCustomField: "f3", idValue: "opt-high" },
+			],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncCustomFields: true });
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.trello_custom_fields).toEqual({
+			Notes: "some notes",
+			Estimate: 8,
+			Priority: "High",
+		});
+	});
+
+	test("never creates an empty key when the board has no custom fields", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({ "/boards/board/customFields": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncCustomFields: true });
+
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty("trello_custom_fields");
+		expect(requests.filter((r) => r.url.includes("/customFields"))).toHaveLength(1);
+	});
+
+	test("omits a list field whose option was removed from the board, without throwing", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/boards/board/customFields": [{ id: "f3", name: "Priority", type: "list", options: [] }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			customFieldItems: [{ idCustomField: "f3", idValue: "opt-removed" }],
+		});
+
+		await expect(
+			syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncCustomFields: true }),
+		).resolves.toBeDefined();
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty("trello_custom_fields");
+	});
+
+	test("makes zero requests when syncCustomFields is off", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			customFieldItems: [{ idCustomField: "f1", value: { text: "x" } }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncCustomFields: false });
+
+		expect(requests).toHaveLength(0);
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty("trello_custom_fields");
+	});
+
+	test("reuses a pre-built definition directory instead of fetching its own", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			customFieldItems: [{ idCustomField: "f1", value: { text: "x" } }],
+		});
+		const definitions = new Map([["f1", { id: "f1", name: "Notes", type: "text" as const }]]);
+
+		await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			{ ...options, syncCustomFields: true },
+			undefined,
+			undefined,
+			definitions,
+		);
+
+		expect(requests).toHaveLength(0);
+		expect(vault.readFrontmatter(vault.note(PATH))?.trello_custom_fields).toEqual({ Notes: "x" });
 	});
 });

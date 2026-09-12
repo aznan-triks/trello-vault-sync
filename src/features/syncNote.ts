@@ -17,13 +17,28 @@ import { errorMessage } from "../core/errorMessage";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { DEFAULT_LABELS_KEY, formatLabelsRef, normalizeLabelName, parseLabelsRef } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, resolveLabelSync, type LabelSyncMode } from "../core/labelMerge";
+import {
+	DEFAULT_CUSTOM_FIELDS_KEY,
+	DEFAULT_SYNC_CUSTOM_FIELDS,
+	formatCustomFieldsRef,
+	parseCustomFieldsRef,
+	resolveCustomFields,
+	type CustomFieldDefinitionLike,
+} from "../core/customFieldRef";
+import {
+	DEFAULT_MEMBERS_KEY,
+	DEFAULT_SYNC_MEMBERS,
+	formatMembersRef,
+	parseMembersRef,
+	resolveMemberNames,
+} from "../core/memberRef";
 import { extractBody, insertChecklistSection, replaceBody, splitChecklistSection } from "../core/noteBody";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
 import { buildCardIndex, resolveAttachments } from "./attachmentSync";
 import { downloadAttachments } from "./attachmentDownload";
 import { resolveChecklists } from "./checklistSync";
 import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
-import type { TrelloCard, TrelloClient, TrelloLabel } from "../trello/client";
+import type { TrelloCard, TrelloClient, TrelloCustomFieldDefinition, TrelloLabel, TrelloMember } from "../trello/client";
 
 export interface NoteSyncOptions {
 	policy: ConflictPolicy;
@@ -66,6 +81,14 @@ export interface NoteSyncOptions {
 	 * so every other caller of those two engines is unaffected by its absence.
 	 */
 	fetchBinary?: (url: string, signal?: AbortSignal) => Promise<ArrayBuffer | null>;
+	/** No extra Trello request per note — the board's member directory is fetched once per run, see `cardIndex`'s own pattern. `undefined` behaves as `DEFAULT_SYNC_MEMBERS`. */
+	syncMembers?: boolean;
+	/** `undefined` behaves as `DEFAULT_MEMBERS_KEY`. */
+	membersFrontmatterKey?: string;
+	/** No extra Trello request per note — custom-field values ride the already-fetched card, and the board's field-definition directory is fetched once per run, see `cardIndex`'s own pattern. `undefined` behaves as `DEFAULT_SYNC_CUSTOM_FIELDS`. */
+	syncCustomFields?: boolean;
+	/** `undefined` behaves as `DEFAULT_CUSTOM_FIELDS_KEY`. */
+	customFieldsFrontmatterKey?: string;
 }
 
 export interface NoteSyncResult {
@@ -280,6 +303,111 @@ async function convergeCover(vault: VaultGateway, note: NoteHandle, card: Trello
 	});
 }
 
+/** id → display name, preferring the full name (a member with none set falls back to their username). Exported so `syncFolder`/`syncVault` can build it once per run, the same way `attachmentSync.ts::buildCardIndex` is shared. */
+export function buildMemberDirectory(members: readonly TrelloMember[]): Map<string, string> {
+	return new Map(members.map((member) => [member.id, member.fullName.trim() || member.username]));
+}
+
+/**
+ * Converges a note's assigned-members frontmatter key from the card's
+ * `idMembers`, resolved against the board's member directory — pull-only,
+ * like `convergeAttachments`. The directory is fetched once per run by the
+ * caller (`syncFolder`/`syncVault`) and passed in; built lazily here (one
+ * extra `getBoardMembers` call) only when omitted, e.g. a lone `syncNote`
+ * call for a single note. Never throws.
+ */
+async function convergeMembers(
+	vault: VaultGateway,
+	client: TrelloClient,
+	note: NoteHandle,
+	card: TrelloCard,
+	membersKey: string,
+	directory?: Map<string, string>,
+): Promise<void> {
+	try {
+		const table = directory ?? buildMemberDirectory(await client.getBoardMembers(card.idBoard));
+		const names = resolveMemberNames(card.idMembers ?? [], table, (id) =>
+			console.warn(
+				`[trello-vault-sync] Member "${id}" on card "${card.name}" (${card.id}) is no longer on the board — omitted.`,
+			),
+		);
+		const current = parseMembersRef(vault.readFrontmatter(note)?.[membersKey]);
+		if (sameOrderedList(current, names)) return;
+
+		await vault.writeFrontmatter(note, (frontmatter) => {
+			const formatted = formatMembersRef(names);
+			if (formatted === null) delete frontmatter[membersKey];
+			else frontmatter[membersKey] = formatted;
+		});
+	} catch (error) {
+		console.warn(
+			`[trello-vault-sync] Could not sync members for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
+		);
+	}
+}
+
+/** id → definition, with a "list" field's options pre-resolved to id→text — exported so `syncFolder`/`syncVault` can build it once per run, the same way `buildMemberDirectory` is shared. */
+export function buildCustomFieldDefinitions(
+	definitions: readonly TrelloCustomFieldDefinition[],
+): Map<string, CustomFieldDefinitionLike> {
+	return new Map(
+		definitions.map((def) => [
+			def.id,
+			{
+				id: def.id,
+				name: def.name,
+				type: def.type,
+				options: def.options ? new Map(def.options.map((option) => [option.id, option.value.text])) : undefined,
+			},
+		]),
+	);
+}
+
+/** Shallow key/value equality on a flat record — the custom-fields object never nests. */
+function sameRecord(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+	const aKeys = Object.keys(a);
+	const bKeys = Object.keys(b);
+	return aKeys.length === bKeys.length && aKeys.every((key) => a[key] === b[key]);
+}
+
+/**
+ * Converges a note's custom-fields frontmatter key from the card's
+ * `customFieldItems`, resolved against the board's field-definition
+ * directory — pull-only, like `convergeMembers`. No extra Trello request for
+ * the values themselves (they ride the already-fetched card); only the
+ * definition directory costs one request, fetched once per run by the caller
+ * and passed in, or built lazily here when omitted. Never throws.
+ */
+async function convergeCustomFields(
+	vault: VaultGateway,
+	client: TrelloClient,
+	note: NoteHandle,
+	card: TrelloCard,
+	customFieldsKey: string,
+	definitions?: Map<string, CustomFieldDefinitionLike>,
+): Promise<void> {
+	try {
+		const table = definitions ?? buildCustomFieldDefinitions(await client.getBoardCustomFields(card.idBoard));
+		const resolved = resolveCustomFields(card.customFieldItems ?? [], table, (id) =>
+			console.warn(
+				`[trello-vault-sync] Custom field "${id}" on card "${card.name}" (${card.id}) is no longer on the board — omitted.`,
+			),
+		);
+		const current = parseCustomFieldsRef(vault.readFrontmatter(note)?.[customFieldsKey]);
+		if (sameRecord(current, resolved)) return;
+
+		await vault.writeFrontmatter(note, (frontmatter) => {
+			const formatted = formatCustomFieldsRef(resolved);
+			if (formatted === null) delete frontmatter[customFieldsKey];
+			else frontmatter[customFieldsKey] = formatted;
+		});
+	} catch (error) {
+		console.warn(
+			`[trello-vault-sync] Could not sync custom fields for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
+		);
+	}
+}
+
 /**
  * Downloads the card's uploaded attachments into the vault — off by default,
  * its own Trello request (`getCardAttachments`) independent of `syncAttachments`'s
@@ -325,6 +453,10 @@ export async function syncNoteWithCard(
 	options: NoteSyncOptions,
 	/** Pre-built vault-wide card index for resolving card-link attachments — built lazily (one extra vault scan) when omitted. */
 	cardIndex?: Map<string, NoteHandle>,
+	/** Pre-built board member id→name directory — built lazily (one extra `getBoardMembers` call) when omitted. Shared by a run's every note, exactly like `cardIndex`. */
+	memberDirectory?: Map<string, string>,
+	/** Pre-built board custom-field definition directory — built lazily (one extra `getBoardCustomFields` call) when omitted. Shared by a run's every note, exactly like `memberDirectory`. */
+	customFieldDefinitions?: Map<string, CustomFieldDefinitionLike>,
 ): Promise<NoteSyncResult> {
 	const dueKey = options.dueFrontmatterKey ?? DEFAULT_DUE_KEY;
 	const labelsKey = options.labelsFrontmatterKey ?? DEFAULT_LABELS_KEY;
@@ -378,6 +510,32 @@ export async function syncNoteWithCard(
 	const syncCardCover = options.syncCardCover ?? DEFAULT_SYNC_CARD_COVER;
 	if (syncCardCover && !options.dryRun) {
 		await convergeCover(vault, note, card, options.coverFrontmatterKey ?? DEFAULT_COVER_KEY);
+		content = await vault.read(note);
+	}
+
+	const syncMembers = options.syncMembers ?? DEFAULT_SYNC_MEMBERS;
+	if (syncMembers && !options.dryRun) {
+		await convergeMembers(
+			vault,
+			client,
+			note,
+			card,
+			options.membersFrontmatterKey ?? DEFAULT_MEMBERS_KEY,
+			memberDirectory,
+		);
+		content = await vault.read(note);
+	}
+
+	const syncCustomFields = options.syncCustomFields ?? DEFAULT_SYNC_CUSTOM_FIELDS;
+	if (syncCustomFields && !options.dryRun) {
+		await convergeCustomFields(
+			vault,
+			client,
+			note,
+			card,
+			options.customFieldsFrontmatterKey ?? DEFAULT_CUSTOM_FIELDS_KEY,
+			customFieldDefinitions,
+		);
 		content = await vault.read(note);
 	}
 

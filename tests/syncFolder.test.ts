@@ -16,11 +16,14 @@ const options: FolderSyncOptions = {
 	allowCreate: true,
 	allowDelete: false,
 	boardId: "board",
-	// Off by default in this shared fixture — attachments/checklists syncing is covered on
-	// its own in syncNote.test.ts, and its extra Trello request per note would break
-	// request-count assertions here that are about syncFolder's own list/board-fetch batching.
+	// Off by default in this shared fixture — attachments/checklists/members syncing is
+	// covered on its own in syncNote.test.ts (and the dedicated "syncFolder — members"
+	// block below), and its extra Trello request would break request-count assertions
+	// here that are about syncFolder's own list/board-fetch batching.
 	syncAttachments: false,
 	syncChecklists: false,
+	syncMembers: false,
+	syncCustomFields: false,
 };
 
 /** List cards, plus a board that holds exactly the same cards by default. */
@@ -463,6 +466,76 @@ describe("syncFolder — duplicates & unlinked notes", () => {
 
 		expect(stats.unlinked).toBe(1);
 		expect(vault.contentOf(`${FOLDER}/Libre.md`)).toBe("no frontmatter");
+	});
+});
+
+describe("syncFolder — members", () => {
+	test("fetches the board's member directory once per run, not once per note", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/a.md`]: { content: linked("c1", "same"), mtime: at("2026-01-01") },
+			[`${FOLDER}/b.md`]: { content: linked("c2", "same"), mtime: at("2026-01-01") },
+			[`${FOLDER}/c.md`]: { content: linked("c3", "same"), mtime: at("2026-01-01") },
+		});
+		const { transport, requests } = routedTransport({
+			"/lists/l1/cards": [
+				card({ id: "c1", name: "a", desc: "same" }),
+				card({ id: "c2", name: "b", desc: "same" }),
+				card({ id: "c3", name: "c", desc: "same" }),
+			],
+			"/boards/board/members": [{ id: "u1", fullName: "Alice", username: "alice" }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, { ...options, syncMembers: true });
+
+		expect(requests.filter((r) => r.url.includes("/members"))).toHaveLength(1);
+	});
+
+	test("makes zero member-directory requests when syncMembers is off", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/a.md`]: { content: linked("c1", "same"), mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/lists/l1/cards": [card({ id: "c1", name: "a", desc: "same" })],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, { ...options, syncMembers: false });
+
+		expect(requests.filter((r) => r.url.includes("/members"))).toHaveLength(0);
+	});
+});
+
+describe("syncFolder — custom fields", () => {
+	test("fetches the board's custom-field definitions once per run, not once per note", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/a.md`]: { content: linked("c1", "same"), mtime: at("2026-01-01") },
+			[`${FOLDER}/b.md`]: { content: linked("c2", "same"), mtime: at("2026-01-01") },
+			[`${FOLDER}/c.md`]: { content: linked("c3", "same"), mtime: at("2026-01-01") },
+		});
+		const { transport, requests } = routedTransport({
+			"/lists/l1/cards": [
+				card({ id: "c1", name: "a", desc: "same" }),
+				card({ id: "c2", name: "b", desc: "same" }),
+				card({ id: "c3", name: "c", desc: "same" }),
+			],
+			"/boards/board/customFields": [{ id: "f1", name: "Notes", type: "text" }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, { ...options, syncCustomFields: true });
+
+		expect(requests.filter((r) => r.url.includes("/customFields"))).toHaveLength(1);
+	});
+
+	test("makes zero custom-field requests when syncCustomFields is off", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/a.md`]: { content: linked("c1", "same"), mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/lists/l1/cards": [card({ id: "c1", name: "a", desc: "same" })],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, { ...options, syncCustomFields: false });
+
+		expect(requests.filter((r) => r.url.includes("/customFields"))).toHaveLength(0);
 	});
 });
 

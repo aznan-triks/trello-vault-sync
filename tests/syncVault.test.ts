@@ -13,15 +13,21 @@ const options = {
 	marginMs: 0,
 	syncTitle: true,
 	dryRun: false,
-	// Off by default in this shared fixture — attachments/checklists syncing is covered on
-	// its own in syncNote.test.ts, and its extra Trello request per note would break the
+	// Off by default in this shared fixture — attachments/checklists/members syncing is
+	// covered on its own in syncNote.test.ts, and its extra Trello request would break the
 	// request-count assertions here that are about syncVault's own board-fetch batching.
 	syncAttachments: false,
 	syncChecklists: false,
+	syncMembers: false,
+	syncCustomFields: false,
 };
 
-function clientFor(cards: unknown[]) {
-	const { transport, requests } = routedTransport({ "/boards/board/cards": cards });
+function clientFor(cards: unknown[], members: unknown[] = [], customFields: unknown[] = []) {
+	const { transport, requests } = routedTransport({
+		"/boards/board/cards": cards,
+		"/boards/board/members": members,
+		"/boards/board/customFields": customFields,
+	});
 	return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
 }
 
@@ -59,6 +65,55 @@ describe("syncVault", () => {
 		expect(stats.pushed).toBe(1);
 		expect(requests.filter((r) => r.method === "PUT")).toHaveLength(0);
 		expect(vault.contentOf("WoT/a.md")).toBe(linked("c1", "local"));
+	});
+
+	test("fetches the board's member directory once per run, not once per note", async () => {
+		const vault = new FakeVault({
+			"WoT/a.md": { content: linked("c1", "same"), mtime: at("2026-01-01") },
+			"WoT/b.md": { content: linked("c2", "same"), mtime: at("2026-01-01") },
+		});
+		const { client, requests } = clientFor(
+			[card({ id: "c1", name: "a", desc: "same" }), card({ id: "c2", name: "b", desc: "same" })],
+			[{ id: "u1", fullName: "Alice", username: "alice" }],
+		);
+
+		await syncVault(vault, client, { scope: "WoT", boardId: "board" }, { ...options, syncMembers: true });
+
+		expect(requests.filter((r) => r.url.includes("/members"))).toHaveLength(1);
+	});
+
+	test("makes zero member-directory requests when syncMembers is off", async () => {
+		const vault = new FakeVault({ "WoT/a.md": { content: linked("c1", "same"), mtime: at("2026-01-01") } });
+		const { client, requests } = clientFor([card({ id: "c1", name: "a", desc: "same" })]);
+
+		await syncVault(vault, client, { scope: "WoT", boardId: "board" }, options);
+
+		expect(requests.filter((r) => r.url.includes("/members"))).toHaveLength(0);
+	});
+
+	test("fetches the board's custom-field definitions once per run, not once per note", async () => {
+		const vault = new FakeVault({
+			"WoT/a.md": { content: linked("c1", "same"), mtime: at("2026-01-01") },
+			"WoT/b.md": { content: linked("c2", "same"), mtime: at("2026-01-01") },
+		});
+		const { client, requests } = clientFor(
+			[card({ id: "c1", name: "a", desc: "same" }), card({ id: "c2", name: "b", desc: "same" })],
+			[],
+			[{ id: "f1", name: "Notes", type: "text" }],
+		);
+
+		await syncVault(vault, client, { scope: "WoT", boardId: "board" }, { ...options, syncCustomFields: true });
+
+		expect(requests.filter((r) => r.url.includes("/customFields"))).toHaveLength(1);
+	});
+
+	test("makes zero custom-field requests when syncCustomFields is off", async () => {
+		const vault = new FakeVault({ "WoT/a.md": { content: linked("c1", "same"), mtime: at("2026-01-01") } });
+		const { client, requests } = clientFor([card({ id: "c1", name: "a", desc: "same" })]);
+
+		await syncVault(vault, client, { scope: "WoT", boardId: "board" }, options);
+
+		expect(requests.filter((r) => r.url.includes("/customFields"))).toHaveLength(0);
 	});
 
 	test("pulls the notes whose card moved ahead", async () => {
