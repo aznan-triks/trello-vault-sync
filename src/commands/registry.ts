@@ -1,5 +1,6 @@
 import * as auditCommands from "./auditCommands";
 import type { CommandContext } from "./context";
+import * as historyCommands from "./historyCommands";
 import * as noteCommands from "./noteCommands";
 import * as syncCommands from "./syncCommands";
 
@@ -115,5 +116,26 @@ export const COMMANDS: CommandDescriptor[] = [
 		icon: "file-code",
 		section: "Vault",
 		run: (ctx) => auditCommands.runChangesHtmlExport(ctx),
+	},
+	{
+		id: "show-sync-history",
+		name: "Show sync history",
+		icon: "history",
+		section: "Vault",
+		run: (ctx) => historyCommands.showSyncHistory(ctx),
+	},
+	{
+		id: "undo-last-sync-run",
+		name: "Undo last sync run",
+		icon: "undo-2",
+		section: "Vault",
+		run: (ctx) => historyCommands.undoLastSyncRun(ctx),
+	},
+	{
+		id: "undo-last-sync-active-note",
+		name: "Undo last sync for the active note",
+		icon: "undo",
+		section: "Active note",
+		run: (ctx) => historyCommands.undoLastSyncForActiveNote(ctx),
 	},
 ];

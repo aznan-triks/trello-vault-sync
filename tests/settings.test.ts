@@ -196,4 +196,23 @@ describe("normalizeSettings", () => {
 			"## Checklist",
 		);
 	});
+
+	test("defaults historyEnabled to on and historyMaxRuns to 20", () => {
+		const settings = normalizeSettings({});
+		expect(settings.historyEnabled).toBe(true);
+		expect(settings.historyMaxRuns).toBe(20);
+	});
+
+	test("keeps an explicit historyEnabled: false", () => {
+		expect(normalizeSettings({ historyEnabled: false }).historyMaxRuns).toBe(20);
+		expect(normalizeSettings({ historyEnabled: false }).historyEnabled).toBe(false);
+	});
+
+	test("clamps historyMaxRuns so a corrupted value cannot grow data.json without bound", () => {
+		expect(normalizeSettings({ historyMaxRuns: 999_999 }).historyMaxRuns).toBe(200);
+	});
+
+	test("falls back historyMaxRuns to the default when corrupted", () => {
+		expect(normalizeSettings({ historyMaxRuns: "lots" as unknown as number }).historyMaxRuns).toBe(20);
+	});
 });

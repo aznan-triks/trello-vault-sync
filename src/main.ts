@@ -5,6 +5,7 @@ import { COMMANDS } from "./commands/registry";
 import { errorMessage } from "./core/errorMessage";
 import { appendJournalEntry, type JournalEntry, type LogLevel } from "./core/journal";
 import { normalizePersistedData } from "./core/pluginData";
+import { appendSyncRun, type SyncAction, type SyncRun } from "./core/syncHistory";
 import type { AuditOptions } from "./features/auditShared";
 import type { FolderSyncOptions } from "./features/syncFolder";
 import type { NoteSyncOptions } from "./features/syncNote";
@@ -21,6 +22,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	override settings: TrelloVaultSyncSettings = { ...DEFAULT_SETTINGS };
 	vault!: ObsidianVault;
 	journal: JournalEntry[] = [];
+	history: SyncRun[] = [];
 	/** Guards every command in `run()` — two commands writing to the vault at once can race. */
 	private syncing = false;
 	/** The panel of the sync currently running, if any — torn down on unload. */
@@ -29,9 +31,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private configurableRibbonEls: HTMLElement[] = [];
 
 	override async onload(): Promise<void> {
-		const { settingsRaw, journal } = normalizePersistedData(await this.loadData());
+		const { settingsRaw, journal, history } = normalizePersistedData(await this.loadData());
 		this.settings = normalizeSettings(settingsRaw);
 		this.journal = journal;
+		this.history = history;
 		this.vault = new ObsidianVault(this.app, () => this.settings.cardRefFrontmatterKey);
 		this.addSettingTab(new TrelloVaultSyncSettingsTab(this.app, this));
 		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
@@ -49,9 +52,22 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		this.rebuildRibbon();
 	}
 
-	/** Writes settings and journal together into the plugin's own `data.json` — the journal's persistence, not a vault note (internal state, not a user-facing deliverable like the audit reports). */
+	/** Writes settings, journal and sync history together into the plugin's own `data.json` — none of it a vault note (internal state, not a user-facing deliverable like the audit reports). */
 	private async persist(): Promise<void> {
-		await this.saveData({ settings: this.settings, journal: this.journal });
+		await this.saveData({ settings: this.settings, journal: this.journal, history: this.history });
+	}
+
+	/** Appends a completed run's actions to `history` and persists — a no-op when nothing was written (dry run, or history disabled). */
+	async recordSyncRun(scope: string, actions: SyncAction[]): Promise<void> {
+		if (actions.length === 0) return;
+		const run: SyncRun = { timestamp: new Date().toISOString(), scope, actions };
+		this.history = appendSyncRun(this.history, run, this.settings.historyMaxRuns);
+		await this.persist();
+	}
+
+	async setHistory(next: readonly SyncRun[]): Promise<void> {
+		this.history = [...next];
+		await this.persist();
 	}
 
 	/** Reflects a settings change (settings tab, or the palette's dry-run toggle) in any open sidebar. */

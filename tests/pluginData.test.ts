@@ -39,7 +39,38 @@ describe("normalizePersistedData", () => {
 	});
 
 	test("handles a fresh install (undefined/null raw data)", () => {
-		expect(normalizePersistedData(undefined)).toEqual({ settingsRaw: undefined, journal: [] });
-		expect(normalizePersistedData(null)).toEqual({ settingsRaw: null, journal: [] });
+		expect(normalizePersistedData(undefined)).toEqual({ settingsRaw: undefined, journal: [], history: [] });
+		expect(normalizePersistedData(null)).toEqual({ settingsRaw: null, journal: [], history: [] });
+	});
+
+	test("extracts a well-formed sync history", () => {
+		const run = {
+			timestamp: "2026-09-12T00:00:00.000Z",
+			scope: "WoT/Idées",
+			actions: [{ kind: "body", path: "n.md", previousContent: "old", fingerprint: "abcd1234" }],
+		};
+		const result = normalizePersistedData({ settings: {}, history: [run] });
+		expect(result.history).toEqual([run]);
+	});
+
+	test("drops a malformed run or action instead of failing the whole array", () => {
+		const result = normalizePersistedData({
+			settings: {},
+			history: [
+				{ timestamp: "t", scope: "", actions: [{ kind: "create", path: "ok.md", fingerprint: null }] },
+				{ timestamp: "t", scope: "", actions: [{ kind: "body", path: "bad.md" }] },
+				{ timestamp: 42, scope: "", actions: [] },
+				"not an object",
+				null,
+			],
+		});
+		expect(result.history).toEqual([
+			{ timestamp: "t", scope: "", actions: [{ kind: "create", path: "ok.md", fingerprint: null }] },
+		]);
+	});
+
+	test("history defaults to an empty array when missing or not an array", () => {
+		expect(normalizePersistedData({ settings: {} }).history).toEqual([]);
+		expect(normalizePersistedData({ settings: {}, history: "nope" }).history).toEqual([]);
 	});
 });
