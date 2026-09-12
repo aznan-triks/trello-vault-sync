@@ -6,7 +6,6 @@ import {
 	DEFAULT_SYNC_CARD_COVER,
 } from "../core/attachmentRef";
 import type { AttachmentsDestination } from "../core/attachmentPath";
-import type { AutoSyncScope, AutoSyncTrigger } from "../core/autoSyncSchedule";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import { DEFAULT_CUSTOM_FIELDS_KEY, DEFAULT_SYNC_CUSTOM_FIELDS } from "../core/customFieldRef";
 import { DEFAULT_MEMBERS_KEY, DEFAULT_SYNC_MEMBERS } from "../core/memberRef";
@@ -107,9 +106,14 @@ export interface TrelloVaultSyncSettings {
 
 	/** Off by default — an unsolicited sync writes to the vault. */
 	autoSyncEnabled: boolean;
-	autoSyncTrigger: AutoSyncTrigger;
+	/** Independent toggles (not an either/or) — any combination triggers an auto-sync check on that event. */
+	autoSyncOnInterval: boolean;
+	autoSyncOnFocus: boolean;
+	autoSyncOnStartup: boolean;
 	autoSyncIntervalMinutes: number;
-	autoSyncScope: AutoSyncScope;
+	/** Independent toggles — an auto-sync run does every scope turned on, in this order (mapped folders first, since that's the one that can create notes). */
+	autoSyncScopeMappings: boolean;
+	autoSyncScopeVault: boolean;
 	/** Anti-burst floor, in seconds, between two auto-sync attempts regardless of what triggered either. */
 	autoSyncMinIdleSeconds: number;
 
@@ -164,9 +168,12 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	confirmForceSync: true,
 	orphanCardFolder: "",
 	autoSyncEnabled: false,
-	autoSyncTrigger: "interval",
+	autoSyncOnInterval: true,
+	autoSyncOnFocus: false,
+	autoSyncOnStartup: false,
 	autoSyncIntervalMinutes: 15,
-	autoSyncScope: "mappings",
+	autoSyncScopeMappings: true,
+	autoSyncScopeVault: false,
 	autoSyncMinIdleSeconds: 60,
 	syncMembers: DEFAULT_SYNC_MEMBERS,
 	membersFrontmatterKey: DEFAULT_MEMBERS_KEY,
@@ -311,9 +318,6 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		attachmentsDestination: input.attachmentsDestination === "global-folder" ? "global-folder" : "note-folder",
 		attachmentsFolder: normalizeVaultPath(safeString(input.attachmentsFolder, DEFAULT_SETTINGS.attachmentsFolder)),
 		orphanCardFolder: normalizeVaultPath(safeString(input.orphanCardFolder, DEFAULT_SETTINGS.orphanCardFolder)),
-		autoSyncTrigger:
-			input.autoSyncTrigger === "focus" || input.autoSyncTrigger === "both" ? input.autoSyncTrigger : "interval",
-		autoSyncScope: input.autoSyncScope === "vault" ? "vault" : "mappings",
 		autoSyncIntervalMinutes: safeNonNegativeNumber(
 			input.autoSyncIntervalMinutes,
 			DEFAULT_SETTINGS.autoSyncIntervalMinutes,

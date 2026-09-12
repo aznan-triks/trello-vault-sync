@@ -258,9 +258,12 @@ describe("normalizeSettings", () => {
 	test("defaults every auto-sync setting", () => {
 		const settings = normalizeSettings({});
 		expect(settings.autoSyncEnabled).toBe(false);
-		expect(settings.autoSyncTrigger).toBe("interval");
+		expect(settings.autoSyncOnInterval).toBe(true);
+		expect(settings.autoSyncOnFocus).toBe(false);
+		expect(settings.autoSyncOnStartup).toBe(false);
 		expect(settings.autoSyncIntervalMinutes).toBe(15);
-		expect(settings.autoSyncScope).toBe("mappings");
+		expect(settings.autoSyncScopeMappings).toBe(true);
+		expect(settings.autoSyncScopeVault).toBe(false);
 		expect(settings.autoSyncMinIdleSeconds).toBe(60);
 	});
 
@@ -268,15 +271,17 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ autoSyncEnabled: true }).autoSyncEnabled).toBe(true);
 	});
 
-	test("keeps a valid autoSyncTrigger and falls back to interval when corrupted", () => {
-		expect(normalizeSettings({ autoSyncTrigger: "focus" }).autoSyncTrigger).toBe("focus");
-		expect(normalizeSettings({ autoSyncTrigger: "both" }).autoSyncTrigger).toBe("both");
-		expect(normalizeSettings({ autoSyncTrigger: "always" as never }).autoSyncTrigger).toBe("interval");
+	test("keeps every trigger toggle independent — any combination is valid, not an either/or", () => {
+		const settings = normalizeSettings({ autoSyncOnInterval: false, autoSyncOnFocus: true, autoSyncOnStartup: true });
+		expect(settings.autoSyncOnInterval).toBe(false);
+		expect(settings.autoSyncOnFocus).toBe(true);
+		expect(settings.autoSyncOnStartup).toBe(true);
 	});
 
-	test("keeps a valid autoSyncScope and falls back to mappings when corrupted", () => {
-		expect(normalizeSettings({ autoSyncScope: "vault" }).autoSyncScope).toBe("vault");
-		expect(normalizeSettings({ autoSyncScope: "everything" as never }).autoSyncScope).toBe("mappings");
+	test("keeps every scope toggle independent — both mapped folders and the whole vault can run in the same auto-sync", () => {
+		const settings = normalizeSettings({ autoSyncScopeMappings: true, autoSyncScopeVault: true });
+		expect(settings.autoSyncScopeMappings).toBe(true);
+		expect(settings.autoSyncScopeVault).toBe(true);
 	});
 
 	test("clamps autoSyncIntervalMinutes and autoSyncMinIdleSeconds to their ceilings", () => {

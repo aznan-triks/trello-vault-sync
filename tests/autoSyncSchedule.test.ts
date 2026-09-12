@@ -3,7 +3,7 @@ import { decideAutoSync, type AutoSyncScheduleInput } from "../src/core/autoSync
 
 const base: AutoSyncScheduleInput = {
 	enabled: true,
-	trigger: "interval",
+	triggerEnabled: true,
 	event: "interval",
 	now: 1_000_000,
 	lastRunAt: null,
@@ -32,13 +32,12 @@ describe("decideAutoSync", () => {
 		expect(decideAutoSync(input)).toEqual({ action: "skip", reason: "syncing" });
 	});
 
-	test("anti-burst: a focus event 5s after a periodic run is skipped under trigger 'both' with a 60s floor", () => {
-		const periodicRun = decideAutoSync({ ...base, trigger: "both", event: "interval" });
+	test("anti-burst: a focus event 5s after a periodic run is skipped when both triggers are on with a 60s floor", () => {
+		const periodicRun = decideAutoSync({ ...base, event: "interval" });
 		expect(periodicRun).toEqual({ action: "run" });
 
 		const focusFollowup: AutoSyncScheduleInput = {
 			...base,
-			trigger: "both",
 			event: "focus",
 			now: base.now + 5_000,
 			lastRunAt: base.now,
@@ -49,20 +48,14 @@ describe("decideAutoSync", () => {
 	test("a focus event well past the anti-burst floor still runs even before the full interval elapses", () => {
 		const input: AutoSyncScheduleInput = {
 			...base,
-			trigger: "both",
 			event: "focus",
 			lastRunAt: base.now - 61_000,
 		};
 		expect(decideAutoSync(input)).toEqual({ action: "run" });
 	});
 
-	test("wrong trigger: an interval-only setting ignores a focus event", () => {
-		const input: AutoSyncScheduleInput = { ...base, trigger: "interval", event: "focus" };
-		expect(decideAutoSync(input)).toEqual({ action: "skip", reason: "wrong-trigger" });
-	});
-
-	test("wrong trigger: a focus-only setting ignores an interval tick", () => {
-		const input: AutoSyncScheduleInput = { ...base, trigger: "focus", event: "interval" };
+	test("wrong trigger: this event's own toggle is off", () => {
+		const input: AutoSyncScheduleInput = { ...base, event: "focus", triggerEnabled: false };
 		expect(decideAutoSync(input)).toEqual({ action: "skip", reason: "wrong-trigger" });
 	});
 
@@ -75,5 +68,15 @@ describe("decideAutoSync", () => {
 		const dueForRun = { ...base, lastRunAt: base.now - 16 * 60_000 };
 		expect(decideAutoSync(dueForRun)).toEqual({ action: "run" });
 		expect(decideAutoSync({ ...dueForRun, enabled: false })).toEqual({ action: "skip", reason: "disabled" });
+	});
+
+	test("startup: always runs on the first check of the session (lastRunAt null), ignoring the interval", () => {
+		const input: AutoSyncScheduleInput = { ...base, event: "startup", lastRunAt: null };
+		expect(decideAutoSync(input)).toEqual({ action: "run" });
+	});
+
+	test("startup: still respects the anti-burst floor against an immediately preceding run", () => {
+		const input: AutoSyncScheduleInput = { ...base, event: "startup", lastRunAt: base.now - 5_000 };
+		expect(decideAutoSync(input)).toEqual({ action: "skip", reason: "too-soon" });
 	});
 });
