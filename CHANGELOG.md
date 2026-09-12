@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.1] — 2026-09-12
+
+### Changed
+
+- **Plain**: Auto-sync's trigger and scope are no longer an either/or — pick
+  any combination of "on a timer", "when Obsidian regains focus", and now
+  also "at startup"; and any combination of "every mapped folder" and "the
+  whole vault" (mapped folders run first, since that's the one that can
+  create a note).
+  **Technical**: `autoSyncTrigger`/`autoSyncScope` (3-value enums) replaced
+  by 5 independent booleans (`autoSyncOnInterval`/`autoSyncOnFocus`/
+  `autoSyncOnStartup`/`autoSyncScopeMappings`/`autoSyncScopeVault`).
+  `core/autoSyncSchedule.ts::decideAutoSync` now takes a resolved
+  `triggerEnabled: boolean` instead of comparing against the old enum.
+  Startup trigger fires once via `workspace.onLayoutReady`, not `onload()`
+  itself (avoids racing the workspace before it settles).
+- **Plain**: The settings tab's "Sync behaviour" section — 20 unrelated
+  settings under one heading, no description anywhere — is now 9 focused
+  sections (Arbitration & safety, Labels, Attachments, Checklists, Cover
+  image, Members, Custom fields, Sync history, Create note from a card),
+  each with its own description. "Scope" split into "Scope" and "Audit
+  output"; descriptions added to Advanced, Frontmatter keys, and Auto-sync.
+  No setting changed name, default, or behavior — purely reorganized.
+
 ## [1.13.0] — 2026-09-12
 
 ### Added

@@ -3,7 +3,7 @@ import type { CommandContext } from "./commands/context";
 import * as noteCommands from "./commands/noteCommands";
 import { COMMANDS } from "./commands/registry";
 import * as syncCommands from "./commands/syncCommands";
-import { decideAutoSync } from "./core/autoSyncSchedule";
+import { decideAutoSync, type AutoSyncEvent } from "./core/autoSyncSchedule";
 import { errorMessage } from "./core/errorMessage";
 import { appendJournalEntry, type JournalEntry, type LogLevel } from "./core/journal";
 import { normalizePersistedData } from "./core/pluginData";
@@ -347,15 +347,31 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	 */
 	private registerAutoSync(): void {
 		this.registerInterval(
-			window.setInterval(() => this.checkAutoSync("interval"), TrelloVaultSyncPlugin.AUTO_SYNC_POLL_MS),
+			window.setInterval(() => void this.checkAutoSync("interval"), TrelloVaultSyncPlugin.AUTO_SYNC_POLL_MS),
 		);
-		this.registerDomEvent(window, "focus", () => this.checkAutoSync("focus"));
+		this.registerDomEvent(window, "focus", () => void this.checkAutoSync("focus"));
+		// Layout-ready, not onload() itself: the workspace (active file, panes)
+		// isn't settled yet inside onload(), and a sync that fires before it is
+		// would race Obsidian's own startup.
+		this.app.workspace.onLayoutReady(() => void this.checkAutoSync("startup"));
 	}
 
-	private checkAutoSync(event: "interval" | "focus"): void {
+	/** Whether `event` is one of the triggers the user turned on — a plain lookup, not a fixed enum, so a 4th trigger kind is just one more setting and one more branch here. */
+	private isAutoSyncTriggerEnabled(event: AutoSyncEvent): boolean {
+		switch (event) {
+			case "interval":
+				return this.settings.autoSyncOnInterval;
+			case "focus":
+				return this.settings.autoSyncOnFocus;
+			case "startup":
+				return this.settings.autoSyncOnStartup;
+		}
+	}
+
+	private async checkAutoSync(event: AutoSyncEvent): Promise<void> {
 		const decision = decideAutoSync({
 			enabled: this.settings.autoSyncEnabled,
-			trigger: this.settings.autoSyncTrigger,
+			triggerEnabled: this.isAutoSyncTriggerEnabled(event),
 			event,
 			now: Date.now(),
 			lastRunAt: this.lastAutoSyncAt,
@@ -364,10 +380,16 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			minIdleSeconds: this.settings.autoSyncMinIdleSeconds,
 		});
 		if (decision.action !== "run") return;
+		// Both scope toggles off is reachable now that they're independent
+		// (the old single-choice enum couldn't land here) — nothing to run, so
+		// don't advance the anti-burst timer for a no-op either.
+		if (!this.settings.autoSyncScopeMappings && !this.settings.autoSyncScopeVault) return;
 
 		this.lastAutoSyncAt = Date.now();
-		void (this.settings.autoSyncScope === "vault"
-			? syncCommands.syncAllLinked(this)
-			: syncCommands.syncAllMappings(this));
+		// Mapped folders first — it's the only one of the two that can create a
+		// note — then the whole vault, so a note just created above is already
+		// linked and gets picked up by the same run instead of waiting for the next one.
+		if (this.settings.autoSyncScopeMappings) await syncCommands.syncAllMappings(this);
+		if (this.settings.autoSyncScopeVault) await syncCommands.syncAllLinked(this);
 	}
 }
