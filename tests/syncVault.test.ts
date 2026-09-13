@@ -232,6 +232,43 @@ describe("syncVault", () => {
 		expect(stats.pulled).toBe(0);
 		expect(vault.contentOf("WoT/a.md")).toContain("old");
 	});
+
+	test("does not push a note once the signal is aborted mid-note", async () => {
+		const vault = new FakeVault({
+			"WoT/a.md": { content: linked("c1", "local"), mtime: at("2026-03-01") },
+		});
+		const controller = new AbortController();
+		const requests: { method: string; url: string }[] = [];
+		// The checklist fetch is the per-note request syncNoteWithCard makes before
+		// pushing — aborting from inside it proves the signal reaches syncNoteWithCard
+		// itself (not just the outer per-note loop, which never sees this abort in time).
+		const transport = async (request: { method: string; url: string }) => {
+			requests.push(request);
+			if (request.url.includes("/checklists")) {
+				controller.abort();
+				return { status: 200, text: "[]" };
+			}
+			if (request.url.includes("/boards/board/cards")) {
+				return {
+					status: 200,
+					text: JSON.stringify([card({ id: "c1", name: "a", desc: "remote", dateLastActivity: "2026-01-01" })]),
+				};
+			}
+			return { status: 200, text: "{}" };
+		};
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncVault(
+			vault,
+			client,
+			{ scope: "WoT", boardId: "board" },
+			{ ...options, syncChecklists: true },
+			silentReporter,
+			controller.signal,
+		);
+
+		expect(requests.filter((r) => r.method === "PUT")).toHaveLength(0);
+	});
 });
 
 describe("syncVault — attachments", () => {

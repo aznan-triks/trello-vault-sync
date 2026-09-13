@@ -166,14 +166,25 @@ async function writeLocalLabels(
 }
 
 /** Resolve a label list to the card's board's ids — one `getBoardLabels` call, shared by every push path. */
-async function resolveLabelIdsForCard(client: TrelloClient, card: TrelloCard, labels: string[]): Promise<string[]> {
-	const boardLabels = await client.getBoardLabels(card.idBoard);
+async function resolveLabelIdsForCard(
+	client: TrelloClient,
+	card: TrelloCard,
+	labels: string[],
+	signal?: AbortSignal,
+): Promise<string[]> {
+	const boardLabels = await client.getBoardLabels(card.idBoard, signal);
 	return resolveLabelIds(labels, boardLabels);
 }
 
 /** Resolve a label list to ids and push it as the card's full label set, on its own `updateCard` call. */
-async function pushRemoteLabels(client: TrelloClient, card: TrelloCard, labels: string[]): Promise<void> {
-	await client.updateCard(card.id, { idLabels: await resolveLabelIdsForCard(client, card, labels) });
+async function pushRemoteLabels(
+	client: TrelloClient,
+	card: TrelloCard,
+	labels: string[],
+	signal?: AbortSignal,
+): Promise<void> {
+	if (signal?.aborted) return;
+	await client.updateCard(card.id, { idLabels: await resolveLabelIdsForCard(client, card, labels, signal) }, signal);
 }
 
 /**
@@ -190,10 +201,11 @@ async function convergeLabelsOnMerge(
 	localLabels: string[],
 	remoteLabels: string[],
 	labelsKey: string,
+	signal?: AbortSignal,
 ): Promise<void> {
 	const { nextLocal, nextRemote } = resolveLabelSync(localLabels, remoteLabels, "merge", "pull");
-	if (nextLocal !== null) await writeLocalLabels(vault, note, nextLocal, labelsKey);
-	if (nextRemote !== null) await pushRemoteLabels(client, card, nextRemote);
+	if (nextLocal !== null && !signal?.aborted) await writeLocalLabels(vault, note, nextLocal, labelsKey);
+	if (nextRemote !== null) await pushRemoteLabels(client, card, nextRemote, signal);
 }
 
 /** Order-sensitive equality — attachment/linked-card lists follow Trello's own order, never sorted. */
@@ -222,13 +234,16 @@ async function convergeAttachments(
 	cardIndex: Map<string, NoteHandle>,
 	attachmentsKey: string,
 	linkedCardsKey: string,
+	signal?: AbortSignal,
 ): Promise<void> {
 	try {
-		const { urls, linkedCards } = await resolveAttachments(client, card.id, cardIndex);
+		if (signal?.aborted) return;
+		const { urls, linkedCards } = await resolveAttachments(client, card.id, cardIndex, signal);
 		const frontmatter = vault.readFrontmatter(note);
 		const currentUrls = parseAttachmentsRef(frontmatter?.[attachmentsKey]);
 		const currentLinkedCards = parseLinkedCardsRef(frontmatter?.[linkedCardsKey]);
 		if (sameOrderedList(currentUrls, urls) && sameOrderedList(currentLinkedCards, linkedCards)) return;
+		if (signal?.aborted) return;
 
 		await vault.writeFrontmatter(note, (fm) => {
 			const formattedUrls = formatAttachmentsRef(urls);
@@ -263,19 +278,23 @@ async function convergeChecklists(
 	note: NoteHandle,
 	card: TrelloCard,
 	heading: string,
+	signal?: AbortSignal,
 ): Promise<void> {
 	try {
+		if (signal?.aborted) return;
 		const content = await vault.read(note);
 		const fullBody = extractBody(content);
 		const { rest: description, checklistBlock } = splitChecklistSection(fullBody, heading);
 
-		const remoteChecklists = await client.getCardChecklists(card.id);
+		const remoteChecklists = await client.getCardChecklists(card.id, signal);
 		const { markdown, pushes } = resolveChecklists(remoteChecklists, checklistBlock, heading);
 
 		for (const push of pushes) {
-			await client.updateCheckItemState(card.id, push.checkItemId, push.state);
+			if (signal?.aborted) break;
+			await client.updateCheckItemState(card.id, push.checkItemId, push.state, signal);
 		}
 
+		if (signal?.aborted) return;
 		if (markdown === checklistBlock) return;
 		const nextContent = replaceBody(content, insertChecklistSection(description, markdown));
 		if (nextContent !== content) await vault.write(note, nextContent);
@@ -293,10 +312,17 @@ async function convergeChecklists(
  * a try/catch around it. Deletes the key when the card has no image cover
  * (a plain color, or nothing set) instead of leaving a stale url behind.
  */
-async function convergeCover(vault: VaultGateway, note: NoteHandle, card: TrelloCard, coverKey: string): Promise<void> {
+async function convergeCover(
+	vault: VaultGateway,
+	note: NoteHandle,
+	card: TrelloCard,
+	coverKey: string,
+	signal?: AbortSignal,
+): Promise<void> {
 	const desired = coverImageUrl(card.cover);
 	const current = vault.readFrontmatter(note)?.[coverKey];
 	if (current === desired || (desired === null && current === undefined)) return;
+	if (signal?.aborted) return;
 	await vault.writeFrontmatter(note, (frontmatter) => {
 		if (desired === null) delete frontmatter[coverKey];
 		else frontmatter[coverKey] = desired;
@@ -323,9 +349,11 @@ async function convergeMembers(
 	card: TrelloCard,
 	membersKey: string,
 	directory?: Map<string, string>,
+	signal?: AbortSignal,
 ): Promise<void> {
 	try {
-		const table = directory ?? buildMemberDirectory(await client.getBoardMembers(card.idBoard));
+		if (signal?.aborted) return;
+		const table = directory ?? buildMemberDirectory(await client.getBoardMembers(card.idBoard, signal));
 		const names = resolveMemberNames(card.idMembers ?? [], table, (id) =>
 			console.warn(
 				`[trello-vault-sync] Member "${id}" on card "${card.name}" (${card.id}) is no longer on the board — omitted.`,
@@ -333,6 +361,7 @@ async function convergeMembers(
 		);
 		const current = parseMembersRef(vault.readFrontmatter(note)?.[membersKey]);
 		if (sameOrderedList(current, names)) return;
+		if (signal?.aborted) return;
 
 		await vault.writeFrontmatter(note, (frontmatter) => {
 			const formatted = formatMembersRef(names);
@@ -385,9 +414,11 @@ async function convergeCustomFields(
 	card: TrelloCard,
 	customFieldsKey: string,
 	definitions?: Map<string, CustomFieldDefinitionLike>,
+	signal?: AbortSignal,
 ): Promise<void> {
 	try {
-		const table = definitions ?? buildCustomFieldDefinitions(await client.getBoardCustomFields(card.idBoard));
+		if (signal?.aborted) return;
+		const table = definitions ?? buildCustomFieldDefinitions(await client.getBoardCustomFields(card.idBoard, signal));
 		const resolved = resolveCustomFields(card.customFieldItems ?? [], table, (id) =>
 			console.warn(
 				`[trello-vault-sync] Custom field "${id}" on card "${card.name}" (${card.id}) is no longer on the board — omitted.`,
@@ -395,6 +426,7 @@ async function convergeCustomFields(
 		);
 		const current = parseCustomFieldsRef(vault.readFrontmatter(note)?.[customFieldsKey]);
 		if (sameRecord(current, resolved)) return;
+		if (signal?.aborted) return;
 
 		await vault.writeFrontmatter(note, (frontmatter) => {
 			const formatted = formatCustomFieldsRef(resolved);
@@ -424,14 +456,17 @@ async function convergeAttachmentDownloads(
 	destination: AttachmentsDestination,
 	globalFolder: string,
 	fetchBinary: (url: string, signal?: AbortSignal) => Promise<ArrayBuffer | null>,
+	signal?: AbortSignal,
 ): Promise<void> {
 	try {
-		const attachments = await client.getCardAttachments(card.id);
+		if (signal?.aborted) return;
+		const attachments = await client.getCardAttachments(card.id, signal);
+		if (signal?.aborted) return;
 		const result = await downloadAttachments(attachments, { destination, noteFolder: note.folder, globalFolder }, {
 			binarySize: (path) => vault.binarySize(path),
 			writeBinary: (path, data) => vault.writeBinary(path, data),
 			authenticatedUrl: (url) => client.authenticatedAttachmentUrl(url),
-			fetchBinary,
+			fetchBinary: (url) => fetchBinary(url, signal),
 			redact: (text) => client.redactOwnSecrets(text),
 		});
 		for (const message of result.errors) {
@@ -457,7 +492,11 @@ export async function syncNoteWithCard(
 	memberDirectory?: Map<string, string>,
 	/** Pre-built board custom-field definition directory — built lazily (one extra `getBoardCustomFields` call) when omitted. Shared by a run's every note, exactly like `memberDirectory`. */
 	customFieldDefinitions?: Map<string, CustomFieldDefinitionLike>,
+	signal?: AbortSignal,
 ): Promise<NoteSyncResult> {
+	if (signal?.aborted) {
+		return { direction: "skip", renamed: false, note, reason: "aborted" };
+	}
 	const dueKey = options.dueFrontmatterKey ?? DEFAULT_DUE_KEY;
 	const labelsKey = options.labelsFrontmatterKey ?? DEFAULT_LABELS_KEY;
 	const syncChecklists = options.syncChecklists ?? DEFAULT_SYNC_CHECKLISTS;
@@ -481,13 +520,13 @@ export async function syncNoteWithCard(
 	// up "skip" or "conflict". Re-reading `content` afterwards matters: the pull
 	// branch below rebuilds the whole file from this snapshot, and a stale one
 	// would silently undo the frontmatter write just made here.
-	if (labelsSyncMode === "merge" && !options.dryRun) {
-		await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey);
+	if (labelsSyncMode === "merge" && !options.dryRun && !signal?.aborted) {
+		await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, signal);
 		content = await vault.read(note);
 	}
 
 	const syncAttachments = options.syncAttachments ?? DEFAULT_SYNC_ATTACHMENTS;
-	if (syncAttachments && !options.dryRun) {
+	if (syncAttachments && !options.dryRun && !signal?.aborted) {
 		const attachmentsKey = options.attachmentsFrontmatterKey ?? DEFAULT_ATTACHMENTS_KEY;
 		const linkedCardsKey = options.linkedCardsFrontmatterKey ?? DEFAULT_LINKED_CARDS_KEY;
 		await convergeAttachments(
@@ -498,23 +537,24 @@ export async function syncNoteWithCard(
 			cardIndex ?? buildCardIndex(vault, vault.listNotes("")),
 			attachmentsKey,
 			linkedCardsKey,
+			signal,
 		);
 		content = await vault.read(note);
 	}
 
-	if (syncChecklists && !options.dryRun) {
-		await convergeChecklists(vault, client, note, card, checklistHeading);
+	if (syncChecklists && !options.dryRun && !signal?.aborted) {
+		await convergeChecklists(vault, client, note, card, checklistHeading, signal);
 		content = await vault.read(note);
 	}
 
 	const syncCardCover = options.syncCardCover ?? DEFAULT_SYNC_CARD_COVER;
-	if (syncCardCover && !options.dryRun) {
-		await convergeCover(vault, note, card, options.coverFrontmatterKey ?? DEFAULT_COVER_KEY);
+	if (syncCardCover && !options.dryRun && !signal?.aborted) {
+		await convergeCover(vault, note, card, options.coverFrontmatterKey ?? DEFAULT_COVER_KEY, signal);
 		content = await vault.read(note);
 	}
 
 	const syncMembers = options.syncMembers ?? DEFAULT_SYNC_MEMBERS;
-	if (syncMembers && !options.dryRun) {
+	if (syncMembers && !options.dryRun && !signal?.aborted) {
 		await convergeMembers(
 			vault,
 			client,
@@ -522,12 +562,13 @@ export async function syncNoteWithCard(
 			card,
 			options.membersFrontmatterKey ?? DEFAULT_MEMBERS_KEY,
 			memberDirectory,
+			signal,
 		);
 		content = await vault.read(note);
 	}
 
 	const syncCustomFields = options.syncCustomFields ?? DEFAULT_SYNC_CUSTOM_FIELDS;
-	if (syncCustomFields && !options.dryRun) {
+	if (syncCustomFields && !options.dryRun && !signal?.aborted) {
 		await convergeCustomFields(
 			vault,
 			client,
@@ -535,11 +576,12 @@ export async function syncNoteWithCard(
 			card,
 			options.customFieldsFrontmatterKey ?? DEFAULT_CUSTOM_FIELDS_KEY,
 			customFieldDefinitions,
+			signal,
 		);
 		content = await vault.read(note);
 	}
 
-	if (options.downloadAttachments && !options.dryRun) {
+	if (options.downloadAttachments && !options.dryRun && !signal?.aborted) {
 		if (options.fetchBinary) {
 			await convergeAttachmentDownloads(
 				vault,
@@ -549,6 +591,7 @@ export async function syncNoteWithCard(
 				options.attachmentsDestination ?? "note-folder",
 				options.attachmentsFolder ?? "",
 				options.fetchBinary,
+				signal,
 			);
 		} else {
 			console.warn(
@@ -565,12 +608,16 @@ export async function syncNoteWithCard(
 		return { direction, renamed: false, note, reason: `${decision.reason} (simulation)` };
 	}
 
+	if (signal?.aborted) {
+		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)` };
+	}
+
 	if (direction === "pull") {
 		let current = note;
 		const nextContent = replaceBody(content, card.desc ?? "", syncChecklists ? checklistHeading : undefined);
-		if (nextContent !== content) await vault.write(current, nextContent);
+		if (nextContent !== content && !signal?.aborted) await vault.write(current, nextContent);
 
-		if (decision.dueChanged) {
+		if (decision.dueChanged && !signal?.aborted) {
 			await vault.writeFrontmatter(current, (frontmatter) => {
 				const formatted = formatDueRef(card.due);
 				if (formatted === null) delete frontmatter[dueKey];
@@ -578,13 +625,13 @@ export async function syncNoteWithCard(
 			});
 		}
 
-		if (labelsSyncMode === "overwrite") {
+		if (labelsSyncMode === "overwrite" && !signal?.aborted) {
 			const { nextLocal } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "pull");
 			if (nextLocal !== null) await writeLocalLabels(vault, current, nextLocal, labelsKey);
 		}
 
 		let renamed = false;
-		if (options.syncTitle && sanitizeFileName(card.name) !== current.basename) {
+		if (options.syncTitle && sanitizeFileName(card.name) !== current.basename && !signal?.aborted) {
 			const target = uniqueNotePath(
 				current.folder,
 				sanitizeFileName(card.name),
@@ -604,9 +651,12 @@ export async function syncNoteWithCard(
 	if (decision.dueChanged) fields.due = localDue;
 	if (labelsSyncMode === "overwrite") {
 		const { nextRemote } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "push");
-		if (nextRemote !== null) fields.idLabels = await resolveLabelIdsForCard(client, card, nextRemote);
+		if (nextRemote !== null) fields.idLabels = await resolveLabelIdsForCard(client, card, nextRemote, signal);
 	}
-	await client.updateCard(card.id, fields);
+	if (signal?.aborted) {
+		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)` };
+	}
+	await client.updateCard(card.id, fields, signal);
 	return { direction, renamed: false, note, reason: decision.reason };
 }
 
@@ -616,11 +666,18 @@ export async function syncNote(
 	client: TrelloClient,
 	note: NoteHandle,
 	options: NoteSyncOptions,
+	signal?: AbortSignal,
 ): Promise<NoteSyncResult> {
+	// "skip", never "unlinked": a cancelled run has not established anything
+	// about the note's card link, and `noteCommands.syncActive` reports
+	// "unlinked" to the user as "Not linked to a Trello card."
+	if (signal?.aborted) {
+		return { direction: "skip", renamed: false, note, reason: "aborted" };
+	}
 	const ref = vault.getCardRef(note);
 	if (!ref) {
 		return { direction: "unlinked", renamed: false, note, reason: "no card id" };
 	}
-	const card = await client.getCard(ref.cardId);
-	return syncNoteWithCard(vault, client, note, card, options);
+	const card = await client.getCard(ref.cardId, signal);
+	return syncNoteWithCard(vault, client, note, card, options, undefined, undefined, undefined, signal);
 }

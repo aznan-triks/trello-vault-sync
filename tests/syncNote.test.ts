@@ -3,7 +3,7 @@ import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_LINKED_CARDS_KEY } from "../src/core/a
 import { DEFAULT_CHECKLIST_HEADING } from "../src/core/checklistRef";
 import { DEFAULT_DUE_KEY as DUE_KEY } from "../src/core/dueRef";
 import { DEFAULT_LABELS_KEY as LABELS_KEY } from "../src/core/labelRef";
-import { syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
+import { syncNote, syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
 import { TrelloClient } from "../src/trello/client";
 import { FakeVault, at, card, routedTransport } from "./fakes";
 
@@ -1244,5 +1244,59 @@ describe("syncNoteWithCard — custom fields (opt-in via syncCustomFields)", () 
 
 		expect(requests).toHaveLength(0);
 		expect(vault.readFrontmatter(vault.note(PATH))?.trello_custom_fields).toEqual({ Notes: "x" });
+	});
+});
+
+describe("cancellation", () => {
+	test("syncNoteWithCard makes no Trello request and does not touch the note when the signal is already aborted", async () => {
+		const { vault, client, requests } = setup("old", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo v2", desc: "new text", dateLastActivity: "2026-02-01" });
+		const controller = new AbortController();
+		controller.abort();
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, options, undefined, undefined, undefined, controller.signal);
+
+		expect(requests).toHaveLength(0);
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "old");
+		expect(vault.paths()).toEqual([PATH]);
+	});
+
+	test("syncNote does not even call getCard when the signal is already aborted", async () => {
+		const { vault, client, requests } = setup("old", at("2026-01-01"));
+		const controller = new AbortController();
+		controller.abort();
+
+		const result = await syncNote(vault, client, vault.note(PATH), options, controller.signal);
+
+		expect(requests).toHaveLength(0);
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "old");
+		// "skip", not "unlinked": the command layer turns "unlinked" into a
+		// "Not linked to a Trello card." warning, which a cancelled run has
+		// established nothing about.
+		expect(result.direction).toBe("skip");
+		expect(result.reason).toBe("aborted");
+	});
+
+	test("a normal run with an un-aborted signal still makes every Trello request it would otherwise make", async () => {
+		const { vault, client, requests } = setup("local text", at("2026-03-01"));
+		const remote = card({ id: "c1", name: "Ancien titre", desc: "remote", dateLastActivity: "2026-01-01" });
+		const controller = new AbortController();
+
+		const result = await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			options,
+			undefined,
+			undefined,
+			undefined,
+			controller.signal,
+		);
+
+		expect(result.direction).toBe("push");
+		expect(requests[0]?.method).toBe("PUT");
+		expect(requests[0]?.body).toContain("desc=local+text");
+		expect(requests[0]?.body).toContain("name=Sagondo");
 	});
 });

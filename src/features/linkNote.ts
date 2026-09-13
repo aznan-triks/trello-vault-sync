@@ -21,12 +21,13 @@ export async function linkActiveNote(
 	client: TrelloClient,
 	note: NoteHandle,
 	options: LinkOptions,
+	signal?: AbortSignal,
 ): Promise<LinkResult> {
 	if (vault.getCardRef(note)) {
 		return { linked: false, score: 0, card: null, reason: "already-linked" };
 	}
 
-	const cards = await client.getBoardCards(options.boardId);
+	const cards = await client.getBoardCards(options.boardId, undefined, signal);
 	const match = bestMatch(note.basename, cards, (card) => card.name, options.threshold);
 	if (!match) return { linked: false, score: 0, card: null, reason: "no-match" };
 

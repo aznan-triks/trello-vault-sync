@@ -7,10 +7,10 @@ export interface BoardIndex {
 }
 
 /** Fetch a board's lists and cards together — both audits need the same pair. */
-export async function fetchBoardIndex(client: TrelloClient, boardId: string): Promise<BoardIndex> {
+export async function fetchBoardIndex(client: TrelloClient, boardId: string, signal?: AbortSignal): Promise<BoardIndex> {
 	const [lists, cards] = await Promise.all([
-		client.getBoardLists(boardId),
-		client.getBoardCards(boardId),
+		client.getBoardLists(boardId, signal),
+		client.getBoardCards(boardId, undefined, signal),
 	]);
 	return { cards, listNames: new Map(lists.map((list) => [list.id, list.name])) };
 }

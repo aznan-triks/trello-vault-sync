@@ -95,6 +95,7 @@ export async function syncVault(
 				cardIndex,
 				memberDirectory,
 				customFieldDefinitions,
+				signal,
 			);
 			tallyNoteResult(stats, result, (level, message) => reporter.log(level, message), note.basename);
 		} catch (error) {

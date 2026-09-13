@@ -4,6 +4,57 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] — 2026-09-14
+
+### Added
+
+- **Plain**: The Cancel button now appears on almost every command instead of
+  only the folder- and vault-wide ones. Syncing a single note, linking a note to
+  a card, resolving a conflict, creating a note from a card and undoing a sync
+  can all be stopped while they run.
+  **Technical**: `cancellable: false` removed from `noteCommands.syncActive`,
+  `linkActive`, `linkActivePick`, `resolveConflict`,
+  `createNoteCommand.createNoteFromOrphanCard`, `historyCommands.undoLastSyncRun`
+  and `undoLastSyncForActiveNote`. It survives on exactly two bodies that do no
+  network call and run no unbounded loop (`createInFolder`, `showSyncHistory`),
+  each with an inline justification.
+
+### Fixed
+
+- **Plain**: Cancelling a sync now actually stops it in the middle of a note.
+  Before, once a note's turn started, all of its Trello requests went out anyway
+  — the sync could only be stopped between two notes.
+  **Technical**: `syncNote`/`syncNoteWithCard` (`features/syncNote.ts`) gained an
+  optional trailing `signal?: AbortSignal`, forwarded to all nine `TrelloClient`
+  calls and to `fetchBinary`, with an abort guard before every Trello and vault
+  write. `syncFolder`/`syncVault` now pass their own `signal` into the per-note
+  call.
+- **Plain**: Cancelling a link audit or a location audit during its first, slowest
+  step (loading the whole board) now works.
+  **Technical**: `fetchBoardIndex` (`features/boardIndex.ts`) takes a `signal` and
+  forwards it to `getBoardLists`/`getBoardCards`; `auditLinks` and `auditLocations`
+  pass theirs.
+- **Plain**: Undoing a sync can be interrupted, and whatever it did not get to
+  stays in the history so you can finish undoing it later.
+  **Technical**: `undoRun`/`undoRunForNote` (`features/rollback.ts`) take a
+  `signal`, checked at the top of each iteration only — an action is never
+  interrupted mid-write. `undoRun` now returns `{ stats, remainingRun }` like
+  `undoRunForNote`; `historyCommands.undoLastSyncRun` keeps the run in history
+  while `remainingRun.actions` is non-empty.
+- **Plain**: A cancelled note sync no longer reports "Not linked to a Trello card".
+  **Technical**: `syncNote` returns `direction: "skip"` with `reason: "aborted"`
+  on an aborted signal, not `"unlinked"` — the command layer turns `"unlinked"`
+  into a user-facing warning.
+
+### Changed
+
+- **Plain**: No visible change — an internal comment that explained a rule was
+  saying something that stopped being true a few versions ago.
+  **Technical**: the doc comment on `main.ts::run` justified `cancellable: false`
+  with "single-note commands — one HTTP call". A single-note sync has issued up
+  to eight Trello requests since v1.13; the comment now states the real rule
+  (Cancel shown by default, hidden only where nothing can be stopped).
+
 ## [1.14.1] — 2026-09-14
 
 ### Fixed

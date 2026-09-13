@@ -29,7 +29,7 @@ export async function auditLocations(
 ): Promise<LocationAuditResult> {
 	const reportNote = requireReportNote(vault, options.reportPath);
 
-	const { cards, listNames } = await fetchBoardIndex(client, options.boardId);
+	const { cards, listNames } = await fetchBoardIndex(client, options.boardId, signal);
 	const byId = new Map(cards.map((card) => [card.id, card]));
 
 	const notes = vault.listNotes(options.scope, options.excludedFolders);

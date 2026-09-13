@@ -15,6 +15,7 @@ async function createInFolder(ctx: CommandContext, card: TrelloCard, folder: str
 			const note = await createNoteFromCard(ctx.vault, card, folder, template, ctx.settings.cardRefFrontmatterKey);
 			return `Created "${note.basename}.md" in ${note.folder || "(vault root)"}, linked to "${card.name}".`;
 		},
+		// One local vault write (template read + note creation): no network call, no loop — nothing to interrupt.
 		{ cancellable: false },
 	);
 }
@@ -42,20 +43,16 @@ function pickDestination(ctx: CommandContext, card: TrelloCard): void {
 export async function createNoteFromOrphanCard(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 
-	await ctx.run(
-		"Load Trello cards",
-		async (reporter) => {
-			const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId);
-			const linkedCardIds = new Set(buildCardIndex(ctx.vault, ctx.vault.listNotes("")).keys());
-			const orphanCards = unlinkedCards(cards, linkedCardIds);
+	await ctx.run("Load Trello cards", async (reporter, signal) => {
+		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId, undefined, signal);
+		const linkedCardIds = new Set(buildCardIndex(ctx.vault, ctx.vault.listNotes("")).keys());
+		const orphanCards = unlinkedCards(cards, linkedCardIds);
 
-			if (orphanCards.length === 0) {
-				return "Every card on the board is already linked to a note.";
-			}
+		if (orphanCards.length === 0) {
+			return "Every card on the board is already linked to a note.";
+		}
 
-			new CardPickerModal(ctx.app, orphanCards, (card) => pickDestination(ctx, card)).open();
-			return `${orphanCards.length} unlinked card(s) — pick one from the list.`;
-		},
-		{ cancellable: false },
-	);
+		new CardPickerModal(ctx.app, orphanCards, (card) => pickDestination(ctx, card)).open();
+		return `${orphanCards.length} unlinked card(s) — pick one from the list.`;
+	});
 }

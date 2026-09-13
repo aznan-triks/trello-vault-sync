@@ -17,6 +17,7 @@ export async function showSyncHistory(ctx: CommandContext): Promise<void> {
 			}
 			return `${ctx.history.length} run(s) recorded.`;
 		},
+		// Iterates the in-memory history only: no IO, nothing to interrupt.
 		{ cancellable: false },
 	);
 }
@@ -32,15 +33,17 @@ export async function undoLastSyncRun(ctx: CommandContext): Promise<void> {
 		return;
 	}
 
-	await ctx.run(
-		`Undo — ${last.scope || "vault"}`,
-		async (reporter) => {
-			const stats = await undoRun(ctx.vault, last, (level, message) => reporter.log(level, message));
-			await ctx.setHistory(ctx.history.slice(0, -1));
-			return `${stats.reverted} reverted, ${stats.skipped} skipped.`;
-		},
-		{ cancellable: false },
-	);
+	await ctx.run(`Undo — ${last.scope || "vault"}`, async (reporter, signal) => {
+		const { stats, remainingRun } = await undoRun(
+			ctx.vault,
+			last,
+			(level, message) => reporter.log(level, message),
+			signal,
+		);
+		const rest = ctx.history.slice(0, -1);
+		await ctx.setHistory(remainingRun.actions.length === 0 ? rest : [...rest, remainingRun]);
+		return `${stats.reverted} reverted, ${stats.skipped} skipped.`;
+	});
 }
 
 export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<void> {
@@ -56,16 +59,16 @@ export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<vo
 		return;
 	}
 
-	await ctx.run(
-		`Undo — ${note.basename}`,
-		async (reporter) => {
-			const { stats, remainingRun } = await undoRunForNote(ctx.vault, last, note.path, (level, message) =>
-				reporter.log(level, message),
-			);
-			const rest = ctx.history.slice(0, -1);
-			await ctx.setHistory(remainingRun.actions.length === 0 ? rest : [...rest, remainingRun]);
-			return `${stats.reverted} reverted, ${stats.skipped} skipped.`;
-		},
-		{ cancellable: false },
-	);
+	await ctx.run(`Undo — ${note.basename}`, async (reporter, signal) => {
+		const { stats, remainingRun } = await undoRunForNote(
+			ctx.vault,
+			last,
+			note.path,
+			(level, message) => reporter.log(level, message),
+			signal,
+		);
+		const rest = ctx.history.slice(0, -1);
+		await ctx.setHistory(remainingRun.actions.length === 0 ? rest : [...rest, remainingRun]);
+		return `${stats.reverted} reverted, ${stats.skipped} skipped.`;
+	});
 }
