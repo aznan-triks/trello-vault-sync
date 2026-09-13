@@ -157,6 +157,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			...this.noteOptions(force),
 			allowCreate: this.settings.allowCreate,
 			allowDelete: this.settings.allowDelete,
+			protectMovedOrArchivedCards: this.settings.protectMovedOrArchivedCards,
 			boardId: this.settings.boardId,
 			cardRefFrontmatterKey: this.settings.cardRefFrontmatterKey,
 		};

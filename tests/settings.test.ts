@@ -43,7 +43,21 @@ describe("normalizeSettings", () => {
 		const settings = normalizeSettings({
 			mappings: [{ listId: 42, folder: null, templateName: {} } as never],
 		});
-		expect(settings.mappings[0]).toEqual({ listId: "", folder: "", templateName: "" });
+		expect(settings.mappings[0]).toEqual({
+			listId: "",
+			folder: "",
+			templateName: "",
+			allowCreateOverride: "inherit",
+			allowDeleteOverride: "inherit",
+		});
+	});
+
+	test("falls back a mapping's corrupted or missing override fields to inherit", () => {
+		const settings = normalizeSettings({
+			mappings: [{ listId: "l1", folder: "F", templateName: "", allowCreateOverride: "maybe" } as never],
+		});
+		expect(settings.mappings[0]?.allowCreateOverride).toBe("inherit");
+		expect(settings.mappings[0]?.allowDeleteOverride).toBe("inherit");
 	});
 
 	test("strips a leading slash from scope/reportPath so a folder match is never silently empty", () => {
