@@ -10,6 +10,7 @@ import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import type { LabelSyncMode } from "../core/labelMerge";
+import type { MappingOverride } from "../core/mappingOverride";
 import type { ConflictPolicy } from "../core/syncDecision";
 import { TrelloPickerSuggest, type IdName } from "../ui/TrelloPickerSuggest";
 import { VaultPathSuggest } from "../ui/VaultPathSuggest";
@@ -381,6 +382,20 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.allowDelete).onChange((value) => {
 					this.plugin.settings.allowDelete = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Protect cards moved or archived elsewhere")
+			.setDesc(
+				"Before deleting, checks whether the card was only moved to another list or archived " +
+					"instead of truly gone from the board — an extra Trello request per sync. Off by default: " +
+					"missing from this list is enough, the same way \"gone\" is decided everywhere else here.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.protectMovedOrArchivedCards).onChange((value) => {
+					this.plugin.settings.protectMovedOrArchivedCards = value;
 					void this.save();
 				}),
 			);
@@ -859,6 +874,38 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.app.vault.getMarkdownFiles().map((file) => file.basename),
 					);
 				});
+
+			const globalCreateState = this.plugin.settings.allowCreate ? "on" : "off";
+			new Setting(row)
+				.setName("Create missing notes (this folder)")
+				.setDesc(
+					`Overrides the global "Create missing notes" setting (in Arbitration & safety, currently ${globalCreateState}) for this mapping only.`,
+				)
+				.addDropdown((dropdown) => {
+					dropdown.addOption("inherit", `Inherit global setting (currently ${globalCreateState})`);
+					dropdown.addOption("on", "Always create");
+					dropdown.addOption("off", "Never create");
+					dropdown.setValue(mapping.allowCreateOverride ?? "inherit").onChange((value) => {
+						mapping.allowCreateOverride = value as MappingOverride;
+						void this.save();
+					});
+				});
+
+			const globalDeleteState = this.plugin.settings.allowDelete ? "on" : "off";
+			new Setting(row)
+				.setName("Delete phantom notes (this folder)")
+				.setDesc(
+					`⚠️ Destructive: overrides the global "Delete phantom notes" setting (in Arbitration & safety, currently ${globalDeleteState}) for this mapping only.`,
+				)
+				.addDropdown((dropdown) => {
+					dropdown.addOption("inherit", `Inherit global setting (currently ${globalDeleteState})`);
+					dropdown.addOption("on", "Always delete");
+					dropdown.addOption("off", "Never delete");
+					dropdown.setValue(mapping.allowDeleteOverride ?? "inherit").onChange((value) => {
+						mapping.allowDeleteOverride = value as MappingOverride;
+						void this.save();
+					});
+				});
 		});
 
 		new Setting(root).addButton((button) =>
@@ -866,7 +913,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				.setButtonText("Add a mapping")
 				.setCta()
 				.onClick(() => {
-					this.plugin.settings.mappings.push({ listId: "", folder: "", templateName: "" });
+					this.plugin.settings.mappings.push({
+						listId: "",
+						folder: "",
+						templateName: "",
+						allowCreateOverride: "inherit",
+						allowDeleteOverride: "inherit",
+					});
 					void this.save();
 					this.display();
 				}),

@@ -3,6 +3,7 @@ import type { CustomFieldDefinitionLike } from "../core/customFieldRef";
 import { errorMessage } from "../core/errorMessage";
 import { notesInFolder, sanitizeFileName } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
+import { resolveOverride, type MappingOverride } from "../core/mappingOverride";
 import { addCounts, tallyNoteResult } from "../core/syncTally";
 import { templateMissingCardRefKey } from "../core/template";
 import {
@@ -24,12 +25,22 @@ export interface FolderMapping {
 	folder: string;
 	/** Template note used for new files; "" or missing means a bare description. */
 	templateName: string;
+	/** Overrides `allowCreate` for this mapping only; `undefined`/missing behaves as "inherit". */
+	allowCreateOverride?: MappingOverride;
+	/** Overrides `allowDelete` for this mapping only; `undefined`/missing behaves as "inherit". */
+	allowDeleteOverride?: MappingOverride;
 }
 
 export interface FolderSyncOptions extends NoteSyncOptions {
 	allowCreate: boolean;
 	/** Move a note to the trash when its card leaves the board. Off by default. */
 	allowDelete: boolean;
+	/**
+	 * Before deleting, checks whether the card was only moved to another list or archived
+	 * elsewhere on the board instead of truly gone. Off by default — missing from the mapped
+	 * list is enough.
+	 */
+	protectMovedOrArchivedCards: boolean;
 	/** Board the list belongs to; consulted only to protect notes before deleting. */
 	boardId: string;
 	/** `undefined` behaves as `DEFAULT_CARD_REF_KEY`. */
@@ -99,6 +110,8 @@ export async function syncFolder(
 ): Promise<FolderSyncStats> {
 	const stats = emptyStats();
 	const cardRefKey = options.cardRefFrontmatterKey ?? DEFAULT_CARD_REF_KEY;
+	const allowCreate = resolveOverride(mapping.allowCreateOverride, options.allowCreate);
+	const allowDelete = resolveOverride(mapping.allowDeleteOverride, options.allowDelete);
 	const cards = await client.getListCards(mapping.listId, signal);
 	reporter.log("info", `${cards.length} card(s) in the list`);
 
@@ -136,8 +149,8 @@ export async function syncFolder(
 
 	reporter.setTotal(
 		plan.pairs.length +
-			(options.allowCreate ? plan.missingCards.length : 0) +
-			(options.allowDelete ? plan.phantomNotes.length : 0),
+			(allowCreate ? plan.missingCards.length : 0) +
+			(allowDelete ? plan.phantomNotes.length : 0),
 	);
 
 	const template = mapping.templateName ? await vault.readTemplate(mapping.templateName) : null;
@@ -187,7 +200,7 @@ export async function syncFolder(
 		}
 	}
 
-	if (options.allowCreate) {
+	if (allowCreate) {
 		for (const card of plan.missingCards) {
 			if (signal?.aborted) break;
 			reporter.step(card.name);
@@ -211,14 +224,16 @@ export async function syncFolder(
 	stats.phantoms = plan.phantomNotes.length;
 
 	// A card that left this list has usually just been dragged to another column,
-	// or archived — only a card gone from the whole board justifies touching the
-	// note. "all" (not the default "visible") is required here or an archived
-	// card would be indistinguishable from a genuinely deleted one.
+	// or archived — with protectMovedOrArchivedCards on, only a card gone from the
+	// whole board justifies touching the note. "all" (not the default "visible") is
+	// required here or an archived card would be indistinguishable from a genuinely
+	// deleted one. Off (the default), aliveElsewhere simply stays empty and every
+	// phantom note below is deleted outright.
 	let aliveElsewhere = new Map<string, boolean>(); // cardId -> closed
 	// Protection check itself is network I/O like everything else here — a failure
 	// must not lose the create/pull/push stats already accumulated above it.
 	let protectionCheckFailed = false;
-	if (options.allowDelete && plan.phantomNotes.length > 0 && !signal?.aborted) {
+	if (options.protectMovedOrArchivedCards && allowDelete && plan.phantomNotes.length > 0 && !signal?.aborted) {
 		try {
 			const cards = boardCards ?? (await client.getBoardCards(options.boardId, "all", signal));
 			aliveElsewhere = new Map(cards.map((card) => [card.id, card.closed === true]));
@@ -236,7 +251,7 @@ export async function syncFolder(
 		if (signal?.aborted) break;
 		const note = byPath.get(phantom.path);
 		if (!note) continue;
-		if (!options.allowDelete || protectionCheckFailed) {
+		if (!allowDelete || protectionCheckFailed) {
 			reporter.log("warn", `Card missing from the list: ${phantom.basename} (kept)`);
 			continue;
 		}
@@ -283,7 +298,10 @@ export async function syncAllMappings(
 	signal?: AbortSignal,
 ): Promise<FolderSyncStats> {
 	const total = emptyStats();
-	const boardCards = options.allowDelete
+	const anyMappingNeedsProtectionCheck =
+		options.protectMovedOrArchivedCards &&
+		mappings.some((mapping) => resolveOverride(mapping.allowDeleteOverride, options.allowDelete));
+	const boardCards = anyMappingNeedsProtectionCheck
 		? await client.getBoardCards(options.boardId, "all", signal)
 		: undefined;
 	const allNotes = vault.listNotes("");

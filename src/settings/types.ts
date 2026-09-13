@@ -13,6 +13,7 @@ import { DEFAULT_CHECKLIST_HEADING, DEFAULT_SYNC_CHECKLISTS } from "../core/chec
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, type LabelSyncMode } from "../core/labelMerge";
+import { safeOverrideMode } from "../core/mappingOverride";
 import type { ConflictPolicy } from "../core/syncDecision";
 import type { FolderMapping } from "../features/syncFolder";
 
@@ -43,6 +44,12 @@ export interface TrelloVaultSyncSettings {
 	allowCreate: boolean;
 	/** Trash a note when its card leaves the mapped list. Destructive, off by default. */
 	allowDelete: boolean;
+	/**
+	 * Before deleting, checks whether the card was only moved to another list or archived
+	 * elsewhere on the board instead of truly gone. Off by default — missing from the mapped
+	 * list is enough, same as everywhere else "gone" is decided in this plugin.
+	 */
+	protectMovedOrArchivedCards: boolean;
 
 	/** Minimum title similarity accepted when linking a note to a card. */
 	similarityThreshold: number;
@@ -141,6 +148,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	dryRun: false,
 	allowCreate: true,
 	allowDelete: false,
+	protectMovedOrArchivedCards: false,
 	similarityThreshold: 0.45,
 	maxRetries: 3,
 	baseDelayMs: 800,
@@ -301,6 +309,8 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			listId: safeString(mapping?.listId),
 			folder: normalizeVaultPath(safeString(mapping?.folder)),
 			templateName: safeString(mapping?.templateName),
+			allowCreateOverride: safeOverrideMode(mapping?.allowCreateOverride),
+			allowDeleteOverride: safeOverrideMode(mapping?.allowDeleteOverride),
 		})),
 		cardRefFrontmatterKey: safeFrontmatterKey(input.cardRefFrontmatterKey, DEFAULT_SETTINGS.cardRefFrontmatterKey),
 		dueFrontmatterKey: safeFrontmatterKey(input.dueFrontmatterKey, DEFAULT_SETTINGS.dueFrontmatterKey),

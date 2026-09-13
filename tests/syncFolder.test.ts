@@ -15,6 +15,10 @@ const options: FolderSyncOptions = {
 	dryRun: false,
 	allowCreate: true,
 	allowDelete: false,
+	// True in this shared fixture so the pre-existing "deletion safety" suite below keeps
+	// exercising the protection mechanism; the plugin's own default is false (§ user request
+	// 2026-09-13: a card missing from the list is enough, matching "not there" everywhere else).
+	protectMovedOrArchivedCards: true,
 	boardId: "board",
 	// Off by default in this shared fixture — attachments/checklists/members syncing is
 	// covered on its own in syncNote.test.ts (and the dedicated "syncFolder — members"
@@ -53,6 +57,26 @@ describe("syncFolder — creation", () => {
 		expect(vault.contentOf(`${FOLDER}/Sagondo.md`)).toBe(
 			'---\ntype: idée\ntrello_board_card_id: "board;c1"\n---\nUne cité.',
 		);
+	});
+
+	test("a mapping override can force creation on even though the global setting is off", async () => {
+		const vault = new FakeVault();
+		const { client } = clientFor([card({ id: "c1", name: "Sagondo" })]);
+		const mapping: FolderMapping = { ...MAPPING, allowCreateOverride: "on" };
+
+		const stats = await syncFolder(vault, client, mapping, { ...options, allowCreate: false });
+
+		expect(stats.created).toBe(1);
+	});
+
+	test("a mapping override can force creation off even though the global setting is on", async () => {
+		const vault = new FakeVault();
+		const { client } = clientFor([card({ id: "c1", name: "Sagondo" })]);
+		const mapping: FolderMapping = { ...MAPPING, allowCreateOverride: "off" };
+
+		const stats = await syncFolder(vault, client, mapping, { ...options, allowCreate: true });
+
+		expect(stats.created).toBe(0);
 	});
 
 	test("warns once when the configured template has no card-ref key", async () => {
@@ -265,6 +289,28 @@ describe("syncFolder — deletion", () => {
 		expect(vault.trashed).toEqual([]);
 	});
 
+	test("a mapping override can force deletion on even though the global setting is off", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
+		const { client } = clientFor([]);
+		const mapping: FolderMapping = { ...MAPPING, allowDeleteOverride: "on" };
+
+		const stats = await syncFolder(vault, client, mapping, { ...options, allowDelete: false });
+
+		expect(stats.deleted).toBe(1);
+		expect(vault.trashed).toEqual([`${FOLDER}/Fantôme.md`]);
+	});
+
+	test("a mapping override can force deletion off even though the global setting is on", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
+		const { client } = clientFor([]);
+		const mapping: FolderMapping = { ...MAPPING, allowDeleteOverride: "off" };
+
+		const stats = await syncFolder(vault, client, mapping, { ...options, allowDelete: true });
+
+		expect(stats.deleted).toBe(0);
+		expect(vault.trashed).toEqual([]);
+	});
+
 	test("a forced pull never deletes a phantom note when allowDelete stays off — force imposes a direction, not a permission", async () => {
 		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
 		const { client } = clientFor([]);
@@ -410,6 +456,57 @@ describe("syncFolder — deletion safety", () => {
 
 		const boardRequest = requests.find((r) => r.url.includes("/boards/"));
 		expect(boardRequest?.url).toContain("filter=all");
+	});
+
+	test("deletes a note outright when protection is off, even though its card just moved elsewhere", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Déplacée.md`]: { content: linked("c9", "x") } });
+		const { transport } = routedTransport({
+			"/lists/l1/cards": [],
+			"/boards/board/cards": [card({ id: "c9", name: "Déplacée", idList: "autre" })],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowDelete: true,
+			protectMovedOrArchivedCards: false,
+		});
+
+		expect(stats.deleted).toBe(1);
+		expect(stats.moved).toBe(0);
+		expect(vault.trashed).toEqual([`${FOLDER}/Déplacée.md`]);
+	});
+
+	test("deletes a note outright when protection is off, even though its card was archived", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
+		const { transport } = routedTransport({
+			"/lists/l1/cards": [],
+			"/boards/board/cards": [card({ id: "c9", name: "Archivée", closed: true })],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowDelete: true,
+			protectMovedOrArchivedCards: false,
+		});
+
+		expect(stats.deleted).toBe(1);
+		expect(vault.trashed).toEqual([`${FOLDER}/Archivée.md`]);
+	});
+
+	test("skips the board-wide request entirely when protection is off — a list mismatch is proof enough", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
+		const { transport, requests } = routedTransport({ "/lists/l1/cards": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowDelete: true,
+			protectMovedOrArchivedCards: false,
+		});
+
+		expect(requests.filter((r) => r.url.includes("/boards/"))).toHaveLength(0);
 	});
 
 	test("accepts a pre-fetched board card list instead of issuing its own request", async () => {
@@ -589,6 +686,22 @@ describe("syncAllMappings", () => {
 		await syncAllMappings(vault, client, [MAPPING_A, MAPPING_B], options, silentReporter);
 
 		expect(vault.listCalls).toBe(1);
+	});
+
+	test("prefetches board cards once when a mapping override forces deletion even though the global setting is off", async () => {
+		const vault = new FakeVault();
+		const { transport, requests } = routedTransport({
+			"/lists/l1/cards": [],
+			"/lists/l2/cards": [],
+			"/boards/board/cards": [],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const mappingA: FolderMapping = { ...MAPPING_A, allowDeleteOverride: "on" };
+
+		await syncAllMappings(vault, client, [mappingA, MAPPING_B], { ...options, allowDelete: false }, silentReporter);
+
+		const boardFetches = requests.filter((request) => request.url.includes("/boards/board/cards"));
+		expect(boardFetches).toHaveLength(1);
 	});
 });
 

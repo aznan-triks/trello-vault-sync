@@ -32,6 +32,7 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 			dryRun: false,
 			allowCreate: true,
 			allowDelete: false,
+			protectMovedOrArchivedCards: false,
 			boardId: "board",
 		}),
 		auditOptions: () => ({ scope: "", boardId: "board", reportPath: "", timestamp: "t", excludedFolders: [] }),

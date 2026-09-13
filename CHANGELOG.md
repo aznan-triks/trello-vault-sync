@@ -4,6 +4,35 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] — 2026-09-14
+
+### Added
+
+- **Plain**: Each folder ↔ list mapping can now override the global "create
+  missing notes" / "delete phantom notes" rules with its own "always" or
+  "never" — leave it on "inherit" to keep following the global setting. Useful
+  when one mapping should behave differently from the rest (e.g. never delete
+  notes for an archive-only board, but do for everything else).
+  **Technical**: `src/core/mappingOverride.ts` (`MappingOverride`
+  "inherit"/"on"/"off", `resolveOverride`, `safeOverrideMode` for legacy
+  `data.json` payloads). `FolderMapping` gained `allowCreateOverride`/
+  `allowDeleteOverride`; `syncFolder.ts` resolves the effective
+  create/delete flags per mapping before planning. Two new dropdowns per
+  mapping row in `SettingsTab.ts`.
+- **Plain**: New optional safety net, off by default — when a card is no
+  longer in its mapped list (moved elsewhere on the board, or archived), you
+  can now choose to keep its note instead of deleting it, regardless of why
+  the card left the list.
+  **Technical**: `protectMovedOrArchivedCards` setting (default `false`).
+  When on and deletion is allowed, `syncFolder.ts` fetches all board cards
+  once (`getBoardCards(..., "all")`) and skips deleting any phantom note
+  whose card id is still found anywhere on the board, logging "moved
+  elsewhere" or "archived (kept)" accordingly. When off, a phantom note is
+  deleted as soon as its card isn't in the mapped list, with no further
+  check — this replaces the previous unconditional "check the whole board"
+  behavior with an explicit, user-controlled choice (see `CONTEXT.md` §9,
+  revised 2026-09-14).
+
 ## [1.13.1] — 2026-09-12
 
 ### Changed
