@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] — 2026-09-14
+
+### Fixed
+
+- **Plain**: In the settings, each mapping's "create missing notes" / "delete
+  phantom notes" dropdown says what the global setting is currently set to.
+  That text used to stay wrong until you closed and reopened the settings tab;
+  it now updates the moment you flip the global switch.
+  **Technical**: the `allowCreate`/`allowDelete` toggle handlers in
+  `SettingsTab.ts` now call `this.display()` after saving, the same rebuild
+  pattern already used by the mapping add/remove buttons (scroll position is
+  preserved by `display()`).
+
+### Changed
+
+- **Plain**: No visible change — internal tidy-up of the settings code.
+  **Technical**: the two near-identical per-mapping override dropdown blocks in
+  `SettingsTab.ts` are now built by one shared private helper
+  (`renderMappingOverride`), removing the duplication flagged by the v1.14.0
+  code review.
+- **Plain**: Checked that every piece of text the plugin shows is in English.
+  **Technical**: full non-English audit of `src/` (accented-character sweep plus
+  a French-without-accent word sweep, per CONTEXT.md §9) — zero findings, no
+  code change needed.
+
 ## [1.14.0] — 2026-09-14
 
 ### Added
