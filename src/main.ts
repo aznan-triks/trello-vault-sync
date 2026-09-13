@@ -259,10 +259,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 
 	/**
 	 * Run a command body with one panel, one error path and one summary notice.
-	 * `cancellable: false` (single-note commands — one HTTP call, nothing to break
-	 * out of mid-flight) hides the Cancel affordance: showing one that can't stop
-	 * the already-in-flight request would let it complete and then falsely report
-	 * "Cancelled." over a change that actually landed.
+	 * The Cancel button is shown by default. `cancellable: false` is reserved for
+	 * bodies that make no network call and run no unbounded loop — there, the
+	 * button would have nothing to actually stop, so showing it would just risk a
+	 * falsely reported "Cancelled." over a change that landed anyway.
 	 */
 	async run(
 		title: string,

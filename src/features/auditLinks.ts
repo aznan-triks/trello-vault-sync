@@ -29,7 +29,7 @@ export async function auditLinks(
 ): Promise<LinkAuditResult> {
 	const reportNote = requireReportNote(vault, options.reportPath);
 
-	const { cards, listNames } = await fetchBoardIndex(client, options.boardId);
+	const { cards, listNames } = await fetchBoardIndex(client, options.boardId, signal);
 	const cardIds = new Set(cards.map((card) => card.id));
 
 	const notes = vault.listNotes(options.scope, options.excludedFolders);

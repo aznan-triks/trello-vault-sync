@@ -50,35 +50,58 @@ async function applyUndo(vault: VaultGateway, action: SyncAction, log: (level: L
 	return true;
 }
 
-/** Undoes every action of a run, in reverse chronological order (last write undone first). */
+/**
+ * Undoes every action of a run, in reverse chronological order (last write undone first).
+ *
+ * `signal` is checked at the top of each iteration only — an in-flight action always
+ * runs to completion, it is never interrupted mid-write. Actions never reached because
+ * of the abort are returned in `remainingRun`, in their original order, so the caller
+ * can keep them in history for a later undo.
+ */
 export async function undoRun(
 	vault: VaultGateway,
 	run: SyncRun,
 	log: (level: LogLevel, message: string) => void = () => {},
-): Promise<UndoStats> {
+	signal?: AbortSignal,
+): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
 	const stats: UndoStats = { reverted: 0, skipped: 0 };
-	for (const action of [...run.actions].reverse()) {
+	const reversed = [...run.actions].reverse();
+	let processed = 0;
+	for (const action of reversed) {
+		if (signal?.aborted) break;
 		const reverted = await applyUndo(vault, action, log);
 		if (reverted) stats.reverted++;
 		else stats.skipped++;
+		processed++;
 	}
-	return stats;
+	// Whatever the loop never reached is the earliest slice of the run — put it back in original order.
+	const remainingActions = reversed.slice(processed).reverse();
+	return { stats, remainingRun: { ...run, actions: remainingActions } };
 }
 
 /**
  * Undoes only the actions of a run that touch `notePath`, in reverse order.
  * Returns the run with those actions removed — the caller decides whether the
  * remaining run (if any actions are left) stays in history.
+ *
+ * `signal` is checked at the top of each iteration only, same contract as `undoRun`.
+ * On abort, both the other-note actions (always carried over) and the not-yet-reached
+ * target-note actions end up in `remainingRun`, in their original order.
  */
 export async function undoRunForNote(
 	vault: VaultGateway,
 	run: SyncRun,
 	notePath: string,
 	log: (level: LogLevel, message: string) => void = () => {},
+	signal?: AbortSignal,
 ): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
 	const stats: UndoStats = { reverted: 0, skipped: 0 };
+	const reversed = [...run.actions].reverse();
 	const remaining: SyncAction[] = [];
-	for (const action of [...run.actions].reverse()) {
+	let processed = 0;
+	for (const action of reversed) {
+		if (signal?.aborted) break;
+		processed++;
 		if (action.path !== notePath) {
 			remaining.unshift(action);
 			continue;
@@ -87,5 +110,7 @@ export async function undoRunForNote(
 		if (reverted) stats.reverted++;
 		else stats.skipped++;
 	}
-	return { stats, remainingRun: { ...run, actions: remaining } };
+	// Not-yet-visited actions are the earliest slice of the run; put them back in original order ahead of the kept ones.
+	const unvisited = reversed.slice(processed).reverse();
+	return { stats, remainingRun: { ...run, actions: [...unvisited, ...remaining] } };
 }

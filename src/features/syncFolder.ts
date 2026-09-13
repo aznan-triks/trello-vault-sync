@@ -185,6 +185,7 @@ export async function syncFolder(
 				attachmentsCardIndex,
 				members,
 				customFields,
+				signal,
 			);
 
 			if (pair.adopted) {

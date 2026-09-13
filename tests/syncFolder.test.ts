@@ -256,6 +256,46 @@ describe("syncFolder — existing pairs", () => {
 		expect(stats.conflicts).toBe(1);
 		expect(vault.contentOf(`${FOLDER}/Sagondo.md`)).toContain("mine");
 	});
+
+	test("does not push a pair once the signal is aborted mid-note", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Sagondo.md`]: { content: linked("c1", "local"), mtime: at("2026-03-01") },
+		});
+		const controller = new AbortController();
+		const requests: { method: string; url: string }[] = [];
+		// The checklist fetch is the per-note request syncNoteWithCard makes before
+		// pushing — aborting from inside it proves the signal reaches syncNoteWithCard
+		// itself (not just the outer per-pair loop, which never sees this abort in time).
+		const transport = async (request: { method: string; url: string }) => {
+			requests.push(request);
+			if (request.url.includes("/checklists")) {
+				controller.abort();
+				return { status: 200, text: "[]" };
+			}
+			if (request.url.includes("/lists/l1/cards")) {
+				return {
+					status: 200,
+					text: JSON.stringify([
+						card({ id: "c1", name: "Sagondo", desc: "remote", dateLastActivity: "2026-01-01" }),
+					]),
+				};
+			}
+			return { status: 200, text: "{}" };
+		};
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(
+			vault,
+			client,
+			MAPPING,
+			{ ...options, syncChecklists: true },
+			undefined,
+			undefined,
+			controller.signal,
+		);
+
+		expect(requests.filter((r) => r.method === "PUT")).toHaveLength(0);
+	});
 });
 
 describe("syncFolder — deletion", () => {

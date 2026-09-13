@@ -14,11 +14,11 @@ export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): 
 	const note = ctx.activeNote();
 	if (!ctx.ready() || !note) return;
 
-	await ctx.run(`Sync — ${note.basename}`, async (reporter) => {
+	await ctx.run(`Sync — ${note.basename}`, async (reporter, signal) => {
 		reporter.setTotal(1);
 		reporter.step(note.basename);
 		return withHistoryRecording(ctx, note.path, async (vault) => {
-			const result = await syncNote(vault, ctx.client(reporter), note, ctx.noteOptions(force));
+			const result = await syncNote(vault, ctx.client(reporter), note, ctx.noteOptions(force), signal);
 			tallyNoteResult(
 				{ pulled: 0, pushed: 0, skipped: 0, renamed: 0, conflicts: 0 },
 				result,
@@ -29,30 +29,36 @@ export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): 
 
 			return describeSyncOutcome(result);
 		});
-	}, { cancellable: false });
+	});
 }
 
 export async function linkActive(ctx: CommandContext): Promise<void> {
 	const note = ctx.activeNote();
 	if (!ctx.ready(true) || !note) return;
 
-	await ctx.run(`Link — ${note.basename}`, async (reporter) => {
-		const result = await linkActiveNote(ctx.vault, ctx.client(reporter), note, {
-			boardId: ctx.settings.boardId,
-			threshold: ctx.settings.similarityThreshold,
-		});
+	await ctx.run(`Link — ${note.basename}`, async (reporter, signal) => {
+		const result = await linkActiveNote(
+			ctx.vault,
+			ctx.client(reporter),
+			note,
+			{
+				boardId: ctx.settings.boardId,
+				threshold: ctx.settings.similarityThreshold,
+			},
+			signal,
+		);
 		if (result.reason === "already-linked") return "This note is already linked to a card.";
 		if (!result.linked) return "No card close enough to the note's title.";
 		return `Linked to "${result.card?.name}" (${Math.round(result.score * 100)}%).`;
-	}, { cancellable: false });
+	});
 }
 
 export async function linkActivePick(ctx: CommandContext): Promise<void> {
 	const note = ctx.activeNote();
 	if (!ctx.ready(true) || !note) return;
 
-	await ctx.run(`Pick a card — ${note.basename}`, async (reporter) => {
-		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId);
+	await ctx.run(`Pick a card — ${note.basename}`, async (reporter, signal) => {
+		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId, undefined, signal);
 		new CardPickerModal(ctx.app, cards, (card) => {
 			void linkNoteToCard(ctx.vault, note, card).then(
 				() => new Notice(`Linked to "${card.name}".`),
@@ -63,7 +69,7 @@ export async function linkActivePick(ctx: CommandContext): Promise<void> {
 			);
 		}).open();
 		return `${cards.length} card(s) loaded — pick one from the list.`;
-	}, { cancellable: false });
+	});
 }
 
 export async function resolveConflict(ctx: CommandContext): Promise<void> {
@@ -76,8 +82,8 @@ export async function resolveConflict(ctx: CommandContext): Promise<void> {
 		return;
 	}
 
-	await ctx.run(`Check conflict — ${note.basename}`, async (reporter) => {
-		const card = await ctx.client(reporter).getCard(ref.cardId);
+	await ctx.run(`Check conflict — ${note.basename}`, async (reporter, signal) => {
+		const card = await ctx.client(reporter).getCard(ref.cardId, signal);
 		const localBody = extractBody(
 			await ctx.vault.read(note),
 			ctx.settings.syncChecklists ? ctx.settings.checklistHeading : undefined,
@@ -101,7 +107,7 @@ export async function resolveConflict(ctx: CommandContext): Promise<void> {
 			(direction) => void syncActive(ctx, direction),
 		).open();
 		return "Conflict found — resolve it in the dialog.";
-	}, { cancellable: false });
+	});
 }
 
 export async function toggleDryRun(ctx: CommandContext): Promise<void> {
