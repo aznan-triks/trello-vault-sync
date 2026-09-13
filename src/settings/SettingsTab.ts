@@ -370,6 +370,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.allowCreate).onChange((value) => {
 					this.plugin.settings.allowCreate = value;
 					void this.save();
+					this.display();
 				}),
 			);
 
@@ -383,6 +384,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.allowDelete).onChange((value) => {
 					this.plugin.settings.allowDelete = value;
 					void this.save();
+					this.display();
 				}),
 			);
 
@@ -875,37 +877,31 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					);
 				});
 
-			const globalCreateState = this.plugin.settings.allowCreate ? "on" : "off";
-			new Setting(row)
-				.setName("Create missing notes (this folder)")
-				.setDesc(
-					`Overrides the global "Create missing notes" setting (in Arbitration & safety, currently ${globalCreateState}) for this mapping only.`,
-				)
-				.addDropdown((dropdown) => {
-					dropdown.addOption("inherit", `Inherit global setting (currently ${globalCreateState})`);
-					dropdown.addOption("on", "Always create");
-					dropdown.addOption("off", "Never create");
-					dropdown.setValue(mapping.allowCreateOverride ?? "inherit").onChange((value) => {
-						mapping.allowCreateOverride = value as MappingOverride;
-						void this.save();
-					});
-				});
+			this.renderMappingOverride(row, {
+				name: "Create missing notes (this folder)",
+				globalName: "Create missing notes",
+				globalEnabled: this.plugin.settings.allowCreate,
+				descriptionPrefix: "Overrides",
+				alwaysLabel: "Always create",
+				neverLabel: "Never create",
+				value: mapping.allowCreateOverride ?? "inherit",
+				onChange: (mode) => {
+					mapping.allowCreateOverride = mode;
+				},
+			});
 
-			const globalDeleteState = this.plugin.settings.allowDelete ? "on" : "off";
-			new Setting(row)
-				.setName("Delete phantom notes (this folder)")
-				.setDesc(
-					`⚠️ Destructive: overrides the global "Delete phantom notes" setting (in Arbitration & safety, currently ${globalDeleteState}) for this mapping only.`,
-				)
-				.addDropdown((dropdown) => {
-					dropdown.addOption("inherit", `Inherit global setting (currently ${globalDeleteState})`);
-					dropdown.addOption("on", "Always delete");
-					dropdown.addOption("off", "Never delete");
-					dropdown.setValue(mapping.allowDeleteOverride ?? "inherit").onChange((value) => {
-						mapping.allowDeleteOverride = value as MappingOverride;
-						void this.save();
-					});
-				});
+			this.renderMappingOverride(row, {
+				name: "Delete phantom notes (this folder)",
+				globalName: "Delete phantom notes",
+				globalEnabled: this.plugin.settings.allowDelete,
+				descriptionPrefix: "⚠️ Destructive: overrides",
+				alwaysLabel: "Always delete",
+				neverLabel: "Never delete",
+				value: mapping.allowDeleteOverride ?? "inherit",
+				onChange: (mode) => {
+					mapping.allowDeleteOverride = mode;
+				},
+			});
 		});
 
 		new Setting(root).addButton((button) =>
@@ -924,6 +920,36 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.display();
 				}),
 		);
+	}
+
+	private renderMappingOverride(
+		row: HTMLElement,
+		options: {
+			name: string;
+			globalName: string;
+			globalEnabled: boolean;
+			descriptionPrefix: string;
+			alwaysLabel: string;
+			neverLabel: string;
+			value: MappingOverride;
+			onChange: (mode: MappingOverride) => void;
+		},
+	): void {
+		const globalState = options.globalEnabled ? "on" : "off";
+		new Setting(row)
+			.setName(options.name)
+			.setDesc(
+				`${options.descriptionPrefix} the global "${options.globalName}" setting (in Arbitration & safety, currently ${globalState}) for this mapping only.`,
+			)
+			.addDropdown((dropdown) => {
+				dropdown.addOption("inherit", `Inherit global setting (currently ${globalState})`);
+				dropdown.addOption("on", options.alwaysLabel);
+				dropdown.addOption("off", options.neverLabel);
+				dropdown.setValue(options.value).onChange((value) => {
+					options.onChange(value as MappingOverride);
+					void this.save();
+				});
+			});
 	}
 
 	private renderRibbon(root: HTMLElement): void {
