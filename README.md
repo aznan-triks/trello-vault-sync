@@ -174,7 +174,8 @@ names below match the settings tab exactly.
   Obsidian's left ribbon; every command stays available from the sidebar panel
   and the command palette regardless of this setting.
 - **Advanced** — similarity threshold for automatic title-matching, retry
-  tuning (retries, initial delay, request timeout, max retry wait), the
+  tuning (retries, initial delay, request timeout, max retry wait), whether
+  attachments and checklists are fetched together with the cards, the
   progress panel and its auto-close delay, and the frontmatter key used for
   each synced value (including the card-link key itself).
 
@@ -221,9 +222,9 @@ npm run check:hardcode # scans for hardcoded values that belong in settings
 ## Notable differences from the scripts it replaces
 
 - One credential pair instead of one per script, held in settings, never in a note.
-- The card list is fetched in one request per batch run instead of one per note
-  (Sync attachments and Sync checklists each still add one request per note —
-  turn them off if you don't use them).
+- The card list is fetched in one request per batch run instead of one per note,
+  attachments and checklists included (unless "Fetch attachments and checklists
+  with the cards" is turned off in Advanced).
 - Retry with exponential backoff on 429 and 5xx, instead of aborting the whole run.
 - Frontmatter handled as YAML (or line-wise), never with `indexOf("---", 3)` — a `---`
   inside a YAML value no longer corrupts the note, and BOM/CRLF files are safe.

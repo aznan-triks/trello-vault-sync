@@ -59,6 +59,8 @@ export interface TrelloVaultSyncSettings {
 	requestTimeoutMs: number;
 	/** Ceiling on a single retry wait, in ms — independent of maxRetries/baseDelayMs or a Retry-After header. */
 	maxBackoffDelayMs: number;
+	/** On by default — attachments and checklists ride the card request itself instead of one extra request per note. Off: one request per note per feature (heavy boards may prefer smaller responses). */
+	fetchCardDetailsWithCards: boolean;
 
 	/** Trello list ↔ vault folder pairs, replacing the per-folder scripts. */
 	mappings: FolderMapping[];
@@ -160,6 +162,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	baseDelayMs: 800,
 	requestTimeoutMs: 30_000,
 	maxBackoffDelayMs: 30_000,
+	fetchCardDetailsWithCards: true,
 	mappings: [],
 	showPanel: true,
 	panelAutoCloseSeconds: 8,

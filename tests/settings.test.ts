@@ -230,6 +230,11 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ historyMaxRuns: "lots" as unknown as number }).historyMaxRuns).toBe(20);
 	});
 
+	test("fetches attachments and checklists together with the cards by default", () => {
+		expect(normalizeSettings({}).fetchCardDetailsWithCards).toBe(true);
+		expect(normalizeSettings({ fetchCardDetailsWithCards: false }).fetchCardDetailsWithCards).toBe(false);
+	});
+
 	test("defaults the cover/attachment-download settings", () => {
 		const settings = normalizeSettings({});
 		expect(settings.syncCardCover).toBe(true);

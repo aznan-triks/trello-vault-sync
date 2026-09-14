@@ -788,3 +788,69 @@ describe("syncFolder — attachments", () => {
 		expect(vault.listCalls).toBe(1);
 	});
 });
+
+describe("syncFolder — embedded card details", () => {
+	const stable = () =>
+		new FakeVault({ [`${FOLDER}/Sagondo.md`]: { content: linked("c1", "same"), mtime: at("2026-01-01") } });
+
+	test("gets attachments and checklists with the list's cards — no request per note", async () => {
+		const vault = stable();
+		const { transport, requests } = routedTransport({
+			"/lists/l1/cards": [
+				card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01", attachments: [], checklists: [] }),
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, { ...options, syncAttachments: true, syncChecklists: true });
+
+		expect(requests).toHaveLength(1);
+		expect(decodeURIComponent(requests[0]?.url ?? "")).toContain("attachments=true");
+		expect(decodeURIComponent(requests[0]?.url ?? "")).toContain("checklists=all");
+	});
+
+	test("with members and custom fields on too, only the run-level requests remain", async () => {
+		const vault = stable();
+		const { transport, requests } = routedTransport({
+			"/lists/l1/cards": [
+				card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01", attachments: [], checklists: [] }),
+			],
+			"/boards/board/members": [],
+			"/boards/board/customFields": [],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, {
+			...options,
+			syncAttachments: true,
+			syncChecklists: true,
+			syncMembers: true,
+			syncCustomFields: true,
+		});
+
+		expect(requests).toHaveLength(3);
+		expect(requests.filter((r) => r.url.includes("/cards/c1"))).toHaveLength(0);
+		expect(decodeURIComponent(requests[0]?.url ?? "")).toContain("attachments=true");
+		expect(decodeURIComponent(requests[0]?.url ?? "")).toContain("checklists=all");
+	});
+
+	test("off: one attachments and one checklists request per note, as before", async () => {
+		const vault = stable();
+		const { transport, requests } = routedTransport({
+			"/lists/l1/cards": [card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01" })],
+			"/cards/c1/attachments": [],
+			"/cards/c1/checklists": [],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncFolder(vault, client, MAPPING, {
+			...options,
+			syncAttachments: true,
+			syncChecklists: true,
+			fetchCardDetailsWithCards: false,
+		});
+
+		expect(requests[0]?.url).not.toContain("attachments=");
+		expect(requests.filter((r) => r.url.includes("/cards/c1/"))).toHaveLength(2);
+	});
+});

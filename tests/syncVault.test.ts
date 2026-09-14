@@ -296,3 +296,24 @@ describe("syncVault — attachments", () => {
 		expect(vault.readFrontmatter(vault.note("WoT/in.md"))?.[DEFAULT_LINKED_CARDS_KEY]).toEqual(["[[Sortie]]"]);
 	});
 });
+
+describe("syncVault — embedded card details", () => {
+	test("gets attachments and checklists with the board's cards — no request per note", async () => {
+		const vault = new FakeVault({ "WoT/in.md": { content: linked("c1", "same"), mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/boards/board/cards": [
+				card({ id: "c1", name: "in", desc: "same", dateLastActivity: "2026-01-01", attachments: [], checklists: [] }),
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncVault(vault, client, { scope: "WoT", boardId: "board" }, {
+			...options,
+			syncAttachments: true,
+			syncChecklists: true,
+		});
+
+		expect(requests).toHaveLength(1);
+		expect(decodeURIComponent(requests[0]?.url ?? "")).toContain("checklists=all");
+	});
+});

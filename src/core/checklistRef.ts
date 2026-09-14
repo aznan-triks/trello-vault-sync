@@ -8,7 +8,7 @@
 /** Default heading marking the checklist section — configurable via `checklistHeading`. */
 export const DEFAULT_CHECKLIST_HEADING = "## Checklist";
 
-/** On by default — costs one extra Trello request per note synced (checklists aren't embedded in the card object either), see `syncChecklists` setting. */
+/** On by default — checklists ride the card request (`fetchCardDetailsWithCards`), or cost one extra Trello request per note when that setting is off, see `syncChecklists` setting. */
 export const DEFAULT_SYNC_CHECKLISTS = true;
 
 export interface ChecklistItem {

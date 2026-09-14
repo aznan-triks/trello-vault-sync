@@ -3,7 +3,13 @@ import { tallyNoteResult } from "../core/syncTally";
 import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
-import { buildCustomFieldDefinitions, buildMemberDirectory, syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
+import {
+	buildCustomFieldDefinitions,
+	buildMemberDirectory,
+	cardIncludesFor,
+	syncNoteWithCard,
+	type NoteSyncOptions,
+} from "./syncNote";
 
 export interface VaultSyncScope {
 	/** Folder to restrict the run to; "" walks the whole vault. */
@@ -58,7 +64,7 @@ export async function syncVault(
 	});
 	stats.unlinked = notes.length - linked.length;
 
-	const cards = await client.getBoardCards(target.boardId, "visible", signal);
+	const cards = await client.getBoardCards(target.boardId, "visible", signal, cardIncludesFor(options));
 	const byId = new Map(cards.map((card) => [card.id, card]));
 	reporter.log("info", `${cards.length} card(s) on the board, ${linked.length} linked note(s)`);
 	reporter.setTotal(linked.length);

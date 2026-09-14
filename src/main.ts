@@ -64,12 +64,16 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		await this.saveData({ settings: this.settings, journal: this.journal, history: this.history });
 	}
 
-	/** Appends a completed run's actions to `history` and persists — a no-op when nothing was written (dry run, or history disabled). */
+	/**
+	 * Appends a completed run's actions to `history` — a no-op when nothing was written
+	 * (dry run, or history disabled). In memory only: every sync command records inside
+	 * `run()`, whose `finish` already writes `data.json` once at the end of the command
+	 * (see `withJournal`) — persisting here too rewrote the whole file twice per sync.
+	 */
 	async recordSyncRun(scope: string, actions: SyncAction[]): Promise<void> {
 		if (actions.length === 0) return;
 		const run: SyncRun = { timestamp: new Date().toISOString(), scope, actions };
 		this.history = appendSyncRun(this.history, run, this.settings.historyMaxRuns);
-		await this.persist();
 	}
 
 	async setHistory(next: readonly SyncRun[]): Promise<void> {
@@ -144,6 +148,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			membersFrontmatterKey: this.settings.membersFrontmatterKey,
 			syncCustomFields: this.settings.syncCustomFields,
 			customFieldsFrontmatterKey: this.settings.customFieldsFrontmatterKey,
+			fetchCardDetailsWithCards: this.settings.fetchCardDetailsWithCards,
 			downloadAttachments: this.settings.downloadAttachments,
 			attachmentsDestination: this.settings.attachmentsDestination,
 			attachmentsFolder: this.settings.attachmentsFolder,

@@ -1081,6 +1081,18 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Fetch attachments and checklists with the cards")
+			.setDesc(
+				"Gets every card's attachments and checklists in the same request as the cards — much faster. Off: one extra request per note for each, which keeps each response smaller on very heavy boards.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.fetchCardDetailsWithCards).onChange((value) => {
+					this.plugin.settings.fetchCardDetailsWithCards = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Show the progress panel")
 			.setDesc("Floating panel with live progress while a sync runs. Off: the sync still runs, just silently.")
 			.addToggle((toggle) =>

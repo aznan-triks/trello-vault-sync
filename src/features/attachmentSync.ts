@@ -1,6 +1,6 @@
 import { extractCardShortLink, formatWikilink } from "../core/attachmentRef";
 import type { CardRefStore, NoteHandle } from "../obsidian/gateway";
-import type { TrelloClient } from "../trello/client";
+import type { TrelloAttachment, TrelloClient } from "../trello/client";
 
 /**
  * Vault-wide index of card id → note, so a card-link attachment on ANY card can
@@ -35,15 +35,17 @@ function pushUnique(list: string[], value: string): void {
  * attachment or the same linked card more than once). A card-link
  * attachment's url only carries the linked card's shortLink, not its real id,
  * so resolving it against `cardIndex` costs one extra `getCard` call per such
- * attachment.
+ * attachment. `known` is the card's attachment list when it was already fetched
+ * with the card (see `TrelloClient` `CardIncludes`) — no request for it then.
  */
 export async function resolveAttachments(
 	client: TrelloClient,
 	cardId: string,
 	cardIndex: Map<string, NoteHandle>,
 	signal?: AbortSignal,
+	known?: TrelloAttachment[],
 ): Promise<ResolvedAttachments> {
-	const attachments = await client.getCardAttachments(cardId, signal);
+	const attachments = known ?? (await client.getCardAttachments(cardId, signal));
 	const urls: string[] = [];
 	const linkedCards: string[] = [];
 	for (const attachment of attachments) {

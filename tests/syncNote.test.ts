@@ -1415,3 +1415,162 @@ describe("Trello write recording", () => {
 		expect(requests[0]?.method).toBe("PUT");
 	});
 });
+
+describe("embedded card details (fetchCardDetailsWithCards)", () => {
+	const upload = { id: "a1", name: "spec.pdf", url: "https://example.com/spec.pdf", isUpload: true };
+
+	test("uses attachments and checklists already on the card — no per-card request", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			attachments: [upload],
+			checklists: [{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Book", state: "complete" }] }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncAttachments: true,
+			syncChecklists: true,
+			downloadAttachments: true,
+			fetchBinary: async () => new ArrayBuffer(3),
+		});
+
+		expect(requests).toHaveLength(0);
+		expect(vault.readFrontmatter(vault.note(PATH))?.[DEFAULT_ATTACHMENTS_KEY]).toEqual(["https://example.com/spec.pdf"]);
+		expect(vault.contentOf(PATH)).toContain("- [x] Book");
+		expect(vault.binarySize("WoT/85_Idées/spec.pdf")).toBe(3);
+	});
+
+	test("keeps Trello's own order for embedded checklists and items, by position", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			checklists: [
+				{ id: "cl2", name: "Second", pos: 200, checkItems: [] },
+				{
+					id: "cl1",
+					name: "First",
+					pos: 100,
+					checkItems: [
+						{ id: "i2", name: "B", state: "incomplete", pos: 20 },
+						{ id: "i1", name: "A", state: "incomplete", pos: 10 },
+					],
+				},
+			],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, syncChecklists: true });
+
+		const content = vault.contentOf(PATH);
+		expect(content.indexOf("### First")).toBeLessThan(content.indexOf("### Second"));
+		expect(content.indexOf("- [ ] A")).toBeLessThan(content.indexOf("- [ ] B"));
+	});
+
+	test("syncNote fetches the card with its details in one request", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1": card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01", attachments: [], checklists: [] }),
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncNote(vault, client, vault.note(PATH), { ...options, syncAttachments: true, syncChecklists: true });
+
+		expect(requests).toHaveLength(1);
+		expect(decodeURIComponent(requests[0]?.url ?? "")).toContain("checklists=all");
+	});
+
+	test("off: syncNote asks for no embedded details, and each feature pays its own request", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1/attachments": [],
+			"/cards/c1/checklists": [],
+			"/cards/c1": card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01" }),
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncNote(vault, client, vault.note(PATH), {
+			...options,
+			syncAttachments: true,
+			syncChecklists: true,
+			fetchCardDetailsWithCards: false,
+		});
+
+		expect(requests[0]?.url).not.toContain("checklists=");
+		expect(requests.filter((r) => r.url.includes("/cards/c1/attachments"))).toHaveLength(1);
+		expect(requests.filter((r) => r.url.includes("/cards/c1/checklists"))).toHaveLength(1);
+	});
+
+	test("asks for no embedded details when every feature needing them is off", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1": card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01" }),
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		await syncNote(vault, client, vault.note(PATH), options);
+
+		expect(requests[0]?.url).not.toContain("attachments=");
+		expect(requests[0]?.url).not.toContain("checklists=");
+	});
+});
+
+describe("note re-reads", () => {
+	class CountingVault extends FakeVault {
+		reads = 0;
+		override async read(note: Parameters<FakeVault["read"]>[0]) {
+			this.reads++;
+			return super.read(note);
+		}
+	}
+
+	test("reads the note once when no step writes anything", async () => {
+		const vault = new CountingVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", attachments: [], checklists: [] });
+
+		const result = await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			{ ...options, syncAttachments: true, syncChecklists: true, syncMembers: true, syncCustomFields: true },
+			new Map(),
+			new Map(),
+			new Map(),
+		);
+
+		expect(result.direction).toBe("skip");
+		expect(requests).toHaveLength(0);
+		expect(vault.reads).toBe(1);
+	});
+
+	test("a pull after a frontmatter write keeps that write", async () => {
+		const vault = new CountingVault({ [PATH]: { content: FRONTMATTER + "old", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "new",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1", scaled: [{ url: "big.jpg", width: 800 }] },
+		});
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(result.direction).toBe("pull");
+		expect(vault.readFrontmatter(vault.note(PATH))?.banner).toBe("big.jpg");
+		expect(vault.contentOf(PATH)).toContain("new");
+	});
+});
