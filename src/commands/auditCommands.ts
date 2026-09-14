@@ -22,8 +22,7 @@ export async function runLocationAudit(ctx: CommandContext): Promise<void> {
 	await ctx.run("Location audit", async (reporter, signal) => {
 		const result = await auditLocations(ctx.vault, ctx.client(reporter), ctx.auditOptions(), reporter, signal);
 		reporter.count("comparedNotes", result.rows);
-		reporter.count("misplaced", result.misplaced);
-		return `${result.rows} note(s) compared · ${result.misplaced} outside their expected list`;
+		return `${result.rows} note(s) compared`;
 	});
 }
 

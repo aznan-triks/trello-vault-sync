@@ -248,6 +248,20 @@
 	color: var(--text-muted);
 }
 
+.tvs-sidebar__command {
+	cursor: pointer;
+	transition: background-color 0.15s ease;
+}
+
+.tvs-sidebar__command:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.tvs-sidebar__command:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -1px;
+}
+
 .tvs-sidebar__journal {
 	display: flex;
 	flex-direction: column;

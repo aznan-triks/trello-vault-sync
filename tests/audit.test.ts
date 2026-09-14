@@ -135,10 +135,62 @@ describe("auditLocations", () => {
 		expect(vault.contentOf(REPORT)).toContain("| Sagondo | 📂 WoT/85_Idées |");
 	});
 
-	test("counts a note whose folder does not echo its Trello list as misplaced", async () => {
+	test("produces a row for a note even if its folder name does not match its list name", async () => {
 		const vault = new FakeVault({
 			[REPORT]: { content: "" },
 			"WoT/90_Fins/Sagondo.md": { content: linked("c1") },
+		});
+		const { client } = clientFor([card({ id: "c1", name: "Sagondo", idList: "l1" })]);
+		const reporter = {
+			log: () => {},
+			setTotal: () => {},
+			step: () => {},
+			count: () => {},
+			finish: () => {},
+		};
+
+		const result = await auditLocations(vault, client, {
+			scope: "WoT",
+			boardId: "board",
+			reportPath: REPORT,
+			timestamp: "t",
+		}, reporter);
+
+		expect(result.rows).toBe(1);
+		expect(vault.contentOf(REPORT)).toContain("| Sagondo | 📂 WoT/90_Fins |");
+	});
+
+	test("does not emit warn logs for location mismatches", async () => {
+		const vault = new FakeVault({
+			[REPORT]: { content: "" },
+			"WoT/90_Fins/Sagondo.md": { content: linked("c1") },
+		});
+		const { client } = clientFor([card({ id: "c1", name: "Sagondo", idList: "l1" })]);
+		const warnLogs: string[] = [];
+		const reporter = {
+			log: (level: string, message: string) => {
+				if (level === "warn") warnLogs.push(message);
+			},
+			setTotal: () => {},
+			step: () => {},
+			count: () => {},
+			finish: () => {},
+		};
+
+		await auditLocations(vault, client, {
+			scope: "WoT",
+			boardId: "board",
+			reportPath: REPORT,
+			timestamp: "t",
+		}, reporter);
+
+		expect(warnLogs).toHaveLength(0);
+	});
+
+	test("does not expose a misplaced field on the result", async () => {
+		const vault = new FakeVault({
+			[REPORT]: { content: "" },
+			"WoT/85_Idées/Sagondo.md": { content: linked("c1") },
 		});
 		const { client } = clientFor([card({ id: "c1", name: "Sagondo", idList: "l1" })]);
 
@@ -149,7 +201,7 @@ describe("auditLocations", () => {
 			timestamp: "t",
 		});
 
-		expect(result.misplaced).toBe(1);
+		expect(result).not.toHaveProperty("misplaced");
 	});
 
 	test("skips a linked note under an excluded folder", async () => {
@@ -213,6 +265,5 @@ describe("cancellation", () => {
 		const result = await auditLocations(vault, client, options, undefined, controller.signal);
 
 		expect(result.rows).toBe(0);
-		expect(result.misplaced).toBe(0);
 	});
 });

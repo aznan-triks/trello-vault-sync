@@ -52,6 +52,7 @@ function cachedFetch<T>(
 	cardId: string,
 	fetch: () => Promise<T>,
 	log: (level: LogLevel, message: string) => void,
+	signal?: AbortSignal,
 ): Promise<T | null> {
 	let promise = cache.get(cardId);
 	if (!promise) {
@@ -59,7 +60,11 @@ function cachedFetch<T>(
 			try {
 				return await fetch();
 			} catch (error) {
-				log("skip", `card ${cardId} — could not read its current state: ${errorMessage(error)}`);
+				if (signal?.aborted) {
+					log("skip", `card ${cardId} — cancelled`);
+				} else {
+					log("skip", `card ${cardId} — could not read its current state: ${errorMessage(error)}`);
+				}
 				return null;
 			}
 		})();
@@ -89,6 +94,7 @@ function currentCardFields(
 			};
 		},
 		log,
+		signal,
 	);
 }
 
@@ -106,6 +112,7 @@ async function currentCheckItemState(
 		cardId,
 		() => client.getCardChecklists(cardId, signal),
 		log,
+		signal,
 	);
 	if (!checklists) return null;
 	for (const checklist of checklists) {
@@ -133,13 +140,19 @@ async function applyUndo(
 			log("skip", `${action.path} — Trello revert ${reason}`);
 			return "skipped";
 		}
+		if (signal?.aborted) {
+			log("skip", `${action.path} — cancelled`);
+			return "skipped";
+		}
 		let current: CurrentTrelloState = null;
 		if (action.kind === "trello-card") {
 			const fields = await currentCardFields(client, cache, action.cardId, signal, log);
 			if (fields) current = { kind: "card", fields };
+			else if (signal?.aborted) current = { kind: "cancelled" };
 		} else {
 			const state = await currentCheckItemState(client, cache, action.cardId, action.checkItemId, signal, log);
 			if (state) current = { kind: "checkitem", state };
+			else if (signal?.aborted) current = { kind: "cancelled" };
 		}
 		const plan = planTrelloUndo(action, current);
 		if (plan.op === "skip") {

@@ -358,6 +358,45 @@ describe("undoRun — Trello side", () => {
 		expect(logs.some((l) => l.level === "skip")).toBe(true);
 	});
 
+	test("aborting while reading a card's current state reports cancelled, not card no longer exists", async () => {
+		const vault = new FakeVault({ "a.md": { content: "note" } });
+		const controller = new AbortController();
+		const transport = async (): Promise<HttpResponse> => {
+			// Simulates the abort happening mid-flight, inside the network call itself.
+			controller.abort();
+			throw new DOMException("Aborted", "AbortError");
+		};
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions: [cardAction()] };
+		const logs: Array<{ level: string; message: string }> = [];
+		const { stats } = await undoRun(
+			vault,
+			run,
+			(level, message) => logs.push({ level, message }),
+			controller.signal,
+			client,
+		);
+
+		expect(stats).toEqual({ reverted: 0, revertedRemote: 0, skipped: 1 });
+		expect(logs).toContainEqual({ level: "skip", message: "a.md — cancelled" });
+		expect(logs.some((l) => l.message.includes("card no longer exists"))).toBe(false);
+	});
+
+	test("a card genuinely gone (never aborted) is still reported as card no longer exists", async () => {
+		const vault = new FakeVault({ "a.md": { content: "note" } });
+		// No route for /cards/c1 → the fake transport answers 404, so getCard throws — no abort involved.
+		const { transport } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions: [cardAction()] };
+		const logs: Array<{ level: string; message: string }> = [];
+		const { stats } = await undoRun(vault, run, (level, message) => logs.push({ level, message }), undefined, client);
+
+		expect(stats).toEqual({ reverted: 0, revertedRemote: 0, skipped: 1 });
+		expect(logs).toContainEqual({ level: "skip", message: "a.md — card no longer exists" });
+	});
+
 	test("regression: a vault-only run behaves exactly as before even when a client is passed", async () => {
 		const vault = new FakeVault({ "a.md": { content: "a-original" } });
 		const { wrapped, actions } = record(vault);

@@ -83,9 +83,26 @@ export class SidebarView extends ItemView {
 		for (const section of ALL_SECTIONS) {
 			new Setting(contentEl).setName(section).setHeading();
 			for (const command of COMMANDS.filter((c) => c.section === section)) {
-				new Setting(contentEl)
-					.setName(command.name)
-					.addButton((button) => button.setIcon(command.icon).onClick(() => void command.run(this.ctx)));
+				const setting = new Setting(contentEl).setName(command.name).addButton((button) => {
+					button.setIcon(command.icon);
+					// The row itself is the single tab stop (role="button" below) —
+					// without this, the icon button stays natively focusable and
+					// splits one command into two redundant Tab stops.
+					button.buttonEl.setAttribute("tabindex", "-1");
+				});
+				setting.settingEl.classList.add("tvs-sidebar__command");
+				setting.settingEl.setAttribute("role", "button");
+				setting.settingEl.setAttribute("tabindex", "0");
+
+				const runCommand = () => void command.run(this.ctx);
+
+				setting.settingEl.addEventListener("click", runCommand);
+				setting.settingEl.addEventListener("keydown", (event) => {
+					if (event.key === "Enter" || event.key === " ") {
+						event.preventDefault();
+						runCommand();
+					}
+				});
 			}
 		}
 

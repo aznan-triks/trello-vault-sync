@@ -48,7 +48,6 @@ const COUNT_LABELS: Record<string, string> = {
 	orphanCards: "orphan cards",
 	unlinkedNotes: "unlinked notes",
 	comparedNotes: "notes",
-	misplaced: "misplaced",
 	changes: "changes",
 };
 
