@@ -18,16 +18,30 @@ function isSyncAction(value: unknown): value is SyncAction {
 	if (typeof value !== "object" || value === null) return false;
 	const candidate = value as Partial<SyncAction>;
 	if (typeof candidate.kind !== "string" || typeof candidate.path !== "string") return false;
-	if (candidate.fingerprint !== null && typeof candidate.fingerprint !== "string") return false;
 	switch (candidate.kind) {
 		case "body":
 		case "frontmatter":
-		case "trash":
+		case "trash": {
+			const fp = (candidate as { fingerprint?: unknown }).fingerprint;
+			if (fp !== null && typeof fp !== "string") return false;
 			return typeof (candidate as { previousContent?: unknown }).previousContent === "string";
-		case "create":
-			return true;
-		case "rename":
+		}
+		case "create": {
+			const fp = (candidate as { fingerprint?: unknown }).fingerprint;
+			return fp === null || typeof fp === "string";
+		}
+		case "rename": {
+			const fp = (candidate as { fingerprint?: unknown }).fingerprint;
+			if (fp !== null && typeof fp !== "string") return false;
 			return typeof (candidate as { previousPath?: unknown }).previousPath === "string";
+		}
+		case "trello-card":
+			return typeof (candidate as { cardId?: unknown }).cardId === "string";
+		case "trello-checkitem":
+			return (
+				typeof (candidate as { cardId?: unknown }).cardId === "string" &&
+				typeof (candidate as { checkItemId?: unknown }).checkItemId === "string"
+			);
 		default:
 			return false;
 	}

@@ -28,12 +28,12 @@ export async function forcePushActiveNote(ctx: CommandContext): Promise<void> {
 
 async function runForcedFolder(ctx: CommandContext, mapping: FolderMapping, direction: "pull" | "push"): Promise<void> {
 	await ctx.run(`Force ${direction} — ${mapping.folder}`, async (reporter, signal) => {
-		return withHistoryRecording(ctx, mapping.folder, async (vault) => {
+		return withHistoryRecording(ctx, mapping.folder, async (vault, onTrelloWrite) => {
 			const stats = await syncFolder(
 				vault,
 				ctx.client(reporter),
 				mapping,
-				ctx.folderOptions(direction),
+				{ ...ctx.folderOptions(direction), onTrelloWrite },
 				reporter,
 				undefined,
 				signal,
@@ -70,12 +70,12 @@ export async function forcePushFolder(ctx: CommandContext): Promise<void> {
 
 async function runForcedVault(ctx: CommandContext, direction: "pull" | "push"): Promise<void> {
 	await ctx.run(`Force ${direction} — vault`, async (reporter, signal) => {
-		return withHistoryRecording(ctx, ctx.settings.scope, async (vault) => {
+		return withHistoryRecording(ctx, ctx.settings.scope, async (vault, onTrelloWrite) => {
 			const stats = await syncVault(
 				vault,
 				ctx.client(reporter),
 				{ scope: ctx.settings.scope, boardId: ctx.settings.boardId, excludedFolders: ctx.settings.excludedFolders },
-				ctx.noteOptions(direction),
+				{ ...ctx.noteOptions(direction), onTrelloWrite },
 				reporter,
 				signal,
 			);

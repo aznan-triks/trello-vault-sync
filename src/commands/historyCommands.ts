@@ -1,7 +1,13 @@
 import { Notice } from "obsidian";
 import type { CommandContext } from "./context";
 import { lastRun } from "../core/syncHistory";
-import { undoRun, undoRunForNote } from "../features/rollback";
+import { undoRun, undoRunForNote, type UndoStats } from "../features/rollback";
+
+/** One short sentence covering both sides of an undo, readable whether or not either side had anything to do. */
+function describeUndoStats(stats: UndoStats): string {
+	if (stats.revertedRemote === 0) return `${stats.reverted} reverted, ${stats.skipped} skipped.`;
+	return `${stats.reverted} reverted in the vault, ${stats.revertedRemote} on Trello, ${stats.skipped} skipped.`;
+}
 
 export async function showSyncHistory(ctx: CommandContext): Promise<void> {
 	if (ctx.history.length === 0) {
@@ -39,10 +45,11 @@ export async function undoLastSyncRun(ctx: CommandContext): Promise<void> {
 			last,
 			(level, message) => reporter.log(level, message),
 			signal,
+			ctx.client(reporter),
 		);
 		const rest = ctx.history.slice(0, -1);
 		await ctx.setHistory(remainingRun.actions.length === 0 ? rest : [...rest, remainingRun]);
-		return `${stats.reverted} reverted, ${stats.skipped} skipped.`;
+		return describeUndoStats(stats);
 	});
 }
 
@@ -66,9 +73,10 @@ export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<vo
 			note.path,
 			(level, message) => reporter.log(level, message),
 			signal,
+			ctx.client(reporter),
 		);
 		const rest = ctx.history.slice(0, -1);
 		await ctx.setHistory(remainingRun.actions.length === 0 ? rest : [...rest, remainingRun]);
-		return `${stats.reverted} reverted, ${stats.skipped} skipped.`;
+		return describeUndoStats(stats);
 	});
 }
