@@ -24,6 +24,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **Technical**: `maxBackoffDelayMs` (default 30000 ms, ceiling 300000,
   "Advanced" section), passed from `main.ts` to `TrelloClient`, which already
   supported it but never received it.
+### Changed
+
+- **Plain**: The README now matches the plugin as it is today: installed from the
+  community store, every command listed, every settings section described, and
+  one plain sentence on why the plugin lists all the notes in your vault.
+  **Technical**: `README.md` resynchronised with `commands/registry.ts` (24
+  commands) and `SettingsTab.ts` sections; stale claims fixed (manual-install
+  badge, "one request per run", "checks the whole board before deleting").
 ## [1.15.2] — 2026-09-14
 
 ### Added
