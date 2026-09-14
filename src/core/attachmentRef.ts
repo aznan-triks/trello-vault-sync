@@ -9,7 +9,7 @@
 /** Default frontmatter key for plain attachment URLs — configurable via `attachmentsFrontmatterKey`. */
 export const DEFAULT_ATTACHMENTS_KEY = "trello_attachments";
 
-/** On by default — costs one extra Trello request per note synced (attachments aren't embedded in the card object), see `syncAttachments` setting. */
+/** On by default — attachments ride the card request (`fetchCardDetailsWithCards`), or cost one extra Trello request per note when that setting is off, see `syncAttachments` setting. */
 export const DEFAULT_SYNC_ATTACHMENTS = true;
 /** Default frontmatter key for card-link attachments — configurable via `linkedCardsFrontmatterKey`. */
 export const DEFAULT_LINKED_CARDS_KEY = "trello_linked_cards";

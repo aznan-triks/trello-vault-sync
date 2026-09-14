@@ -143,6 +143,45 @@ describe("TrelloClient requests", () => {
 	});
 });
 
+describe("TrelloClient embedded card details", () => {
+	const decoded = (url: string | undefined) => decodeURIComponent(url ?? "");
+
+	test.each([
+		["getListCards", (api: TrelloClient) => api.getListCards("l1", undefined, { attachments: true, checklists: true })],
+		["getBoardCards", (api: TrelloClient) => api.getBoardCards("b1", "visible", undefined, { attachments: true, checklists: true })],
+		["getCard", (api: TrelloClient) => api.getCard("c1", undefined, { attachments: true, checklists: true })],
+	])("%s asks for attachments and checklists in the same call when requested", async (_name, fetch) => {
+		const { api, calls } = client([ok([])]);
+		await fetch(api);
+		expect(calls).toHaveLength(1);
+		const url = decoded(calls[0]?.url);
+		expect(url).toContain("attachments=true");
+		expect(url).toContain("attachment_fields=name,url,isUpload,bytes");
+		expect(url).toContain("checklists=all");
+		expect(url).toContain("checklist_fields=name,pos");
+		expect(url).toContain("checkItem_fields=name,state,pos");
+	});
+
+	test("asks only for what is requested", async () => {
+		const { api, calls } = client([ok([])]);
+		await api.getListCards("l1", undefined, { attachments: false, checklists: true });
+		const url = decoded(calls[0]?.url);
+		expect(url).not.toContain("attachments=");
+		expect(url).toContain("checklists=all");
+	});
+
+	test("leaves the card requests unchanged without includes", async () => {
+		const { api, calls } = client([ok([]), ok([]), ok({ id: "c1" })]);
+		await api.getListCards("l1");
+		await api.getBoardCards("b1");
+		await api.getCard("c1");
+		for (const call of calls) {
+			expect(call.url).not.toContain("attachments=");
+			expect(call.url).not.toContain("checklists=");
+		}
+	});
+});
+
 describe("TrelloClient labels", () => {
 	test("requests the labels field alongside the other card fields", async () => {
 		const { api, calls } = client([ok({ id: "c1", name: "A" })]);

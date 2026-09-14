@@ -4,6 +4,32 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.4] — 2026-09-14
+
+### Changed
+
+- **Plain**: Syncing a folder or the vault is fast again: attachments and
+  checklists now arrive with the cards instead of one extra trip to Trello per
+  note. A new switch lets you go back to the old way on very heavy boards.
+  **Technical**: `TrelloClient.getCard`/`getListCards`/`getBoardCards` accept
+  `CardIncludes` (`attachments=true`, `checklists=all`, same field lists as the
+  per-card endpoints, `pos` added to checklists/items). `cardIncludesFor`
+  (`features/syncNote.ts`) decides what to embed; `convergeAttachments`,
+  `convergeChecklists` and attachment downloads use `card.attachments`/
+  `card.checklists` and fall back to their own request when absent. New setting
+  `fetchCardDetailsWithCards` (default on, "Advanced"). Stable-state folder sync
+  of N notes: 2N+3 requests → 3.
+- **Plain**: A sync no longer re-reads every note from disk after each step.
+  **Technical**: each `converge*` step in `syncNoteWithCard` returns whether it
+  wrote; the note is re-read only before the checklist rewrite or the pull
+  branch, and only after a real write (8 reads per note → 1 in stable state).
+- **Plain**: The plugin's data file is saved once per sync instead of twice.
+  **Technical**: `recordSyncRun` (`main.ts`) only updates history in memory; the
+  command's `finish` persists `data.json` once.
+### Fixed
+
+- **Plain**: Checklist items keep Trello's order whichever way they were fetched.
+  **Technical**: `orderedChecklists` sorts checklists and items by `pos`.
 ## [1.15.3] — 2026-09-14
 
 ### Added

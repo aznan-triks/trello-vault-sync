@@ -21,7 +21,7 @@ export interface CommandContext {
 	readonly journal: readonly JournalEntry[];
 	/** Completed sync runs, oldest first, capped at `settings.historyMaxRuns` — feeds "Show sync history" / "Undo last sync run". */
 	readonly history: readonly SyncRun[];
-	/** Appends a completed run's actions to `history` (a no-op when `actions` is empty) and persists. */
+	/** Appends a completed run's actions to `history` (a no-op when `actions` is empty) — in memory; the enclosing `run()` persists once when it finishes. */
 	recordSyncRun(scope: string, actions: SyncAction[]): Promise<void>;
 	/** Replaces `history` wholesale — how "Undo last sync run"/"Undo last sync for the active note" consume a run after applying it. */
 	setHistory(next: readonly SyncRun[]): Promise<void>;

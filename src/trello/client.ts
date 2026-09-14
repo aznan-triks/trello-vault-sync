@@ -33,11 +33,15 @@ export interface TrelloChecklistItem {
 	id: string;
 	name: string;
 	state: "complete" | "incomplete";
+	/** Trello's own ordering key — used to keep item order stable whichever request returned the checklist. */
+	pos?: number;
 }
 
 export interface TrelloChecklist {
 	id: string;
 	name: string;
+	/** Trello's own ordering key, see `TrelloChecklistItem.pos`. */
+	pos?: number;
 	checkItems: TrelloChecklistItem[];
 }
 
@@ -80,6 +84,16 @@ export interface TrelloCard {
 	idMembers?: string[];
 	/** The card's custom-field values, requested via `customFieldItems=true` — resolved against `getBoardCustomFields`, see `core/customFieldRef.ts`. */
 	customFieldItems?: TrelloCustomFieldItem[];
+	/** Present only when the card was fetched with `includes.attachments` — `undefined` means "not fetched", never "no attachments". */
+	attachments?: TrelloAttachment[];
+	/** Present only when the card was fetched with `includes.checklists` — `undefined` means "not fetched", never "no checklists". */
+	checklists?: TrelloChecklist[];
+}
+
+/** Card details embedded in a card request instead of one extra request per card. */
+export interface CardIncludes {
+	attachments: boolean;
+	checklists: boolean;
 }
 
 export interface TrelloCustomFieldItem {
@@ -166,8 +180,24 @@ const LABEL_FIELDS = "name,color";
 /** id is always returned regardless of `fields`. `bytes` lets a download be skipped before ever fetching it (see `features/attachmentDownload.ts`). */
 const ATTACHMENT_FIELDS = "name,url,isUpload,bytes";
 /** id is always returned on both the checklist and its items, regardless of `fields`/`checkItem_fields`. */
-const CHECKLIST_FIELDS = "name";
-const CHECK_ITEM_FIELDS = "name,state";
+const CHECKLIST_FIELDS = "name,pos";
+const CHECK_ITEM_FIELDS = "name,state,pos";
+
+/** Query parameters embedding attachments/checklists in a card request — same field lists as the per-card endpoints, so both paths return the same shape. */
+function includeParams(includes?: CardIncludes): Record<string, string> {
+	const params: Record<string, string> = {};
+	if (includes?.attachments) {
+		params.attachments = "true";
+		params.attachment_fields = ATTACHMENT_FIELDS;
+	}
+	if (includes?.checklists) {
+		params.checklists = "all";
+		params.checklist_fields = CHECKLIST_FIELDS;
+		params.checkItem_fields = CHECK_ITEM_FIELDS;
+	}
+	return params;
+}
+
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
 /** One page's worth of actions per call — no automatic multi-page walk, see PLAN_2026-09-04_feature-audit-changes.md. */
 const ACTIONS_PAGE_LIMIT = "1000";
@@ -215,19 +245,24 @@ export class TrelloClient {
 		return this.credentials.apiKey.trim() !== "" && this.credentials.token.trim() !== "";
 	}
 
-	async getCard(cardId: string, signal?: AbortSignal): Promise<TrelloCard> {
+	async getCard(cardId: string, signal?: AbortSignal, includes?: CardIncludes): Promise<TrelloCard> {
 		return this.json<TrelloCard>(
 			`/cards/${encodeURIComponent(cardId)}`,
-			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS, ...CARD_CUSTOM_FIELD_PARAMS },
+			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS, ...CARD_CUSTOM_FIELD_PARAMS, ...includeParams(includes) },
 			signal,
 		);
 	}
 
 	/** `filter: "all"` includes archived (closed) cards, which "visible" (the default) excludes. */
-	async getBoardCards(boardId: string, filter: "visible" | "all" = "visible", signal?: AbortSignal): Promise<TrelloCard[]> {
+	async getBoardCards(
+		boardId: string,
+		filter: "visible" | "all" = "visible",
+		signal?: AbortSignal,
+		includes?: CardIncludes,
+	): Promise<TrelloCard[]> {
 		return this.json<TrelloCard[]>(
 			`/boards/${encodeURIComponent(boardId)}/cards`,
-			{ fields: CARD_FIELDS, filter, ...CARD_COVER_PARAMS, ...CARD_CUSTOM_FIELD_PARAMS },
+			{ fields: CARD_FIELDS, filter, ...CARD_COVER_PARAMS, ...CARD_CUSTOM_FIELD_PARAMS, ...includeParams(includes) },
 			signal,
 		);
 	}
@@ -273,10 +308,10 @@ export class TrelloClient {
 		);
 	}
 
-	async getListCards(listId: string, signal?: AbortSignal): Promise<TrelloCard[]> {
+	async getListCards(listId: string, signal?: AbortSignal, includes?: CardIncludes): Promise<TrelloCard[]> {
 		return this.json<TrelloCard[]>(
 			`/lists/${encodeURIComponent(listId)}/cards`,
-			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS, ...CARD_CUSTOM_FIELD_PARAMS },
+			{ fields: CARD_FIELDS, ...CARD_COVER_PARAMS, ...CARD_CUSTOM_FIELD_PARAMS, ...includeParams(includes) },
 			signal,
 		);
 	}

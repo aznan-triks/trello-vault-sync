@@ -17,7 +17,13 @@ import {
 import type { TrelloCard, TrelloClient } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
 import { createNoteFromCard } from "./createNoteFromCard";
-import { buildCustomFieldDefinitions, buildMemberDirectory, syncNoteWithCard, type NoteSyncOptions } from "./syncNote";
+import {
+	buildCustomFieldDefinitions,
+	buildMemberDirectory,
+	cardIncludesFor,
+	syncNoteWithCard,
+	type NoteSyncOptions,
+} from "./syncNote";
 
 /** One Trello list mirrored into one vault folder. */
 export interface FolderMapping {
@@ -112,7 +118,7 @@ export async function syncFolder(
 	const cardRefKey = options.cardRefFrontmatterKey ?? DEFAULT_CARD_REF_KEY;
 	const allowCreate = resolveOverride(mapping.allowCreateOverride, options.allowCreate);
 	const allowDelete = resolveOverride(mapping.allowDeleteOverride, options.allowDelete);
-	const cards = await client.getListCards(mapping.listId, signal);
+	const cards = await client.getListCards(mapping.listId, signal, cardIncludesFor(options));
 	reporter.log("info", `${cards.length} card(s) in the list`);
 
 	const attachmentsCardIndex =
