@@ -2,7 +2,7 @@ export type CountSeverity = "neutral" | "ok" | "warn" | "error";
 
 /**
  * Keys whose non-zero value flags something needing attention (a broken
- * link, a misplaced note, a conflict) — colored orange above zero, green at
+ * link, a conflict) — colored orange above zero, green at
  * zero. Everything else (routine action counts: created, pushed, skipped…)
  * stays neutral. `errors` is its own case: red instead of orange, since it's
  * the most severe signal the panel shows.
@@ -14,7 +14,6 @@ const PROBLEM_KEYS = new Set([
 	"duplicates",
 	"orphanCards",
 	"unlinkedNotes",
-	"misplaced",
 ]);
 
 /** Severity a `ProgressPanel` counter should render at, for a given key and value. */

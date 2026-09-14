@@ -4,6 +4,48 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.5] — 2026-09-14
+
+### Changed
+
+- **Plain**: "Compare locations" no longer judges where a note lives — it just
+  shows the table of which list each linked note's card sits in, like the
+  vault's original script used to. The "misplaced" count and its warnings are
+  gone (they were wrong almost every time a folder wasn't named exactly like
+  its list).
+  **Technical**: `auditLocations.ts` drops the `slug`-based folder/list name
+  comparison, the `misplaced` counter and its `reporter.log("warn", …)`;
+  `LocationAuditResult` only exposes `rows`/`markdown`. `misplaced` removed
+  from `countSeverity.ts`'s `PROBLEM_KEYS` and `ProgressPanel.ts`'s labels;
+  the summary line is now `"N note(s) compared"`.
+- **Plain**: Clicking anywhere on a command's row in the side panel now runs
+  it — not just the small icon on the right. Works with the keyboard too
+  (Tab to the row, Enter or Space to run it).
+  **Technical**: `SidebarView.ts` moves the click handler from the button to
+  `setting.settingEl` (`role="button"`, `tabindex="0"`, `keydown` on
+  Enter/Space); the icon button keeps `tabindex="-1"` so a row is one tab
+  stop, not two. New `.tvs-sidebar__command` styles in `styles.css` (hover,
+  focus-visible).
+
+### Fixed
+
+- **Plain**: Cancelling an undo while it's checking a card's current state no
+  longer claims the card "no longer exists" — it now says the check was
+  cancelled, which is what actually happened.
+  **Technical**: `CurrentTrelloState` (`core/syncHistory.ts`) gains a
+  `{ kind: "cancelled" }` variant, distinct from `null` ("card no longer
+  exists"); `planTrelloUndo` reports `"cancelled"` for it.
+  `rollback.ts`'s `cachedFetch` takes the abort signal and logs "cancelled"
+  instead of a fetch-failure message when the signal fired; `applyUndo` skips
+  a Trello read outright when the signal is already aborted.
+- **Plain**: Cancelling a folder or vault sync no longer prints a scary red
+  warning in the console for the card it interrupted — a deliberate
+  cancellation isn't an error.
+  **Technical**: the `catch` blocks in `syncNote.ts`'s `convergeAttachments`,
+  `convergeChecklists`, `convergeMembers`, `convergeCustomFields` and
+  `convergeAttachmentDownloads` now go through a shared `warnUnlessAborted`
+  helper that skips `console.warn` when `signal?.aborted` is true.
+
 ## [1.15.4] — 2026-09-14
 
 ### Changed

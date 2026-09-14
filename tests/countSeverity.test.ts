@@ -8,7 +8,7 @@ describe("countSeverity", () => {
 		expect(countSeverity("errors", 5)).toBe("error");
 	});
 
-	test.each(["conflicts", "phantoms", "unlinked", "duplicates", "orphanCards", "unlinkedNotes", "misplaced"])(
+	test.each(["conflicts", "phantoms", "unlinked", "duplicates", "orphanCards", "unlinkedNotes"])(
 		"%s: ok at zero, warn above zero",
 		(key) => {
 			expect(countSeverity(key, 0)).toBe("ok");

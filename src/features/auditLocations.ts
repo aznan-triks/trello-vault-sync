@@ -12,12 +12,8 @@ import { fetchBoardIndex } from "./boardIndex";
 
 export interface LocationAuditResult {
 	rows: number;
-	/** Notes whose folder name does not echo their Trello list name. */
-	misplaced: number;
 	markdown: string;
 }
-
-const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /** Compare each linked note's folder with the Trello list its card sits in. */
 export async function auditLocations(
@@ -36,7 +32,6 @@ export async function auditLocations(
 	reporter.setTotal(notes.length);
 
 	const rows: LocationRow[] = [];
-	let misplaced = 0;
 
 	for (const [i, note] of notes.entries()) {
 		if (signal?.aborted) break;
@@ -47,13 +42,6 @@ export async function auditLocations(
 			if (card) {
 				const listName = listNames.get(card.idList ?? "") ?? "Unknown list";
 				rows.push({ listName, cardName: card.name, folder: note.folder, notePath: note.path });
-
-				const folderSlug = slug(note.folder.split("/").pop() ?? "");
-				const listSlug = slug(listName);
-				if (listSlug !== "" && !folderSlug.includes(listSlug)) {
-					misplaced++;
-					reporter.log("warn", `${note.basename} → ${note.folder} (list: ${listName})`);
-				}
 			}
 		}
 		await yieldPeriodically(i);
@@ -67,5 +55,5 @@ export async function auditLocations(
 	const existing = await vault.read(reportNote);
 	await vault.write(reportNote, mergeReport(existing, markdown, LOCATION_REPORT_HEADING));
 
-	return { rows: rows.length, misplaced, markdown };
+	return { rows: rows.length, markdown };
 }

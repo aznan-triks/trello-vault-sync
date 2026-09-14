@@ -195,10 +195,14 @@ export function planActionUndo(
  * Discriminated rather than a bare union of shapes: `planTrelloUndo` then cannot
  * compare a checklist item's state against a card's fields even by accident.
  * `null` means it could not be read at all (deleted card, failed request).
+ * `{ kind: "cancelled" }` means the read was interrupted by the undo being
+ * aborted — distinct from `null` so the skip reason says "cancelled" instead
+ * of the misleading "card no longer exists" (the card was never checked).
  */
 export type CurrentTrelloState =
 	| { kind: "card"; fields: TrelloCardFields }
 	| { kind: "checkitem"; state: "complete" | "incomplete" }
+	| { kind: "cancelled" }
 	| null;
 
 /** What `features/rollback.ts` should do to Trello to invert one Trello write, decided without touching any network call. */
@@ -230,6 +234,7 @@ export function planTrelloUndo(
 	current: CurrentTrelloState,
 ): TrelloUndoPlan {
 	if (current === null) return { op: "skip", reason: "card no longer exists" };
+	if (current.kind === "cancelled") return { op: "skip", reason: "cancelled" };
 
 	switch (action.kind) {
 		case "trello-card": {

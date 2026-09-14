@@ -268,6 +268,16 @@ function sameOrderedList(a: string[], b: string[]): boolean {
 }
 
 /**
+ * Logs a best-effort failure from a `converge*` step, unless it was the
+ * aborting signal itself that caused the failure — a cancelled undo/sync is
+ * not an error, and warning about it would be misleading (constat 5 of the
+ * 2026-09-14 manual test).
+ */
+function warnUnlessAborted(signal: AbortSignal | undefined, message: string): void {
+	if (!signal?.aborted) console.warn(message);
+}
+
+/**
  * Converges a note's attachment-derived frontmatter (plain urls + linked-card
  * wikilinks) from the card's current attachments. Pull-only, independent of
  * whatever direction was decided for title/body/due — same hook point as
@@ -310,7 +320,8 @@ async function convergeAttachments(
 		});
 		return true;
 	} catch (error) {
-		console.warn(
+		warnUnlessAborted(
+			signal,
 			`[trello-vault-sync] Could not sync attachments for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
 		);
 		// A write interrupted by the failure may still have landed — never trust the caller's snapshot then.
@@ -372,7 +383,8 @@ async function convergeChecklists(
 		await vault.write(note, nextContent);
 		return true;
 	} catch (error) {
-		console.warn(
+		warnUnlessAborted(
+			signal,
 			`[trello-vault-sync] Could not sync checklists for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
 		);
 		return true;
@@ -445,7 +457,8 @@ async function convergeMembers(
 		});
 		return true;
 	} catch (error) {
-		console.warn(
+		warnUnlessAborted(
+			signal,
 			`[trello-vault-sync] Could not sync members for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
 		);
 		return true;
@@ -512,7 +525,8 @@ async function convergeCustomFields(
 		});
 		return true;
 	} catch (error) {
-		console.warn(
+		warnUnlessAborted(
+			signal,
 			`[trello-vault-sync] Could not sync custom fields for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
 		);
 		return true;
@@ -551,7 +565,8 @@ async function convergeAttachmentDownloads(
 			console.warn(`[trello-vault-sync] ${message}`);
 		}
 	} catch (error) {
-		console.warn(
+		warnUnlessAborted(
+			signal,
 			`[trello-vault-sync] Could not download attachments for card "${card.name}" (${card.id}): ${client.redactOwnSecrets(errorMessage(error))}`,
 		);
 	}

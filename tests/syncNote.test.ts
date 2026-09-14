@@ -1248,6 +1248,144 @@ describe("syncNoteWithCard — custom fields (opt-in via syncCustomFields)", () 
 	});
 });
 
+describe("cancellation — no misleading console.warn", () => {
+	test("aborting mid-flight during convergeAttachments logs nothing to the console", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const controller = new AbortController();
+		const transport = async () => {
+			// Simulates the abort happening mid-flight, inside the attachments network call itself.
+			controller.abort();
+			throw new DOMException("Aborted", "AbortError");
+		};
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			{ ...options, syncAttachments: true },
+			undefined,
+			undefined,
+			undefined,
+			controller.signal,
+		);
+
+		expect(warnSpy).not.toHaveBeenCalled();
+		warnSpy.mockRestore();
+	});
+
+	test("aborting mid-flight during convergeChecklists logs nothing to the console", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const controller = new AbortController();
+		const transport = async () => {
+			controller.abort();
+			throw new DOMException("Aborted", "AbortError");
+		};
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			{ ...options, syncChecklists: true },
+			undefined,
+			undefined,
+			undefined,
+			controller.signal,
+		);
+
+		expect(warnSpy).not.toHaveBeenCalled();
+		warnSpy.mockRestore();
+	});
+
+	test("aborting mid-flight during convergeMembers logs nothing to the console", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const controller = new AbortController();
+		const transport = async () => {
+			controller.abort();
+			throw new DOMException("Aborted", "AbortError");
+		};
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", idMembers: ["u1"] });
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			{ ...options, syncMembers: true },
+			undefined,
+			undefined,
+			undefined,
+			controller.signal,
+		);
+
+		expect(warnSpy).not.toHaveBeenCalled();
+		warnSpy.mockRestore();
+	});
+
+	test("aborting mid-flight during convergeCustomFields logs nothing to the console", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const controller = new AbortController();
+		const transport = async () => {
+			controller.abort();
+			throw new DOMException("Aborted", "AbortError");
+		};
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			{ ...options, syncCustomFields: true },
+			undefined,
+			undefined,
+			undefined,
+			controller.signal,
+		);
+
+		expect(warnSpy).not.toHaveBeenCalled();
+		warnSpy.mockRestore();
+	});
+
+	test("aborting mid-flight during convergeAttachmentDownloads logs nothing to the console", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const controller = new AbortController();
+		const transport = async () => {
+			controller.abort();
+			throw new DOMException("Aborted", "AbortError");
+		};
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await syncNoteWithCard(
+			vault,
+			client,
+			vault.note(PATH),
+			remote,
+			{ ...options, downloadAttachments: true, fetchBinary: async () => new ArrayBuffer(1) },
+			undefined,
+			undefined,
+			undefined,
+			controller.signal,
+		);
+
+		expect(warnSpy).not.toHaveBeenCalled();
+		warnSpy.mockRestore();
+	});
+});
+
 describe("cancellation", () => {
 	test("syncNoteWithCard makes no Trello request and does not touch the note when the signal is already aborted", async () => {
 		const { vault, client, requests } = setup("old", at("2026-01-01"));
@@ -1572,5 +1710,92 @@ describe("note re-reads", () => {
 		expect(result.direction).toBe("pull");
 		expect(vault.readFrontmatter(vault.note(PATH))?.banner).toBe("big.jpg");
 		expect(vault.contentOf(PATH)).toContain("new");
+	});
+});
+
+describe("frontmatter key order — stable regardless of fetchCardDetailsWithCards", () => {
+	const attachments = [{ id: "a1", name: "spec.pdf", url: "https://example.com/spec.pdf", isUpload: true }];
+	const checklists = [
+		{ id: "cl1", name: "Steps", checkItems: [{ id: "i1", name: "Step 1", state: "incomplete" as const }] },
+	];
+	const cover = { idAttachment: "a1", scaled: [{ url: "https://example.com/cover.png", width: 500 }] };
+
+	function makeRemote(embedded: boolean) {
+		return card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "new-body",
+			dateLastActivity: "2026-02-01",
+			due: "2026-10-01T12:00:00.000Z",
+			idMembers: ["u1"],
+			cover,
+			attachments: embedded ? attachments : undefined,
+			checklists: embedded ? checklists : undefined,
+		});
+	}
+
+	class WriteCountingVault extends FakeVault {
+		writes = 0;
+		override async write(note: Parameters<FakeVault["write"]>[0], content: string) {
+			this.writes++;
+			return super.write(note, content);
+		}
+	}
+
+	async function syncTwice(embedded: boolean): Promise<{ firstPass: string; secondWriteCount: number }> {
+		const vault = new WriteCountingVault({ [PATH]: { content: FRONTMATTER + "old-body", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": attachments,
+			"/cards/c1/checklists": checklists,
+			"/boards/board/members": [{ id: "u1", fullName: "Alice", username: "alice" }],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const syncOptions: NoteSyncOptions = { ...options, syncAttachments: true, syncChecklists: true, syncMembers: true };
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), makeRemote(embedded), syncOptions);
+		const firstPass = vault.contentOf(PATH);
+
+		const writesBefore = vault.writes;
+		await syncNoteWithCard(vault, client, vault.note(PATH), makeRemote(embedded), syncOptions);
+		const secondWriteCount = vault.writes - writesBefore;
+
+		return { firstPass, secondWriteCount };
+	}
+
+	test("produces the exact same note text whether attachments/checklists ride the card or are fetched separately, and a second pass writes nothing more", async () => {
+		const withEmbedded = await syncTwice(true);
+		const withoutEmbedded = await syncTwice(false);
+
+		expect(withEmbedded.firstPass).toBe(withoutEmbedded.firstPass);
+		expect(withEmbedded.secondWriteCount).toBe(0);
+		expect(withoutEmbedded.secondWriteCount).toBe(0);
+	});
+
+	test("toggling fetchCardDetailsWithCards between two syncs of the same note does not reorder unchanged keys", async () => {
+		function makeSetup() {
+			const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "old-body", mtime: at("2026-01-01") } });
+			const { transport } = routedTransport({
+				"/cards/c1/attachments": attachments,
+				"/cards/c1/checklists": checklists,
+				"/boards/board/members": [{ id: "u1", fullName: "Alice", username: "alice" }],
+			});
+			const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+			return { vault, client };
+		}
+		const syncOptions: NoteSyncOptions = { ...options, syncAttachments: true, syncChecklists: true, syncMembers: true };
+
+		// Baseline: two syncs, both with the setting off.
+		const baseline = makeSetup();
+		await syncNoteWithCard(baseline.vault, baseline.client, baseline.vault.note(PATH), makeRemote(false), syncOptions);
+		await syncNoteWithCard(baseline.vault, baseline.client, baseline.vault.note(PATH), makeRemote(false), syncOptions);
+		const baselineContent = baseline.vault.contentOf(PATH);
+
+		// Toggled: first sync with the setting on, second with it off — same final field values.
+		const toggled = makeSetup();
+		await syncNoteWithCard(toggled.vault, toggled.client, toggled.vault.note(PATH), makeRemote(true), syncOptions);
+		await syncNoteWithCard(toggled.vault, toggled.client, toggled.vault.note(PATH), makeRemote(false), syncOptions);
+		const toggledContent = toggled.vault.contentOf(PATH);
+
+		expect(toggledContent).toBe(baselineContent);
 	});
 });
