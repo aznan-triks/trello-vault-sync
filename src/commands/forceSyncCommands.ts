@@ -1,20 +1,16 @@
 import { Notice } from "obsidian";
+import { confirmIfEnabled } from "./confirmAction";
 import type { CommandContext } from "./context";
 import * as noteCommands from "./noteCommands";
 import { reportStats } from "./reportStats";
 import { withHistoryRecording } from "./syncHistoryHelper";
 import { syncFolder, type FolderMapping } from "../features/syncFolder";
 import { syncVault } from "../features/syncVault";
-import { ConfirmModal } from "../ui/ConfirmModal";
 import { MappingSuggest } from "../ui/MappingSuggest";
 
 /** Runs `action` directly, or behind a confirmation modal when `confirmForceSync` is on — never a native `confirm()`. */
 function confirmIfNeeded(ctx: CommandContext, message: string, action: () => void): void {
-	if (!ctx.settings.confirmForceSync) {
-		action();
-		return;
-	}
-	new ConfirmModal(ctx.app, message, action, "Force sync").open();
+	void confirmIfEnabled(ctx, ctx.settings.confirmForceSync, message, "Force sync", action);
 }
 
 /** Note scope reuses `syncActive`'s existing imposed direction as-is — forcing a single note is already exactly what "Pull/Push (active note)" does, just under a more explicit id/label. */

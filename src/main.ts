@@ -110,6 +110,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				maxRetries: this.settings.maxRetries,
 				baseDelayMs: this.settings.baseDelayMs,
 				requestTimeoutMs: this.settings.requestTimeoutMs,
+				maxBackoffDelayMs: this.settings.maxBackoffDelayMs,
 				onRetry: ({ attempt, maxAttempts, delayMs, status }) =>
 					reporter.log(
 						"warn",

@@ -57,6 +57,8 @@ export interface TrelloVaultSyncSettings {
 	baseDelayMs: number;
 	/** Per-attempt network timeout, in ms — a request that outlives this is treated as a transport-level failure (retryable), same path as a 5xx. */
 	requestTimeoutMs: number;
+	/** Ceiling on a single retry wait, in ms — independent of maxRetries/baseDelayMs or a Retry-After header. */
+	maxBackoffDelayMs: number;
 
 	/** Trello list ↔ vault folder pairs, replacing the per-folder scripts. */
 	mappings: FolderMapping[];
@@ -95,6 +97,10 @@ export interface TrelloVaultSyncSettings {
 	historyEnabled: boolean;
 	/** Oldest run is dropped once this many are recorded. */
 	historyMaxRuns: number;
+	/** On by default — an undo also reverts the Trello-side writes a run made. Off: only vault writes are reverted; Trello actions are skipped and reported as disabled in settings, not attempted. */
+	historyRevertTrelloWrites: boolean;
+	/** On by default — shows a confirmation modal before "Undo last sync run" / "Undo last sync for the active note" (the picker command already ends on its own explicit "Undo selected" button, so it never goes through this gate). Off disables the modal for repeated use. */
+	confirmUndo: boolean;
 
 	/** Pull-only, no extra Trello request. */
 	syncCardCover: boolean;
@@ -153,6 +159,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	maxRetries: 3,
 	baseDelayMs: 800,
 	requestTimeoutMs: 30_000,
+	maxBackoffDelayMs: 30_000,
 	mappings: [],
 	showPanel: true,
 	panelAutoCloseSeconds: 8,
@@ -168,6 +175,8 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	checklistHeading: DEFAULT_CHECKLIST_HEADING,
 	historyEnabled: true,
 	historyMaxRuns: 20,
+	historyRevertTrelloWrites: true,
+	confirmUndo: true,
 	syncCardCover: DEFAULT_SYNC_CARD_COVER,
 	coverFrontmatterKey: DEFAULT_COVER_KEY,
 	downloadAttachments: false,
@@ -203,6 +212,8 @@ export const MAX_RETRIES_CEILING = 10;
 export const BASE_DELAY_MS_CEILING = 60_000;
 /** Highest per-request timeout, in ms, normalizeSettings will accept before clamping. */
 export const REQUEST_TIMEOUT_MS_CEILING = 120_000;
+/** Highest retry-wait ceiling, in ms, normalizeSettings will accept before clamping. */
+export const MAX_BACKOFF_DELAY_MS_CEILING = 300_000;
 /** A similarity score never exceeds 1 (100% match). */
 const SIMILARITY_THRESHOLD_CEILING = 1;
 
@@ -288,6 +299,11 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			input.requestTimeoutMs,
 			DEFAULT_SETTINGS.requestTimeoutMs,
 			REQUEST_TIMEOUT_MS_CEILING,
+		),
+		maxBackoffDelayMs: safeNonNegativeNumber(
+			input.maxBackoffDelayMs,
+			DEFAULT_SETTINGS.maxBackoffDelayMs,
+			MAX_BACKOFF_DELAY_MS_CEILING,
 		),
 		panelAutoCloseSeconds: safeNonNegativeNumber(
 			input.panelAutoCloseSeconds,

@@ -1,14 +1,29 @@
 import { Notice } from "obsidian";
+import { confirmIfEnabled } from "./confirmAction";
 import type { CommandContext } from "./context";
 import { lastRun, replaceRunAt, type SyncRun } from "../core/syncHistory";
 import { undoRun, undoRunForNote, undoSelectedActions, type UndoStats } from "../features/rollback";
 import { SyncActionPickerModal } from "../ui/SyncActionPickerModal";
 import { SyncRunPickerModal } from "../ui/SyncRunPickerModal";
+import type { TrelloClient } from "../trello/client";
+import type { Reporter } from "../obsidian/gateway";
 
 /** One short sentence covering both sides of an undo, readable whether or not either side had anything to do. */
 function describeUndoStats(stats: UndoStats): string {
 	if (stats.revertedRemote === 0) return `${stats.reverted} reverted, ${stats.skipped} skipped.`;
 	return `${stats.reverted} reverted in the vault, ${stats.revertedRemote} on Trello, ${stats.skipped} skipped.`;
+}
+
+/**
+ * The Trello client to hand an undo, and whether Trello-side actions are
+ * skipped on purpose — `historyRevertTrelloWrites` off means no client is
+ * built at all (no unwanted request, no unwanted retry/backoff noise), and
+ * `rollback.ts` reports the skip as "disabled in settings" rather than
+ * "needs a connection".
+ */
+function undoClientFor(ctx: CommandContext, reporter: Reporter): { client: TrelloClient | undefined; trelloRevertDisabled: boolean } {
+	if (!ctx.settings.historyRevertTrelloWrites) return { client: undefined, trelloRevertDisabled: true };
+	return { client: ctx.client(reporter), trelloRevertDisabled: false };
 }
 
 export async function showSyncHistory(ctx: CommandContext): Promise<void> {
@@ -42,17 +57,31 @@ export async function undoLastSyncRun(ctx: CommandContext): Promise<void> {
 		return;
 	}
 
-	await ctx.run(`Undo — ${last.scope || "vault"}`, async (reporter, signal) => {
-		const { stats, remainingRun } = await undoRun(
-			ctx.vault,
-			last,
-			(level, message) => reporter.log(level, message),
-			signal,
-			ctx.client(reporter),
-		);
-		await ctx.setHistory(replaceRunAt(ctx.history, ctx.history.length - 1, remainingRun));
-		return describeUndoStats(stats);
-	});
+	const doUndo = async () => {
+		await ctx.run(`Undo — ${last.scope || "vault"}`, async (reporter, signal) => {
+			const { client, trelloRevertDisabled } = undoClientFor(ctx, reporter);
+			const { stats, remainingRun } = await undoRun(
+				ctx.vault,
+				last,
+				(level, message) => reporter.log(level, message),
+				signal,
+				client,
+				trelloRevertDisabled,
+			);
+			await ctx.setHistory(replaceRunAt(ctx.history, ctx.history.length - 1, remainingRun));
+			return describeUndoStats(stats);
+		});
+	};
+
+	await confirmIfEnabled(
+		ctx,
+		ctx.settings.confirmUndo,
+		`Undo the last sync run (${last.scope || "vault"})? This reverts its writes in the vault${
+			ctx.settings.historyRevertTrelloWrites ? " and on Trello" : ""
+		}.`,
+		"Undo",
+		doUndo,
+	);
 }
 
 export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<void> {
@@ -68,30 +97,46 @@ export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<vo
 		return;
 	}
 
-	await ctx.run(`Undo — ${note.basename}`, async (reporter, signal) => {
-		const { stats, remainingRun } = await undoRunForNote(
-			ctx.vault,
-			last,
-			note.path,
-			(level, message) => reporter.log(level, message),
-			signal,
-			ctx.client(reporter),
-		);
-		await ctx.setHistory(replaceRunAt(ctx.history, ctx.history.length - 1, remainingRun));
-		return describeUndoStats(stats);
-	});
+	const doUndo = async () => {
+		await ctx.run(`Undo — ${note.basename}`, async (reporter, signal) => {
+			const { client, trelloRevertDisabled } = undoClientFor(ctx, reporter);
+			const { stats, remainingRun } = await undoRunForNote(
+				ctx.vault,
+				last,
+				note.path,
+				(level, message) => reporter.log(level, message),
+				signal,
+				client,
+				trelloRevertDisabled,
+			);
+			await ctx.setHistory(replaceRunAt(ctx.history, ctx.history.length - 1, remainingRun));
+			return describeUndoStats(stats);
+		});
+	};
+
+	await confirmIfEnabled(
+		ctx,
+		ctx.settings.confirmUndo,
+		`Undo the last sync for "${note.basename}"? This reverts its writes in the vault${
+			ctx.settings.historyRevertTrelloWrites ? " and on Trello" : ""
+		}.`,
+		"Undo",
+		doUndo,
+	);
 }
 
 /** Undoes exactly the checked actions of `run`, wherever it sits in `ctx.history`, leaving the rest of that run and every other run untouched. */
 async function undoPickedActions(ctx: CommandContext, run: SyncRun, selectedIndices: ReadonlySet<number>): Promise<void> {
 	await ctx.run(`Undo — ${run.scope || "vault"}`, async (reporter, signal) => {
+		const { client, trelloRevertDisabled } = undoClientFor(ctx, reporter);
 		const { stats, remainingRun } = await undoSelectedActions(
 			ctx.vault,
 			run,
 			(_action, index) => selectedIndices.has(index),
 			(level, message) => reporter.log(level, message),
 			signal,
-			ctx.client(reporter),
+			client,
+			trelloRevertDisabled,
 		);
 		// The run object is the very one taken from `ctx.history` when the picker
 		// opened; `indexOf` finds it by identity. If history moved on in the
@@ -108,6 +153,11 @@ async function undoPickedActions(ctx: CommandContext, run: SyncRun, selectedIndi
  * Turns "Show sync history" from a dead end into an entry point: pick any
  * recorded run (not just the last), then check exactly which of its writes
  * to undo — everything left unchecked stays in history, still undoable later.
+ *
+ * Not gated behind `confirmUndo`: the action picker this opens into already
+ * ends on its own explicit "Undo selected" button, which is itself the
+ * confirmation — stacking a second modal in front of it would just be one
+ * more click to dismiss before reaching the real decision.
  */
 export async function undoSyncRunPicked(ctx: CommandContext): Promise<void> {
 	if (!ctx.settings.historyEnabled) {

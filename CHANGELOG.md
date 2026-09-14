@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.3] — 2026-09-14
+
+### Added
+
+- **Plain**: A new switch lets you keep undo inside your vault only — when it is
+  off, undo never touches your Trello cards.
+  **Technical**: `historyRevertTrelloWrites` (default on, "Sync history"
+  section). Off: the three undo commands build no Trello client and
+  `features/rollback.ts` reports Trello actions as "disabled in settings".
+- **Plain**: Undo now asks for confirmation first, like force sync already did.
+  You can turn the question off.
+  **Technical**: `confirmUndo` (default on) gates "Undo last sync run" and "Undo
+  last sync for the active note" through `ConfirmModal`; the picker command is not
+  gated, its "Undo selected" button already confirms. The gate is the new shared
+  `confirmIfEnabled` (`commands/confirmAction.ts`), also used by force sync.
+- **Plain**: You can now set the longest wait between two retries when Trello is
+  slow or busy.
+  **Technical**: `maxBackoffDelayMs` (default 30000 ms, ceiling 300000,
+  "Advanced" section), passed from `main.ts` to `TrelloClient`, which already
+  supported it but never received it.
 ## [1.15.2] — 2026-09-14
 
 ### Added

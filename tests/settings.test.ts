@@ -338,4 +338,31 @@ describe("normalizeSettings", () => {
 			normalizeSettings({ customFieldsFrontmatterKey: 42 as unknown as string }).customFieldsFrontmatterKey,
 		).toBe("trello_custom_fields");
 	});
+
+	test("defaults historyRevertTrelloWrites and confirmUndo to on", () => {
+		const settings = normalizeSettings({});
+		expect(settings.historyRevertTrelloWrites).toBe(true);
+		expect(settings.confirmUndo).toBe(true);
+	});
+
+	test("keeps an explicit historyRevertTrelloWrites: false and confirmUndo: false", () => {
+		expect(normalizeSettings({ historyRevertTrelloWrites: false }).historyRevertTrelloWrites).toBe(false);
+		expect(normalizeSettings({ confirmUndo: false }).confirmUndo).toBe(false);
+	});
+
+	test("defaults maxBackoffDelayMs to 30000", () => {
+		expect(normalizeSettings({}).maxBackoffDelayMs).toBe(30_000);
+	});
+
+	test("keeps an explicit maxBackoffDelayMs", () => {
+		expect(normalizeSettings({ maxBackoffDelayMs: 5_000 }).maxBackoffDelayMs).toBe(5_000);
+	});
+
+	test("clamps maxBackoffDelayMs to its ceiling", () => {
+		expect(normalizeSettings({ maxBackoffDelayMs: 10_000_000 }).maxBackoffDelayMs).toBe(300_000);
+	});
+
+	test("falls back maxBackoffDelayMs to the default when corrupted", () => {
+		expect(normalizeSettings({ maxBackoffDelayMs: "slow" as unknown as number }).maxBackoffDelayMs).toBe(30_000);
+	});
 });
