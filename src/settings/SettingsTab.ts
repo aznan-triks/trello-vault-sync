@@ -637,9 +637,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Sync history")
 			.setDesc(
-				"Records every vault write a sync makes, so it can be undone from \"Undo last sync run\" / " +
-					"\"Undo last sync for the active note\". Skips a note that changed since the run instead of " +
-					"overwriting it.",
+				"Records every write a sync makes — in the vault and on Trello — so it can be undone from " +
+					"\"Undo last sync run\" / \"Undo last sync for the active note\". Neither side is ever " +
+					"overwritten blindly: a note, card field or checklist item that changed since the run is " +
+					"skipped and reported. Cancelling a running sync cannot recall a request already sent to " +
+					"Trello, but undo can put it back.",
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.historyEnabled).onChange((value) => {

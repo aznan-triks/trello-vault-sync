@@ -10,12 +10,12 @@ export async function syncAllLinked(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 
 	await ctx.run("Vault sync", async (reporter, signal) => {
-		return withHistoryRecording(ctx, ctx.settings.scope, async (vault) => {
+		return withHistoryRecording(ctx, ctx.settings.scope, async (vault, onTrelloWrite) => {
 			const stats = await syncVault(
 				vault,
 				ctx.client(reporter),
 				{ scope: ctx.settings.scope, boardId: ctx.settings.boardId, excludedFolders: ctx.settings.excludedFolders },
-				ctx.noteOptions(),
+				{ ...ctx.noteOptions(), onTrelloWrite },
 				reporter,
 				signal,
 			);
@@ -38,12 +38,12 @@ export async function syncOneMapping(ctx: CommandContext): Promise<void> {
 
 async function runMapping(ctx: CommandContext, mapping: FolderMapping): Promise<void> {
 	await ctx.run(`Sync — ${mapping.folder}`, async (reporter, signal) => {
-		return withHistoryRecording(ctx, mapping.folder, async (vault) => {
+		return withHistoryRecording(ctx, mapping.folder, async (vault, onTrelloWrite) => {
 			const stats = await syncFolder(
 				vault,
 				ctx.client(reporter),
 				mapping,
-				ctx.folderOptions(),
+				{ ...ctx.folderOptions(), onTrelloWrite },
 				reporter,
 				undefined,
 				signal,
@@ -62,12 +62,12 @@ export async function syncAllMappings(ctx: CommandContext): Promise<void> {
 	}
 
 	await ctx.run("Sync all mappings", async (reporter, signal) => {
-		return withHistoryRecording(ctx, "", async (vault) => {
+		return withHistoryRecording(ctx, "", async (vault, onTrelloWrite) => {
 			const total = await syncAllMappingsFeature(
 				vault,
 				ctx.client(reporter),
 				ctx.settings.mappings,
-				ctx.folderOptions(),
+				{ ...ctx.folderOptions(), onTrelloWrite },
 				reporter,
 				signal,
 			);

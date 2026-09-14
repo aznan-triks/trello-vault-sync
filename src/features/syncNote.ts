@@ -34,6 +34,7 @@ import {
 } from "../core/memberRef";
 import { extractBody, insertChecklistSection, replaceBody, splitChecklistSection } from "../core/noteBody";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
+import type { TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/syncHistory";
 import { buildCardIndex, resolveAttachments } from "./attachmentSync";
 import { downloadAttachments } from "./attachmentDownload";
 import { resolveChecklists } from "./checklistSync";
@@ -81,6 +82,12 @@ export interface NoteSyncOptions {
 	 * so every other caller of those two engines is unaffected by its absence.
 	 */
 	fetchBinary?: (url: string, signal?: AbortSignal) => Promise<ArrayBuffer | null>;
+	/**
+	 * Called once per Trello write this sync performs, with everything needed to
+	 * invert it later. Bundled into options like `fetchBinary` above: history
+	 * recording is opt-in, so every other caller is unaffected by its absence.
+	 */
+	onTrelloWrite?: (action: TrelloCardUpdateAction | TrelloCheckItemAction) => void;
 	/** No extra Trello request per note — the board's member directory is fetched once per run, see `cardIndex`'s own pattern. `undefined` behaves as `DEFAULT_SYNC_MEMBERS`. */
 	syncMembers?: boolean;
 	/** `undefined` behaves as `DEFAULT_MEMBERS_KEY`. */
@@ -179,12 +186,22 @@ async function resolveLabelIdsForCard(
 /** Resolve a label list to ids and push it as the card's full label set, on its own `updateCard` call. */
 async function pushRemoteLabels(
 	client: TrelloClient,
+	note: NoteHandle,
 	card: TrelloCard,
 	labels: string[],
+	onTrelloWrite: NoteSyncOptions["onTrelloWrite"],
 	signal?: AbortSignal,
 ): Promise<void> {
 	if (signal?.aborted) return;
-	await client.updateCard(card.id, { idLabels: await resolveLabelIdsForCard(client, card, labels, signal) }, signal);
+	const idLabels = await resolveLabelIdsForCard(client, card, labels, signal);
+	await client.updateCard(card.id, { idLabels }, signal);
+	onTrelloWrite?.({
+		kind: "trello-card",
+		path: note.path,
+		cardId: card.id,
+		previous: { idLabels: (card.labels ?? []).map((label) => label.id) },
+		written: { idLabels },
+	});
 }
 
 /**
@@ -201,11 +218,12 @@ async function convergeLabelsOnMerge(
 	localLabels: string[],
 	remoteLabels: string[],
 	labelsKey: string,
+	onTrelloWrite: NoteSyncOptions["onTrelloWrite"],
 	signal?: AbortSignal,
 ): Promise<void> {
 	const { nextLocal, nextRemote } = resolveLabelSync(localLabels, remoteLabels, "merge", "pull");
 	if (nextLocal !== null && !signal?.aborted) await writeLocalLabels(vault, note, nextLocal, labelsKey);
-	if (nextRemote !== null) await pushRemoteLabels(client, card, nextRemote, signal);
+	if (nextRemote !== null) await pushRemoteLabels(client, note, card, nextRemote, onTrelloWrite, signal);
 }
 
 /** Order-sensitive equality — attachment/linked-card lists follow Trello's own order, never sorted. */
@@ -278,6 +296,7 @@ async function convergeChecklists(
 	note: NoteHandle,
 	card: TrelloCard,
 	heading: string,
+	onTrelloWrite: NoteSyncOptions["onTrelloWrite"],
 	signal?: AbortSignal,
 ): Promise<void> {
 	try {
@@ -288,10 +307,22 @@ async function convergeChecklists(
 
 		const remoteChecklists = await client.getCardChecklists(card.id, signal);
 		const { markdown, pushes } = resolveChecklists(remoteChecklists, checklistBlock, heading);
+		const remoteStateById = new Map(
+			remoteChecklists.flatMap((group) => group.checkItems.map((item) => [item.id, item.state] as const)),
+		);
 
 		for (const push of pushes) {
 			if (signal?.aborted) break;
 			await client.updateCheckItemState(card.id, push.checkItemId, push.state, signal);
+			const previousState = remoteStateById.get(push.checkItemId) ?? (push.state === "complete" ? "incomplete" : "complete");
+			onTrelloWrite?.({
+				kind: "trello-checkitem",
+				path: note.path,
+				cardId: card.id,
+				checkItemId: push.checkItemId,
+				previousState,
+				writtenState: push.state,
+			});
 		}
 
 		if (signal?.aborted) return;
@@ -521,7 +552,7 @@ export async function syncNoteWithCard(
 	// branch below rebuilds the whole file from this snapshot, and a stale one
 	// would silently undo the frontmatter write just made here.
 	if (labelsSyncMode === "merge" && !options.dryRun && !signal?.aborted) {
-		await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, signal);
+		await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, options.onTrelloWrite, signal);
 		content = await vault.read(note);
 	}
 
@@ -543,7 +574,7 @@ export async function syncNoteWithCard(
 	}
 
 	if (syncChecklists && !options.dryRun && !signal?.aborted) {
-		await convergeChecklists(vault, client, note, card, checklistHeading, signal);
+		await convergeChecklists(vault, client, note, card, checklistHeading, options.onTrelloWrite, signal);
 		content = await vault.read(note);
 	}
 
@@ -657,6 +688,14 @@ export async function syncNoteWithCard(
 		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)` };
 	}
 	await client.updateCard(card.id, fields, signal);
+	if (options.onTrelloWrite) {
+		const previous: TrelloCardUpdateAction["previous"] = {};
+		if (fields.name !== undefined) previous.name = card.name;
+		if (fields.desc !== undefined) previous.desc = card.desc;
+		if (fields.due !== undefined) previous.due = card.due;
+		if (fields.idLabels !== undefined) previous.idLabels = (card.labels ?? []).map((label) => label.id);
+		options.onTrelloWrite({ kind: "trello-card", path: note.path, cardId: card.id, previous, written: fields });
+	}
 	return { direction, renamed: false, note, reason: decision.reason };
 }
 

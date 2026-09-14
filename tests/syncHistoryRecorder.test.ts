@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fingerprint, type SyncAction } from "../src/core/syncHistory";
+import { fingerprint, type BodyOrFrontmatterAction, type SyncAction } from "../src/core/syncHistory";
 import { wrapWithHistoryRecorder } from "../src/features/syncHistoryRecorder";
 import { syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
 import { TrelloClient } from "../src/trello/client";
@@ -31,7 +31,8 @@ describe("wrapWithHistoryRecorder", () => {
 		expect(actions).toHaveLength(1);
 		expect(actions[0]?.kind).toBe("frontmatter");
 		expect(actions[0]).toMatchObject({ path: "n.md", previousContent: '---\ndue: "old"\n---\n\nbody' });
-		expect(actions[0]?.fingerprint).toBe(fingerprint(vault.contentOf("n.md")));
+		const frontmatterAction = actions[0] as BodyOrFrontmatterAction | undefined;
+		expect(frontmatterAction?.fingerprint).toBe(fingerprint(vault.contentOf("n.md")));
 	});
 
 	test("setCardRef() is recorded the same way as a frontmatter write", async () => {

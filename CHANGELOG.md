@@ -4,6 +4,49 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.1] — 2026-09-14
+
+### Added
+
+- **Plain**: Undo now puts your Trello cards back too, not just your notes.
+  If a sync overwrote a card's description, title, due date or labels, or ticked
+  a checklist item, "Undo last sync run" reverses that on Trello as well.
+  **Technical**: sync history gained two action kinds, `trello-card` and
+  `trello-checkitem` (`core/syncHistory.ts`), each recording the card fields as
+  they were before the push and as the push left them. `syncNote.ts` emits them
+  through a new optional `onTrelloWrite` in `NoteSyncOptions` — the same
+  "optional capability bundled into options" shape `fetchBinary` already used —
+  at its three and only three write sites. `features/rollback.ts` replays them
+  through `TrelloClient`.
+- **Plain**: Undo never overwrites a card someone else edited in the meantime.
+  It checks each field one by one: the ones still holding what the sync wrote
+  are put back, the ones changed since are left alone and reported as skipped.
+  **Technical**: `planTrelloUndo` (`core/syncHistory.ts`) is a pure decision
+  function mirroring `planActionUndo`'s contract, comparing field by field
+  against the card's current remote state. `rollback.ts` reads that state back
+  before reverting, caching it so a card is fetched at most once per undo and
+  re-read after it is changed.
+
+### Changed
+
+- **Plain**: The message after an undo now tells you what was put back in your
+  vault and what was put back on Trello, separately.
+  **Technical**: `UndoStats` gained `revertedRemote`; `historyCommands.ts`
+  renders "N reverted in the vault, N on Trello, N skipped." and keeps the
+  shorter wording for a vault-only undo.
+- **Plain**: The sync-history setting now says plainly that it covers Trello
+  too, and that cancelling a sync cannot recall a request already sent —
+  but undo can put it back.
+  **Technical**: description of the "Sync history" toggle in `SettingsTab.ts`.
+
+### Fixed
+
+- **Plain**: A card that cannot be read back — deleted, or a network failure —
+  no longer aborts the whole undo. It is reported and skipped, and the rest of
+  the undo carries on.
+  **Technical**: the remote read in `rollback.ts` is caught narrowly, logged at
+  "skip" level with the error message, and treated as "state unknown".
+
 ## [1.15.0] — 2026-09-14
 
 ### Added

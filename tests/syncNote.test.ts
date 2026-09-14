@@ -4,6 +4,7 @@ import { DEFAULT_CHECKLIST_HEADING } from "../src/core/checklistRef";
 import { DEFAULT_DUE_KEY as DUE_KEY } from "../src/core/dueRef";
 import { DEFAULT_LABELS_KEY as LABELS_KEY } from "../src/core/labelRef";
 import { syncNote, syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
+import type { SyncAction } from "../src/core/syncHistory";
 import { TrelloClient } from "../src/trello/client";
 import { FakeVault, at, card, routedTransport } from "./fakes";
 
@@ -1298,5 +1299,119 @@ describe("cancellation", () => {
 		expect(requests[0]?.method).toBe("PUT");
 		expect(requests[0]?.body).toContain("desc=local+text");
 		expect(requests[0]?.body).toContain("name=Sagondo");
+	});
+});
+
+describe("Trello write recording", () => {
+	test("a card push records one trello-card action matching what was sent and the card's prior values", async () => {
+		const { vault, client } = setup("local text", at("2026-03-01"));
+		const remote = card({
+			id: "c1",
+			name: "Ancien titre",
+			desc: "remote",
+			dateLastActivity: "2026-01-01",
+		});
+		const actions: SyncAction[] = [];
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			onTrelloWrite: (action) => actions.push(action),
+		});
+
+		expect(result.direction).toBe("push");
+		expect(actions).toHaveLength(1);
+		const [action] = actions;
+		expect(action?.kind).toBe("trello-card");
+		if (action?.kind !== "trello-card") throw new Error("expected trello-card action");
+		expect(action.path).toBe(PATH);
+		expect(action.cardId).toBe("c1");
+		expect(action.written).toEqual({ desc: "local text", name: "Sagondo" });
+		expect(action.previous).toEqual({ desc: "remote", name: "Ancien titre" });
+	});
+
+	test("a merge-mode label push records a trello-card action carrying previous and written idLabels", async () => {
+		const withLabels = FRONTMATTER.replace("---\n\n", `${LABELS_KEY}:\n  - "Idée"\n---\n\n`);
+		const vault = new FakeVault({ [PATH]: { content: withLabels, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/boards/board/labels": [
+				{ id: "b1", name: "Bug", color: "red" },
+				{ id: "i1", name: "Idée", color: "green" },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			labels: [{ id: "b1", name: "Bug", color: "red" }],
+		});
+		const actions: SyncAction[] = [];
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			onTrelloWrite: (action) => actions.push(action),
+		});
+
+		const labelAction = actions.find((a) => a.kind === "trello-card" && a.written.idLabels !== undefined);
+		expect(labelAction).toBeDefined();
+		if (labelAction?.kind !== "trello-card") throw new Error("expected trello-card action");
+		expect(labelAction.path).toBe(PATH);
+		expect(labelAction.cardId).toBe("c1");
+		expect(labelAction.previous.idLabels).toEqual(["b1"]);
+		expect(labelAction.written.idLabels).toEqual(["b1", "i1"]);
+	});
+
+	test("a checklist item flip records a trello-checkitem action with the right previous/written state", async () => {
+		const withChecklist =
+			FRONTMATTER + `same\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [x] Réserver`;
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/checklists": [
+				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "incomplete" }] },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+		const actions: SyncAction[] = [];
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncChecklists: true,
+			onTrelloWrite: (action) => actions.push(action),
+		});
+
+		const checkAction = actions.find((a) => a.kind === "trello-checkitem");
+		expect(checkAction).toBeDefined();
+		if (checkAction?.kind !== "trello-checkitem") throw new Error("expected trello-checkitem action");
+		expect(checkAction.path).toBe(PATH);
+		expect(checkAction.cardId).toBe("c1");
+		expect(checkAction.checkItemId).toBe("i1");
+		expect(checkAction.previousState).toBe("incomplete");
+		expect(checkAction.writtenState).toBe("complete");
+	});
+
+	test("dry-run records nothing even though the sides diverge on every axis", async () => {
+		const { vault, client } = setup("local text", at("2026-03-01"));
+		const remote = card({ id: "c1", name: "Ancien titre", desc: "remote", dateLastActivity: "2026-01-01" });
+		const actions: SyncAction[] = [];
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			dryRun: true,
+			onTrelloWrite: (action) => actions.push(action),
+		});
+
+		expect(actions).toHaveLength(0);
+	});
+
+	test("omitting onTrelloWrite behaves exactly like today — no crash, same push result", async () => {
+		const { vault, client, requests } = setup("local text", at("2026-03-01"));
+		const remote = card({ id: "c1", name: "Ancien titre", desc: "remote", dateLastActivity: "2026-01-01" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(result.direction).toBe("push");
+		expect(requests[0]?.method).toBe("PUT");
 	});
 });

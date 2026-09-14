@@ -17,8 +17,8 @@ export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): 
 	await ctx.run(`Sync — ${note.basename}`, async (reporter, signal) => {
 		reporter.setTotal(1);
 		reporter.step(note.basename);
-		return withHistoryRecording(ctx, note.path, async (vault) => {
-			const result = await syncNote(vault, ctx.client(reporter), note, ctx.noteOptions(force), signal);
+		return withHistoryRecording(ctx, note.path, async (vault, onTrelloWrite) => {
+			const result = await syncNote(vault, ctx.client(reporter), note, { ...ctx.noteOptions(force), onTrelloWrite }, signal);
 			tallyNoteResult(
 				{ pulled: 0, pushed: 0, skipped: 0, renamed: 0, conflicts: 0 },
 				result,

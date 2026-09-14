@@ -4,6 +4,7 @@ import {
 	fingerprint,
 	lastRun,
 	planActionUndo,
+	planTrelloUndo,
 	type SyncRun,
 } from "../src/core/syncHistory";
 
@@ -115,5 +116,136 @@ describe("planActionUndo", () => {
 			{ exists: true, content: "something-new" },
 		);
 		expect(plan).toEqual({ op: "skip", reason: "a note already exists at that path" });
+	});
+});
+
+describe("planTrelloUndo", () => {
+	test("trello-card: reverts every field when nothing changed remotely since the run", () => {
+		const plan = planTrelloUndo(
+			{
+				kind: "trello-card",
+				path: "n.md",
+				cardId: "c1",
+				previous: { name: "Old name", desc: "Old desc" },
+				written: { name: "New name", desc: "New desc" },
+			},
+			{ kind: "card", fields: { name: "New name", desc: "New desc" } },
+		);
+		expect(plan).toEqual({ op: "update-card", cardId: "c1", fields: { name: "Old name", desc: "Old desc" } });
+	});
+
+	test("trello-card: reverts only the fields still equal to what the run wrote", () => {
+		const plan = planTrelloUndo(
+			{
+				kind: "trello-card",
+				path: "n.md",
+				cardId: "c1",
+				previous: { name: "Old name", desc: "Old desc" },
+				written: { name: "New name", desc: "New desc" },
+			},
+			{ kind: "card", fields: { name: "New name", desc: "Someone else's desc" } },
+		);
+		expect(plan).toEqual({ op: "update-card", cardId: "c1", fields: { name: "Old name" } });
+	});
+
+	test("trello-card: skips when every written field changed remotely since the run", () => {
+		const plan = planTrelloUndo(
+			{
+				kind: "trello-card",
+				path: "n.md",
+				cardId: "c1",
+				previous: { name: "Old name" },
+				written: { name: "New name" },
+			},
+			{ kind: "card", fields: { name: "Someone else's name" } },
+		);
+		expect(plan).toEqual({ op: "skip", reason: "changed since the run" });
+	});
+
+	test("trello-card: skips when the card no longer exists", () => {
+		const plan = planTrelloUndo(
+			{
+				kind: "trello-card",
+				path: "n.md",
+				cardId: "c1",
+				previous: { name: "Old name" },
+				written: { name: "New name" },
+			},
+			null,
+		);
+		expect(plan).toEqual({ op: "skip", reason: "card no longer exists" });
+	});
+
+	test("trello-card: skips as a no-op when previous equals written for every surviving field", () => {
+		const plan = planTrelloUndo(
+			{
+				kind: "trello-card",
+				path: "n.md",
+				cardId: "c1",
+				previous: { name: "Same name", due: null },
+				written: { name: "Same name", due: null },
+			},
+			{ kind: "card", fields: { name: "Same name", due: null } },
+		);
+		expect(plan).toEqual({ op: "skip", reason: "nothing to revert" });
+	});
+
+	test("trello-card: compares idLabels by ordered array equality", () => {
+		const plan = planTrelloUndo(
+			{
+				kind: "trello-card",
+				path: "n.md",
+				cardId: "c1",
+				previous: { idLabels: ["a", "b"] },
+				written: { idLabels: ["b", "a"] },
+			},
+			{ kind: "card", fields: { idLabels: ["a", "b"] } },
+		);
+		expect(plan).toEqual({ op: "skip", reason: "changed since the run" });
+	});
+
+	test("trello-checkitem: reverts when the state is unchanged since the run", () => {
+		const plan = planTrelloUndo(
+			{
+				kind: "trello-checkitem",
+				path: "n.md",
+				cardId: "c1",
+				checkItemId: "ci1",
+				previousState: "incomplete",
+				writtenState: "complete",
+			},
+			{ kind: "checkitem", state: "complete" },
+		);
+		expect(plan).toEqual({ op: "set-check-item", cardId: "c1", checkItemId: "ci1", state: "incomplete" });
+	});
+
+	test("trello-checkitem: skips when re-toggled by someone else since the run", () => {
+		const plan = planTrelloUndo(
+			{
+				kind: "trello-checkitem",
+				path: "n.md",
+				cardId: "c1",
+				checkItemId: "ci1",
+				previousState: "incomplete",
+				writtenState: "complete",
+			},
+			{ kind: "checkitem", state: "incomplete" },
+		);
+		expect(plan).toEqual({ op: "skip", reason: "changed since the run" });
+	});
+
+	test("trello-checkitem: skips when the card no longer exists", () => {
+		const plan = planTrelloUndo(
+			{
+				kind: "trello-checkitem",
+				path: "n.md",
+				cardId: "c1",
+				checkItemId: "ci1",
+				previousState: "incomplete",
+				writtenState: "complete",
+			},
+			null,
+		);
+		expect(plan).toEqual({ op: "skip", reason: "card no longer exists" });
 	});
 });

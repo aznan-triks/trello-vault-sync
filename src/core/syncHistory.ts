@@ -1,5 +1,5 @@
 /** One reversible write a sync made, as recorded by `features/syncHistoryRecorder.ts`. */
-export type SyncActionKind = "body" | "frontmatter" | "create" | "rename" | "trash";
+export type SyncActionKind = "body" | "frontmatter" | "create" | "rename" | "trash" | "trello-card" | "trello-checkitem";
 
 interface SyncActionBase {
 	kind: SyncActionKind;
@@ -32,7 +32,40 @@ export interface TrashAction extends SyncActionBase {
 	previousContent: string;
 }
 
-export type SyncAction = BodyOrFrontmatterAction | CreateAction | RenameAction | TrashAction;
+/** Card fields as recorded by a Trello write: `updateCard(cardId, {name?, desc?, due?, idLabels?})`. */
+export interface TrelloCardFields {
+	name?: string;
+	desc?: string;
+	due?: string | null;
+	idLabels?: string[];
+}
+
+/** Card fields as they were immediately before a push, and as the push left them. Only the fields the push actually wrote appear. */
+export interface TrelloCardUpdateAction {
+	kind: "trello-card";
+	/** Path of the note whose sync made this write — lets per-note undo filter on it, exactly like the vault actions. */
+	path: string;
+	cardId: string;
+	previous: TrelloCardFields;
+	written: TrelloCardFields;
+}
+
+export interface TrelloCheckItemAction {
+	kind: "trello-checkitem";
+	path: string;
+	cardId: string;
+	checkItemId: string;
+	previousState: "complete" | "incomplete";
+	writtenState: "complete" | "incomplete";
+}
+
+export type SyncAction =
+	| BodyOrFrontmatterAction
+	| CreateAction
+	| RenameAction
+	| TrashAction
+	| TrelloCardUpdateAction
+	| TrelloCheckItemAction;
 
 /** One completed sync, as an ordered, invertible list of the writes it made. */
 export interface SyncRun {
@@ -87,7 +120,10 @@ export type UndoPlan =
  * "trash", an exact absence) is a "skip", never a silent overwrite of content
  * the user changed after the run.
  */
-export function planActionUndo(action: SyncAction, current: { exists: boolean; content: string | null }): UndoPlan {
+export function planActionUndo(
+	action: BodyOrFrontmatterAction | CreateAction | RenameAction | TrashAction,
+	current: { exists: boolean; content: string | null },
+): UndoPlan {
 	switch (action.kind) {
 		case "body":
 		case "frontmatter": {
@@ -108,6 +144,74 @@ export function planActionUndo(action: SyncAction, current: { exists: boolean; c
 		case "trash": {
 			if (current.exists) return { op: "skip", reason: "a note already exists at that path" };
 			return { op: "create", path: action.path, content: action.previousContent };
+		}
+	}
+}
+
+/**
+ * What a Trello object looks like right now, as read back just before an undo.
+ * Discriminated rather than a bare union of shapes: `planTrelloUndo` then cannot
+ * compare a checklist item's state against a card's fields even by accident.
+ * `null` means it could not be read at all (deleted card, failed request).
+ */
+export type CurrentTrelloState =
+	| { kind: "card"; fields: TrelloCardFields }
+	| { kind: "checkitem"; state: "complete" | "incomplete" }
+	| null;
+
+/** What `features/rollback.ts` should do to Trello to invert one Trello write, decided without touching any network call. */
+export type TrelloUndoPlan =
+	| { op: "update-card"; cardId: string; fields: TrelloCardFields }
+	| { op: "set-check-item"; cardId: string; checkItemId: string; state: "complete" | "incomplete" }
+	| { op: "skip"; reason: string };
+
+function idLabelsEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+	if (a === undefined || b === undefined) return a === b;
+	if (a.length !== b.length) return false;
+	return a.every((value, index) => value === b[index]);
+}
+
+function trelloFieldEquals<K extends keyof TrelloCardFields>(field: K, a: TrelloCardFields, b: TrelloCardFields): boolean {
+	if (field === "idLabels") return idLabelsEqual(a.idLabels, b.idLabels);
+	return a[field] === b[field];
+}
+
+/**
+ * Decides how to invert one Trello write given the card's *current* remote
+ * state — pure so every edge case (card gone, field changed remotely, field
+ * re-toggled) is a plain unit test, no live Trello call required. Fail Fast:
+ * a field is only reverted when it still holds exactly what the run wrote;
+ * anything else is dropped from the revert rather than silently overwritten.
+ */
+export function planTrelloUndo(
+	action: TrelloCardUpdateAction | TrelloCheckItemAction,
+	current: CurrentTrelloState,
+): TrelloUndoPlan {
+	if (current === null) return { op: "skip", reason: "card no longer exists" };
+
+	switch (action.kind) {
+		case "trello-card": {
+			// Discriminated, so a caller that fetched the wrong thing is a compile
+			// error at the call site and a loud skip here — never a silent
+			// comparison of a checklist state against card fields.
+			if (current.kind !== "card") return { op: "skip", reason: "unexpected remote state" };
+			const fields: TrelloCardFields = {};
+			for (const key of Object.keys(action.written) as (keyof TrelloCardFields)[]) {
+				if (!trelloFieldEquals(key, current.fields, action.written)) continue;
+				(fields as Record<string, unknown>)[key] = action.previous[key];
+			}
+			if (Object.keys(fields).length === 0) return { op: "skip", reason: "changed since the run" };
+			const revertsSomething = (Object.keys(fields) as (keyof TrelloCardFields)[]).some(
+				(key) => !trelloFieldEquals(key, fields, action.written),
+			);
+			if (!revertsSomething) return { op: "skip", reason: "nothing to revert" };
+			return { op: "update-card", cardId: action.cardId, fields };
+		}
+		case "trello-checkitem": {
+			if (current.kind !== "checkitem") return { op: "skip", reason: "unexpected remote state" };
+			if (current.state !== action.writtenState) return { op: "skip", reason: "changed since the run" };
+			if (action.previousState === action.writtenState) return { op: "skip", reason: "nothing to revert" };
+			return { op: "set-check-item", cardId: action.cardId, checkItemId: action.checkItemId, state: action.previousState };
 		}
 	}
 }
