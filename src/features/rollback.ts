@@ -125,10 +125,12 @@ async function applyUndo(
 	client: TrelloClient | undefined,
 	cache: TrelloStateCache,
 	signal?: AbortSignal,
+	trelloRevertDisabled = false,
 ): Promise<UndoOutcome> {
 	if (action.kind === "trello-card" || action.kind === "trello-checkitem") {
 		if (!client) {
-			log("skip", `${action.path} — Trello revert needs a connection`);
+			const reason = trelloRevertDisabled ? "disabled in settings" : "needs a connection";
+			log("skip", `${action.path} — Trello revert ${reason}`);
 			return "skipped";
 		}
 		let current: CurrentTrelloState = null;
@@ -217,8 +219,11 @@ function tally(stats: UndoStats, outcome: UndoOutcome): void {
  * and block "Undo last sync run".
  *
  * `client` is optional — without it, Trello-side actions (`trello-card`,
- * `trello-checkitem`) are skipped with a "needs a connection" message rather
- * than reverted; every existing caller that never passed one keeps behaving
+ * `trello-checkitem`) are skipped rather than reverted; the skip message says
+ * "needs a connection" unless `trelloRevertDisabled` is true, in which case it
+ * says "disabled in settings" — the caller's `historyRevertTrelloWrites`
+ * setting is off, so no client was ever passed on purpose, not because one is
+ * missing. Every existing caller that never passed either keeps behaving
  * exactly as before.
  */
 export async function undoSelectedActions(
@@ -228,6 +233,7 @@ export async function undoSelectedActions(
 	log: (level: LogLevel, message: string) => void = () => {},
 	signal?: AbortSignal,
 	client?: TrelloClient,
+	trelloRevertDisabled = false,
 ): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
 	const stats: UndoStats = { reverted: 0, revertedRemote: 0, skipped: 0 };
 	const cache = createTrelloCache();
@@ -246,7 +252,7 @@ export async function undoSelectedActions(
 			kept.set(index, action);
 			continue;
 		}
-		const outcome = await applyUndo(vault, action, log, client, cache, signal);
+		const outcome = await applyUndo(vault, action, log, client, cache, signal, trelloRevertDisabled);
 		tally(stats, outcome);
 	}
 
@@ -257,7 +263,7 @@ export async function undoSelectedActions(
 /**
  * Undoes every action of a run — `undoSelectedActions` with every action selected.
  * See its doc comment for the exact contract (abort behaviour, skipped actions,
- * optional `client`).
+ * optional `client`, `trelloRevertDisabled`).
  */
 export function undoRun(
 	vault: VaultGateway,
@@ -265,8 +271,9 @@ export function undoRun(
 	log: (level: LogLevel, message: string) => void = () => {},
 	signal?: AbortSignal,
 	client?: TrelloClient,
+	trelloRevertDisabled = false,
 ): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
-	return undoSelectedActions(vault, run, () => true, log, signal, client);
+	return undoSelectedActions(vault, run, () => true, log, signal, client, trelloRevertDisabled);
 }
 
 /**
@@ -280,6 +287,7 @@ export function undoRunForNote(
 	log: (level: LogLevel, message: string) => void = () => {},
 	signal?: AbortSignal,
 	client?: TrelloClient,
+	trelloRevertDisabled = false,
 ): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
-	return undoSelectedActions(vault, run, (action) => action.path === notePath, log, signal, client);
+	return undoSelectedActions(vault, run, (action) => action.path === notePath, log, signal, client, trelloRevertDisabled);
 }

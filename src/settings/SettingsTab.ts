@@ -19,6 +19,7 @@ import {
 	AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
 	BASE_DELAY_MS_CEILING,
 	HISTORY_MAX_RUNS_CEILING,
+	MAX_BACKOFF_DELAY_MS_CEILING,
 	MAX_RETRIES_CEILING,
 	REQUEST_TIMEOUT_MS_CEILING,
 	normalizeVaultPath,
@@ -651,6 +652,34 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Revert Trello writes on undo")
+			.setDesc(
+				"On: undoing a run also reverts the Trello-side writes it made (a card's fields, a checklist " +
+					"item's state). Off: only vault writes are reverted — Trello actions are skipped and reported " +
+					"as disabled in settings.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.historyRevertTrelloWrites).onChange((value) => {
+					this.plugin.settings.historyRevertTrelloWrites = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Confirm before undoing")
+			.setDesc(
+				'On: "Undo last sync run" and "Undo last sync for the active note" ask for confirmation before ' +
+					'writing anything. Off disables the modal for repeated use. "Undo a sync run (pick what to ' +
+					'undo)" already ends on its own explicit confirm button and is unaffected by this setting.',
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.confirmUndo).onChange((value) => {
+					this.plugin.settings.confirmUndo = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Sync history — runs kept")
 			.setDesc("Oldest run is dropped once this many are recorded.")
 			.addText((text) =>
@@ -1031,6 +1060,21 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						parsed,
 						0,
 						REQUEST_TIMEOUT_MS_CEILING,
+					);
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Max retry wait (ms)")
+			.setDesc("Ceiling on a single retry wait, regardless of how many attempts have already doubled the delay.")
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.maxBackoffDelayMs)).onChange((value) => {
+					const parsed = Number.parseInt(value, 10);
+					this.plugin.settings.maxBackoffDelayMs = safeNonNegativeNumber(
+						parsed,
+						0,
+						MAX_BACKOFF_DELAY_MS_CEILING,
 					);
 					void this.save();
 				}),

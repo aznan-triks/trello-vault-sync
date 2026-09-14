@@ -16,6 +16,35 @@ vi.mock("obsidian", () => ({
 let lastRunPicker: { runs: readonly SyncRun[]; onPick: (run: SyncRun) => void } | undefined;
 let lastActionPicker: { run: SyncRun; onConfirm: (selected: ReadonlySet<number>) => void } | undefined;
 
+// `ConfirmModal` is a real UI class extending obsidian's `Modal`. Swapped for
+// a bare fake that captures the confirm callback instead of opening any DOM,
+// so a test can assert the gate opened without confirming it, or confirm it
+// on demand. Read through `currentConfirm()` rather than the field directly —
+// TypeScript's control-flow narrowing otherwise pins the field to `undefined`
+// across the `await` that lets the mocked constructor below actually set it,
+// and then reports the property access as an error on type `never`; a
+// function call's return type isn't narrowed that way.
+const confirmBox: { current: { message: string; confirmLabel: string; onConfirm: () => void } | undefined } = {
+	current: undefined,
+};
+function currentConfirm(): { message: string; confirmLabel: string; onConfirm: () => void } | undefined {
+	return confirmBox.current;
+}
+
+vi.mock("../src/ui/ConfirmModal", () => ({
+	ConfirmModal: class {
+		constructor(
+			_app: unknown,
+			message: string,
+			onConfirm: () => void,
+			confirmLabel = "Continue",
+		) {
+			confirmBox.current = { message, confirmLabel, onConfirm };
+		}
+		open(): void {}
+	},
+}));
+
 vi.mock("../src/ui/SyncRunPickerModal", () => ({
 	SyncRunPickerModal: class {
 		constructor(
@@ -42,7 +71,7 @@ vi.mock("../src/ui/SyncActionPickerModal", () => ({
 	},
 }));
 
-import { undoLastSyncRun, undoSyncRunPicked } from "../src/commands/historyCommands";
+import { undoLastSyncRun, undoLastSyncForActiveNote, undoSyncRunPicked } from "../src/commands/historyCommands";
 import type { CommandContext } from "../src/commands/context";
 import type { SyncAction, SyncRun } from "../src/core/syncHistory";
 import { silentReporter } from "../src/obsidian/gateway";
@@ -56,7 +85,10 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 	return {
 		app: {} as CommandContext["app"],
 		vault: new FakeVault(),
-		settings: { ...DEFAULT_SETTINGS, boardId: "board" },
+		// `confirmUndo` defaults to on; set explicitly to false here so these
+		// tests keep exercising the undo directly, without a `ConfirmModal` in
+		// the way (that gate is covered on its own further down).
+		settings: { ...DEFAULT_SETTINGS, boardId: "board", confirmUndo: false },
 		journal: [],
 		history: [],
 		recordSyncRun: async () => {},
@@ -224,5 +256,128 @@ describe("undoSyncRunPicked", () => {
 		await undoSyncRunPicked(ctx);
 
 		expect(lastRunPicker).toBeUndefined();
+	});
+});
+
+describe("confirmUndo", () => {
+	test("undoLastSyncRun: on, asks for confirmation first and reverts nothing until confirmed", async () => {
+		confirmBox.current = undefined;
+		const vault = new FakeVault({ "a.md": { content: "original" } });
+		const actions: SyncAction[] = [];
+		const wrapped = wrapWithHistoryRecorder(vault, (a) => actions.push(a));
+		await wrapped.write(vault.note("a.md"), "synced");
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions };
+		let historyAfter: readonly SyncRun[] | undefined;
+
+		const ctx = fakeContext({
+			vault,
+			history: [run],
+			settings: { ...DEFAULT_SETTINGS, boardId: "board", confirmUndo: true },
+			setHistory: async (next) => {
+				historyAfter = next;
+			},
+		});
+
+		await undoLastSyncRun(ctx);
+
+		// Not reverted yet — waiting on the (mocked) modal's own confirm click.
+		expect(vault.contentOf("a.md")).toBe("synced");
+		expect(historyAfter).toBeUndefined();
+		expect(currentConfirm()).toBeDefined();
+
+		const confirm = currentConfirm();
+		confirm?.onConfirm();
+		await vi.waitFor(() => expect(historyAfter).toBeDefined());
+		expect(vault.contentOf("a.md")).toBe("original");
+	});
+
+	test("undoLastSyncForActiveNote: on, asks for confirmation first", async () => {
+		confirmBox.current = undefined;
+		const vault = new FakeVault({ "a.md": { content: "original" } });
+		const actions: SyncAction[] = [];
+		const wrapped = wrapWithHistoryRecorder(vault, (a) => actions.push(a));
+		await wrapped.write(vault.note("a.md"), "synced");
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions };
+		let historyAfter: readonly SyncRun[] | undefined;
+
+		const ctx = fakeContext({
+			vault,
+			history: [run],
+			settings: { ...DEFAULT_SETTINGS, boardId: "board", confirmUndo: true },
+			activeNote: () => ({ path: "a.md", basename: "a" }) as never,
+			setHistory: async (next) => {
+				historyAfter = next;
+			},
+		});
+
+		await undoLastSyncForActiveNote(ctx);
+
+		expect(vault.contentOf("a.md")).toBe("synced");
+		expect(currentConfirm()).toBeDefined();
+
+		const confirm = currentConfirm();
+		confirm?.onConfirm();
+		await vi.waitFor(() => expect(historyAfter).toBeDefined());
+		expect(vault.contentOf("a.md")).toBe("original");
+	});
+
+	test("off, undoes immediately with no modal", async () => {
+		confirmBox.current = undefined;
+		const vault = new FakeVault({ "a.md": { content: "original" } });
+		const actions: SyncAction[] = [];
+		const wrapped = wrapWithHistoryRecorder(vault, (a) => actions.push(a));
+		await wrapped.write(vault.note("a.md"), "synced");
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions };
+		const ctx = fakeContext({
+			vault,
+			history: [run],
+			settings: { ...DEFAULT_SETTINGS, boardId: "board", confirmUndo: false },
+		});
+
+		await undoLastSyncRun(ctx);
+
+		expect(currentConfirm()).toBeUndefined();
+		expect(vault.contentOf("a.md")).toBe("original");
+	});
+});
+
+describe("historyRevertTrelloWrites", () => {
+	test("off: undoLastSyncRun skips Trello actions as disabled in settings, not as missing a connection", async () => {
+		const vault = new FakeVault();
+		const trelloAction: SyncAction = {
+			kind: "trello-card",
+			path: "a.md",
+			cardId: "c1",
+			previous: { name: "old" },
+			written: { name: "new" },
+		};
+		const run: SyncRun = { timestamp: "t", scope: "", actions: [trelloAction] };
+		const logs: Array<{ level: string; message: string }> = [];
+
+		const ctx = fakeContext({
+			vault,
+			history: [run],
+			settings: { ...DEFAULT_SETTINGS, boardId: "board", confirmUndo: false, historyRevertTrelloWrites: false },
+			run: async (_title, body) => {
+				await body(
+					{
+						setTotal: () => {},
+						step: () => {},
+						count: () => {},
+						log: (level, message) => logs.push({ level, message }),
+						finish: () => {},
+					},
+					new AbortController().signal,
+				);
+			},
+		});
+
+		await undoLastSyncRun(ctx);
+
+		expect(logs).toContainEqual({ level: "skip", message: "a.md — Trello revert disabled in settings" });
+		expect(logs.some((entry) => entry.message.includes("needs a connection"))).toBe(false);
 	});
 });
