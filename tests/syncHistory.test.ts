@@ -1,10 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
 	appendSyncRun,
+	describeSyncAction,
 	fingerprint,
 	lastRun,
 	planActionUndo,
 	planTrelloUndo,
+	replaceRunAt,
+	type SyncAction,
 	type SyncRun,
 } from "../src/core/syncHistory";
 
@@ -42,6 +45,88 @@ describe("lastRun", () => {
 
 	test("returns undefined for an empty history", () => {
 		expect(lastRun([])).toBeUndefined();
+	});
+});
+
+describe("replaceRunAt", () => {
+	const action = (path: string): SyncAction => ({ kind: "create", path, fingerprint: "x" });
+	const run = (scope: string, actions: SyncAction[] = [action("a.md")]): SyncRun => ({
+		timestamp: "t",
+		scope,
+		actions,
+	});
+
+	test("replaces the run at the given index, leaving the others in place", () => {
+		const runs = [run("a"), run("b"), run("c")];
+		const replaced = run("b", [action("x.md")]);
+		expect(replaceRunAt(runs, 1, replaced)).toEqual([run("a"), replaced, run("c")]);
+	});
+
+	test("drops the run entirely when it has no actions left", () => {
+		const runs = [run("a"), run("b"), run("c")];
+		expect(replaceRunAt(runs, 1, run("b", []))).toEqual([run("a"), run("c")]);
+	});
+
+	test("does not mutate the input array", () => {
+		const runs = [run("a"), run("b")];
+		const copy = [...runs];
+		replaceRunAt(runs, 0, run("a", []));
+		expect(runs).toEqual(copy);
+	});
+});
+
+describe("describeSyncAction", () => {
+	test("body: kind and path, no content", () => {
+		expect(describeSyncAction({ kind: "body", path: "a.md", fingerprint: "x", previousContent: "secret" })).toBe(
+			"Body — a.md",
+		);
+	});
+
+	test("frontmatter: kind and path", () => {
+		expect(
+			describeSyncAction({ kind: "frontmatter", path: "a.md", fingerprint: "x", previousContent: "secret" }),
+		).toBe("Frontmatter — a.md");
+	});
+
+	test("create: kind and path", () => {
+		expect(describeSyncAction({ kind: "create", path: "a.md", fingerprint: "x" })).toBe("Created — a.md");
+	});
+
+	test("rename: shows both paths", () => {
+		expect(describeSyncAction({ kind: "rename", path: "b.md", previousPath: "a.md", fingerprint: "x" })).toBe(
+			"Renamed — a.md → b.md",
+		);
+	});
+
+	test("trash: kind and path", () => {
+		expect(describeSyncAction({ kind: "trash", path: "a.md", fingerprint: null, previousContent: "secret" })).toBe(
+			"Trashed — a.md",
+		);
+	});
+
+	test("trello-card: kind, path and card id, no field values", () => {
+		expect(
+			describeSyncAction({
+				kind: "trello-card",
+				path: "a.md",
+				cardId: "c1",
+				previous: { name: "Old" },
+				written: { name: "New" },
+			}),
+		).toBe("Trello card update — a.md (card c1)");
+	});
+
+	test("trello-checkitem: kind, path and card id, no state values", () => {
+		expect(
+			describeSyncAction({
+				kind: "trello-checkitem",
+				path: "a.md",
+				cardId: "c1",
+				checkItemId: "i1",
+				previousState: "incomplete",
+				writtenState: "complete",
+			}),
+		).toBe("Trello checklist item — a.md (card c1)");
 	});
 });
 

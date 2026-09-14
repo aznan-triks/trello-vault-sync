@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.2] — 2026-09-14
+
+### Added
+
+- **Plain**: You can now undo any recorded sync, not just the last one, and pick
+  exactly which of its changes to undo. Everything you leave unchecked stays in
+  history, still undoable later.
+  **Technical**: new command `undo-sync-run-picked` ("Undo a sync run (pick what
+  to undo)", `commands/registry.ts`, so it shows in the palette and the sidebar):
+  `SyncRunPickerModal` (fuzzy pick of a run) then `SyncActionPickerModal` (one
+  toggle per action, labelled by the pure `describeSyncAction`, never showing
+  content). Nothing checked → nothing undone, and the notice says so.
+
+### Changed
+
+- **Plain**: "Show sync history" now tells you how to undo an older run or part
+  of one.
+  **Technical**: one extra log line in `showSyncHistory` pointing to the new command.
+- **Plain**: No visible change to "Undo last sync run" or "Undo last sync for the
+  active note" — they now share the same engine as the new command.
+  **Technical**: `features/rollback.ts` has a single `undoSelectedActions`;
+  `undoRun`/`undoRunForNote` are thin calls to it. History is rebuilt by the pure
+  `replaceRunAt` (`core/syncHistory.ts`) instead of two hand-written
+  `slice(0, -1)` in `historyCommands.ts`, so a run in the middle of history can
+  be replaced or removed.
 ## [1.15.1] — 2026-09-14
 
 ### Added

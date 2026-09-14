@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { SyncAction, SyncRun, TrelloCardUpdateAction, TrelloCheckItemAction } from "../src/core/syncHistory";
-import { undoRun, undoRunForNote } from "../src/features/rollback";
+import { undoRun, undoRunForNote, undoSelectedActions } from "../src/features/rollback";
 import { wrapWithHistoryRecorder } from "../src/features/syncHistoryRecorder";
 import { TrelloClient, type HttpRequest, type HttpResponse } from "../src/trello/client";
 import { card, FakeVault, routedTransport } from "./fakes";
@@ -371,5 +371,146 @@ describe("undoRun — Trello side", () => {
 
 		expect(stats).toEqual({ reverted: 1, revertedRemote: 0, skipped: 0 });
 		expect(vault.contentOf("a.md")).toBe("a-original");
+	});
+});
+
+describe("undoSelectedActions", () => {
+	test("undoes only the actions at the selected indices, leaving the others in the run untouched and in place", async () => {
+		const vault = new FakeVault({
+			"a.md": { content: "a-original" },
+			"b.md": { content: "b-original" },
+			"c.md": { content: "c-original" },
+		});
+		const { wrapped, actions } = record(vault);
+		await wrapped.write(vault.note("a.md"), "a-synced"); // index 0
+		await wrapped.write(vault.note("b.md"), "b-synced"); // index 1
+		await wrapped.write(vault.note("c.md"), "c-synced"); // index 2
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions };
+		const selected = new Set([0, 2]);
+		const { stats, remainingRun } = await undoSelectedActions(vault, run, (_action, index) => selected.has(index));
+
+		expect(stats).toEqual({ reverted: 2, revertedRemote: 0, skipped: 0 });
+		expect(vault.contentOf("a.md")).toBe("a-original");
+		expect(vault.contentOf("b.md")).toBe("b-synced");
+		expect(vault.contentOf("c.md")).toBe("c-original");
+		expect(remainingRun.actions.map((a) => a.path)).toEqual(["b.md"]);
+	});
+
+	test("a selected action that gets skipped (note changed since the run) leaves the run, same as before undoSelectedActions existed", async () => {
+		const vault = new FakeVault({
+			"a.md": { content: "a-original" },
+			"b.md": { content: "b-original" },
+		});
+		const { wrapped, actions } = record(vault);
+		await wrapped.write(vault.note("a.md"), "a-synced"); // index 0
+		await wrapped.write(vault.note("b.md"), "b-synced"); // index 1
+
+		// The user edits "a.md" after the sync ran — its undo will be skipped.
+		await vault.write(vault.note("a.md"), "user's own edit");
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions };
+		const { stats, remainingRun } = await undoSelectedActions(vault, run, () => true);
+
+		expect(stats).toEqual({ reverted: 1, revertedRemote: 0, skipped: 1 });
+		expect(vault.contentOf("a.md")).toBe("user's own edit");
+		expect(vault.contentOf("b.md")).toBe("b-original");
+		// A skipped undo would be skipped again next time (the note still diverges),
+		// so keeping it would pin this run as "last" forever and block "Undo last sync run".
+		expect(remainingRun.actions).toEqual([]);
+	});
+
+	test("empty selection: no writes, history unchanged", async () => {
+		const vault = new FakeVault({ "a.md": { content: "a-original" } });
+		const { wrapped, actions } = record(vault);
+		await wrapped.write(vault.note("a.md"), "a-synced");
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions };
+		const { stats, remainingRun } = await undoSelectedActions(vault, run, () => false);
+
+		expect(stats).toEqual({ reverted: 0, revertedRemote: 0, skipped: 0 });
+		expect(vault.contentOf("a.md")).toBe("a-synced");
+		expect(remainingRun).toEqual(run);
+	});
+
+	test("selecting every action empties the run", async () => {
+		const vault = new FakeVault({ "a.md": { content: "a-original" } });
+		const { wrapped, actions } = record(vault);
+		await wrapped.write(vault.note("a.md"), "a-synced");
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions };
+		const { stats, remainingRun } = await undoSelectedActions(vault, run, () => true);
+
+		expect(stats).toEqual({ reverted: 1, revertedRemote: 0, skipped: 0 });
+		expect(remainingRun.actions).toHaveLength(0);
+	});
+
+	test("covers Trello action kinds: a selected trello-card action reverts, an unselected trello-checkitem action stays", async () => {
+		const vault = new FakeVault({ "a.md": { content: "note" } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1": card({ id: "c1", name: "New", desc: "", due: null, labels: [] }),
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const cardAction: TrelloCardUpdateAction = {
+			kind: "trello-card",
+			path: "a.md",
+			cardId: "c1",
+			previous: { name: "Old" },
+			written: { name: "New" },
+		};
+		const checkItemAction: TrelloCheckItemAction = {
+			kind: "trello-checkitem",
+			path: "a.md",
+			cardId: "c1",
+			checkItemId: "i1",
+			previousState: "incomplete",
+			writtenState: "complete",
+		};
+		const run: SyncRun = { timestamp: "t", scope: "", actions: [checkItemAction, cardAction] };
+
+		const { stats, remainingRun } = await undoSelectedActions(
+			vault,
+			run,
+			(action) => action.kind === "trello-card",
+			() => {},
+			undefined,
+			client,
+		);
+
+		expect(stats).toEqual({ reverted: 0, revertedRemote: 1, skipped: 0 });
+		const put = requests.find((r) => r.method === "PUT" && r.url.includes("/cards/c1"));
+		expect(put).toBeDefined();
+		expect(remainingRun.actions).toEqual([checkItemAction]);
+	});
+
+	test("aborting mid-way keeps unselected actions, the not-yet-reached selected actions, and preserves original order", async () => {
+		const vault = new FakeVault({
+			"a.md": { content: "a-original" },
+			"b.md": { content: "b-original" },
+			"c.md": { content: "c-original" },
+		});
+		const { wrapped, actions } = record(vault);
+		await wrapped.write(vault.note("a.md"), "a-synced"); // index 0, not selected
+		await wrapped.write(vault.note("b.md"), "b-synced"); // index 1, selected
+		await wrapped.write(vault.note("c.md"), "c-synced"); // index 2, selected
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions };
+		const controller = new AbortController();
+		const selected = new Set([1, 2]);
+		// Reverse order visits c first (selected) — its log callback aborts before b is reached.
+		const { stats, remainingRun } = await undoSelectedActions(
+			vault,
+			run,
+			(_action, index) => selected.has(index),
+			() => controller.abort(),
+			controller.signal,
+		);
+
+		expect(stats).toEqual({ reverted: 1, revertedRemote: 0, skipped: 0 });
+		expect(vault.contentOf("c.md")).toBe("c-original");
+		expect(vault.contentOf("b.md")).toBe("b-synced");
+		expect(vault.contentOf("a.md")).toBe("a-synced");
+		expect(remainingRun.actions.map((a) => a.path)).toEqual(["a.md", "b.md"]);
 	});
 });
