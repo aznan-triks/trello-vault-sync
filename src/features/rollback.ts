@@ -200,52 +200,80 @@ function tally(stats: UndoStats, outcome: UndoOutcome): void {
 }
 
 /**
- * Undoes every action of a run, in reverse chronological order (last write undone first).
+ * Undoes the actions of a run for which `isSelected` returns `true`, in
+ * reverse chronological order (last write undone first) — the single engine
+ * behind `undoRun` (select everything) and `undoRunForNote` (select one
+ * note's actions), and behind the "pick individual actions" command.
  *
- * `signal` is checked at the top of each iteration only — an in-flight action always
- * runs to completion, it is never interrupted mid-write. Actions never reached because
- * of the abort are returned in `remainingRun`, in their original order, so the caller
- * can keep them in history for a later undo.
+ * `signal` is checked at the top of each iteration only — an in-flight action
+ * always runs to completion, it is never interrupted mid-write.
+ *
+ * `remainingRun` keeps, in original order:
+ *  - every unselected action (never touched);
+ *  - every selected action the loop never reached because of an abort.
+ * A selected action that was processed is dropped whether it reverted or was
+ * skipped: a skip (e.g. the note changed since the run) would be skipped again
+ * on every later attempt, so keeping it would pin the run as "last" forever
+ * and block "Undo last sync run".
  *
  * `client` is optional — without it, Trello-side actions (`trello-card`,
  * `trello-checkitem`) are skipped with a "needs a connection" message rather
  * than reverted; every existing caller that never passed one keeps behaving
  * exactly as before.
  */
-export async function undoRun(
+export async function undoSelectedActions(
 	vault: VaultGateway,
 	run: SyncRun,
+	isSelected: (action: SyncAction, index: number) => boolean,
 	log: (level: LogLevel, message: string) => void = () => {},
 	signal?: AbortSignal,
 	client?: TrelloClient,
 ): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
 	const stats: UndoStats = { reverted: 0, revertedRemote: 0, skipped: 0 };
 	const cache = createTrelloCache();
-	const reversed = [...run.actions].reverse();
-	let processed = 0;
-	for (const action of reversed) {
-		if (signal?.aborted) break;
+	const kept = new Map<number, SyncAction>();
+	let stop = false;
+
+	for (let index = run.actions.length - 1; index >= 0; index--) {
+		const action = run.actions[index];
+		if (!action) continue;
+		if (stop || !isSelected(action, index)) {
+			kept.set(index, action);
+			continue;
+		}
+		if (signal?.aborted) {
+			stop = true;
+			kept.set(index, action);
+			continue;
+		}
 		const outcome = await applyUndo(vault, action, log, client, cache, signal);
 		tally(stats, outcome);
-		processed++;
 	}
-	// Whatever the loop never reached is the earliest slice of the run — put it back in original order.
-	const remainingActions = reversed.slice(processed).reverse();
+
+	const remainingActions = run.actions.filter((_, index) => kept.has(index));
 	return { stats, remainingRun: { ...run, actions: remainingActions } };
 }
 
 /**
- * Undoes only the actions of a run that touch `notePath`, in reverse order.
- * Returns the run with those actions removed — the caller decides whether the
- * remaining run (if any actions are left) stays in history.
- *
- * `signal` is checked at the top of each iteration only, same contract as `undoRun`.
- * On abort, both the other-note actions (always carried over) and the not-yet-reached
- * target-note actions end up in `remainingRun`, in their original order.
- *
- * `client` behaves exactly as in `undoRun`.
+ * Undoes every action of a run — `undoSelectedActions` with every action selected.
+ * See its doc comment for the exact contract (abort behaviour, skipped actions,
+ * optional `client`).
  */
-export async function undoRunForNote(
+export function undoRun(
+	vault: VaultGateway,
+	run: SyncRun,
+	log: (level: LogLevel, message: string) => void = () => {},
+	signal?: AbortSignal,
+	client?: TrelloClient,
+): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
+	return undoSelectedActions(vault, run, () => true, log, signal, client);
+}
+
+/**
+ * Undoes only the actions of a run that touch `notePath` — `undoSelectedActions`
+ * filtered to that note's actions. See its doc comment for the exact contract.
+ */
+export function undoRunForNote(
 	vault: VaultGateway,
 	run: SyncRun,
 	notePath: string,
@@ -253,22 +281,5 @@ export async function undoRunForNote(
 	signal?: AbortSignal,
 	client?: TrelloClient,
 ): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
-	const stats: UndoStats = { reverted: 0, revertedRemote: 0, skipped: 0 };
-	const cache = createTrelloCache();
-	const reversed = [...run.actions].reverse();
-	const remaining: SyncAction[] = [];
-	let processed = 0;
-	for (const action of reversed) {
-		if (signal?.aborted) break;
-		processed++;
-		if (action.path !== notePath) {
-			remaining.unshift(action);
-			continue;
-		}
-		const outcome = await applyUndo(vault, action, log, client, cache, signal);
-		tally(stats, outcome);
-	}
-	// Not-yet-visited actions are the earliest slice of the run; put them back in original order ahead of the kept ones.
-	const unvisited = reversed.slice(processed).reverse();
-	return { stats, remainingRun: { ...run, actions: [...unvisited, ...remaining] } };
+	return undoSelectedActions(vault, run, (action) => action.path === notePath, log, signal, client);
 }

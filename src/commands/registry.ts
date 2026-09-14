@@ -183,6 +183,13 @@ export const COMMANDS: CommandDescriptor[] = [
 		run: (ctx) => historyCommands.undoLastSyncRun(ctx),
 	},
 	{
+		id: "undo-sync-run-picked",
+		name: "Undo a sync run (pick what to undo)",
+		icon: "list-checks",
+		section: "Vault",
+		run: (ctx) => historyCommands.undoSyncRunPicked(ctx),
+	},
+	{
 		id: "undo-last-sync-active-note",
 		name: "Undo last sync for the active note",
 		icon: "undo",

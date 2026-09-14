@@ -104,6 +104,48 @@ export function lastRun(runs: readonly SyncRun[]): SyncRun | undefined {
 	return runs[runs.length - 1];
 }
 
+/**
+ * Returns `runs` with the run at `index` replaced by `run` — or removed
+ * entirely when `run.actions` is empty, since an emptied run is nothing left
+ * to undo and clutters "Show sync history" with a dead entry. Pure: the
+ * caller (an undo command) decides what the replacement run looks like after
+ * reverting some of its actions; this only knows how to fold it back into the
+ * history array.
+ */
+export function replaceRunAt(runs: readonly SyncRun[], index: number, run: SyncRun): SyncRun[] {
+	if (run.actions.length === 0) return runs.filter((_, i) => i !== index);
+	return runs.map((existing, i) => (i === index ? run : existing));
+}
+
+/**
+ * One-line, human-facing label for an action: what kind of write it was and
+ * what it touched (a note's path, or a card's id) — never its content. Used
+ * by `SyncActionPickerModal` to list what the user can choose to undo,
+ * without exposing what the note or card actually held.
+ */
+export function describeSyncAction(action: SyncAction): string {
+	switch (action.kind) {
+		case "body":
+			return `Body — ${action.path}`;
+		case "frontmatter":
+			return `Frontmatter — ${action.path}`;
+		case "create":
+			return `Created — ${action.path}`;
+		case "rename":
+			return `Renamed — ${action.previousPath} → ${action.path}`;
+		case "trash":
+			return `Trashed — ${action.path}`;
+		case "trello-card":
+			return `Trello card update — ${action.path} (card ${action.cardId})`;
+		case "trello-checkitem":
+			return `Trello checklist item — ${action.path} (card ${action.cardId})`;
+		default: {
+			const exhaustive: never = action;
+			throw new Error(`Unhandled sync action kind: ${JSON.stringify(exhaustive)}`);
+		}
+	}
+}
+
 /** What `features/rollback.ts` should do to the vault to invert one action, decided without touching any IO. */
 export type UndoPlan =
 	| { op: "write"; path: string; content: string }

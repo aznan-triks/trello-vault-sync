@@ -9,7 +9,40 @@ vi.mock("obsidian", () => ({
 	},
 }));
 
-import { undoLastSyncRun } from "../src/commands/historyCommands";
+// `SyncRunPickerModal`/`SyncActionPickerModal` are real UI classes (they extend
+// obsidian's `FuzzySuggestModal`/`Modal`, stubbed above just enough for
+// `Notice`). Swapped here for bare fakes that capture the constructor
+// callback so a test can drive the two-step pick without any DOM.
+let lastRunPicker: { runs: readonly SyncRun[]; onPick: (run: SyncRun) => void } | undefined;
+let lastActionPicker: { run: SyncRun; onConfirm: (selected: ReadonlySet<number>) => void } | undefined;
+
+vi.mock("../src/ui/SyncRunPickerModal", () => ({
+	SyncRunPickerModal: class {
+		constructor(
+			_app: unknown,
+			runs: readonly SyncRun[],
+			onPick: (run: SyncRun) => void,
+		) {
+			lastRunPicker = { runs, onPick };
+		}
+		open(): void {}
+	},
+}));
+
+vi.mock("../src/ui/SyncActionPickerModal", () => ({
+	SyncActionPickerModal: class {
+		constructor(
+			_app: unknown,
+			run: SyncRun,
+			onConfirm: (selected: ReadonlySet<number>) => void,
+		) {
+			lastActionPicker = { run, onConfirm };
+		}
+		open(): void {}
+	},
+}));
+
+import { undoLastSyncRun, undoSyncRunPicked } from "../src/commands/historyCommands";
 import type { CommandContext } from "../src/commands/context";
 import type { SyncAction, SyncRun } from "../src/core/syncHistory";
 import { silentReporter } from "../src/obsidian/gateway";
@@ -107,5 +140,89 @@ describe("undoLastSyncRun", () => {
 
 		expect(vault.contentOf("a.md")).toBe("original");
 		expect(historyAfter).toEqual([]);
+	});
+});
+
+describe("undoSyncRunPicked", () => {
+	test("undoes only the checked actions of the picked run, wherever it sits in history, and leaves the rest untouched", async () => {
+		const vault = new FakeVault({
+			"a.md": { content: "a-original" },
+			"b.md": { content: "b-original" },
+		});
+		const actions: SyncAction[] = [];
+		const wrapped = wrapWithHistoryRecorder(vault, (a) => actions.push(a));
+		await wrapped.write(vault.note("a.md"), "a-synced"); // index 0
+		await wrapped.write(vault.note("b.md"), "b-synced"); // index 1
+
+		const olderRun: SyncRun = { timestamp: "t0", scope: "older", actions: [] };
+		const targetRun: SyncRun = { timestamp: "t1", scope: "", actions };
+		let historyAfter: readonly SyncRun[] | undefined;
+
+		const ctx = fakeContext({
+			vault,
+			history: [olderRun, targetRun],
+			setHistory: async (next) => {
+				historyAfter = next;
+			},
+		});
+
+		await undoSyncRunPicked(ctx);
+		expect(lastRunPicker?.runs).toEqual([olderRun, targetRun]);
+		lastRunPicker?.onPick(targetRun);
+		expect(lastActionPicker?.run).toBe(targetRun);
+
+		// Only "a.md" (index 0) is checked — "b.md" stays synced and its action stays in the run.
+		lastActionPicker?.onConfirm(new Set([0]));
+		await vi.waitFor(() => expect(historyAfter).toBeDefined());
+
+		expect(vault.contentOf("a.md")).toBe("a-original");
+		expect(vault.contentOf("b.md")).toBe("b-synced");
+		expect(historyAfter).toEqual([olderRun, { ...targetRun, actions: [actions[1]] }]);
+	});
+
+	test("empty selection: no writes, history unchanged, no undo triggered", async () => {
+		const vault = new FakeVault({ "a.md": { content: "a-original" } });
+		const actions: SyncAction[] = [];
+		const wrapped = wrapWithHistoryRecorder(vault, (a) => actions.push(a));
+		await wrapped.write(vault.note("a.md"), "a-synced");
+
+		const run: SyncRun = { timestamp: "t", scope: "", actions };
+		let setHistoryCalled = false;
+		const ctx = fakeContext({
+			vault,
+			history: [run],
+			setHistory: async () => {
+				setHistoryCalled = true;
+			},
+		});
+
+		await undoSyncRunPicked(ctx);
+		lastRunPicker?.onPick(run);
+		lastActionPicker?.onConfirm(new Set());
+
+		expect(vault.contentOf("a.md")).toBe("a-synced");
+		expect(setHistoryCalled).toBe(false);
+	});
+
+	test("does nothing when history is empty", async () => {
+		lastRunPicker = undefined;
+		const ctx = fakeContext({ history: [] });
+
+		await undoSyncRunPicked(ctx);
+
+		expect(lastRunPicker).toBeUndefined();
+	});
+
+	test("does nothing when sync history is disabled in settings", async () => {
+		lastRunPicker = undefined;
+		const run: SyncRun = { timestamp: "t", scope: "", actions: [] };
+		const ctx = fakeContext({
+			history: [run],
+			settings: { ...DEFAULT_SETTINGS, boardId: "board", historyEnabled: false },
+		});
+
+		await undoSyncRunPicked(ctx);
+
+		expect(lastRunPicker).toBeUndefined();
 	});
 });

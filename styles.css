@@ -298,3 +298,14 @@
 	justify-content: flex-end;
 	margin-top: 12px;
 }
+
+/* Sync action picker modal (undo a run, pick which actions) */
+
+.tvs-action-picker__hint {
+	color: var(--text-muted);
+}
+
+.tvs-action-picker__list {
+	max-height: 50vh;
+	overflow-y: auto;
+}
