@@ -5,7 +5,7 @@ import {
 	DEFAULT_SYNC_ATTACHMENTS,
 	DEFAULT_SYNC_CARD_COVER,
 } from "../core/attachmentRef";
-import type { AttachmentsDestination } from "../core/attachmentPath";
+import type { AttachmentsDestination, AttachmentsDownloadScope } from "../core/attachmentPath";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import { DEFAULT_CUSTOM_FIELDS_KEY, DEFAULT_SYNC_CUSTOM_FIELDS } from "../core/customFieldRef";
 import { DEFAULT_MEMBERS_KEY, DEFAULT_SYNC_MEMBERS } from "../core/memberRef";
@@ -121,6 +121,8 @@ export interface TrelloVaultSyncSettings {
 	attachmentsDestination: AttachmentsDestination;
 	/** Required (non-empty) only when `attachmentsDestination` is `"global-folder"`. */
 	attachmentsFolder: string;
+	/** `"cover-only"` restricts a download run to the card's cover attachment (via `TrelloCardCover.idAttachment`) — everything else stays a frontmatter link, never downloaded. */
+	attachmentsDownloadScope: AttachmentsDownloadScope;
 
 	/** On by default — shows a confirmation modal before a force pull/push at folder or vault scope (destructive by nature). Off disables the modal for repeated use. */
 	confirmForceSync: boolean;
@@ -201,6 +203,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	coverFrontmatterKey: DEFAULT_COVER_KEY,
 	downloadAttachments: false,
 	attachmentsDestination: "note-folder",
+	attachmentsDownloadScope: "all",
 	attachmentsFolder: "",
 	confirmForceSync: true,
 	orphanCardFolder: "",
@@ -375,6 +378,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		checklistHeading: safeFrontmatterKey(input.checklistHeading, DEFAULT_SETTINGS.checklistHeading),
 		coverFrontmatterKey: safeFrontmatterKey(input.coverFrontmatterKey, DEFAULT_SETTINGS.coverFrontmatterKey),
 		attachmentsDestination: input.attachmentsDestination === "global-folder" ? "global-folder" : "note-folder",
+		attachmentsDownloadScope: input.attachmentsDownloadScope === "cover-only" ? "cover-only" : "all",
 		attachmentsFolder: normalizeVaultPath(safeString(input.attachmentsFolder, DEFAULT_SETTINGS.attachmentsFolder)),
 		orphanCardFolder: normalizeVaultPath(safeString(input.orphanCardFolder, DEFAULT_SETTINGS.orphanCardFolder)),
 		defaultTemplateName: safeString(input.defaultTemplateName, DEFAULT_SETTINGS.defaultTemplateName).trim(),

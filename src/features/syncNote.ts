@@ -10,7 +10,7 @@ import {
 	parseAttachmentsRef,
 	parseLinkedCardsRef,
 } from "../core/attachmentRef";
-import type { AttachmentsDestination } from "../core/attachmentPath";
+import type { AttachmentsDestination, AttachmentsDownloadScope } from "../core/attachmentPath";
 import { DEFAULT_CHECKLIST_HEADING, DEFAULT_SYNC_CHECKLISTS } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY, formatDueRef, parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
@@ -89,6 +89,8 @@ export interface NoteSyncOptions {
 	attachmentsDestination?: AttachmentsDestination;
 	/** Required (non-empty) only when `attachmentsDestination` is `"global-folder"`. */
 	attachmentsFolder?: string;
+	/** `"cover-only"` restricts a download run to the card's cover attachment. `undefined` behaves as `"all"`. */
+	attachmentsDownloadScope?: AttachmentsDownloadScope;
 	/**
 	 * Fetches a url's bytes, `null` on failure — only consulted when
 	 * `downloadAttachments` is on. Bundled into options rather than threaded as
@@ -560,14 +562,21 @@ async function convergeAttachmentDownloads(
 	card: TrelloCard,
 	destination: AttachmentsDestination,
 	globalFolder: string,
+	scope: AttachmentsDownloadScope,
 	fetchBinary: (url: string, signal?: AbortSignal) => Promise<ArrayBuffer | null>,
 	signal?: AbortSignal,
 ): Promise<void> {
 	try {
 		if (signal?.aborted) return;
+		// No image cover at all — nothing a "cover-only" run could ever download,
+		// so skip the attachments fetch entirely rather than spending a Trello
+		// request just to filter its result down to nothing.
+		if (scope === "cover-only" && !card.cover?.idAttachment) return;
 		const attachments = card.attachments ?? (await client.getCardAttachments(card.id, signal));
 		if (signal?.aborted) return;
-		const result = await downloadAttachments(attachments, { destination, noteFolder: note.folder, globalFolder }, {
+		const toDownload =
+			scope === "cover-only" ? attachments.filter((a) => a.id === card.cover?.idAttachment) : attachments;
+		const result = await downloadAttachments(toDownload, { destination, noteFolder: note.folder, globalFolder }, {
 			binarySize: (path) => vault.binarySize(path),
 			writeBinary: (path, data) => vault.writeBinary(path, data),
 			fetchBinary: (url) => fetchBinary(url, signal),
@@ -706,6 +715,7 @@ export async function syncNoteWithCard(
 				card,
 				options.attachmentsDestination ?? "note-folder",
 				options.attachmentsFolder ?? "",
+				options.attachmentsDownloadScope ?? "all",
 				options.fetchBinary,
 				signal,
 			);

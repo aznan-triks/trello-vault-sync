@@ -172,6 +172,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			downloadAttachments: this.settings.downloadAttachments,
 			attachmentsDestination: this.settings.attachmentsDestination,
 			attachmentsFolder: this.settings.attachmentsFolder,
+			attachmentsDownloadScope: this.settings.attachmentsDownloadScope,
 			fetchBinary: (url, signal) =>
 				this.fetchBinary(
 					url,

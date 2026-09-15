@@ -3,6 +3,9 @@ import { sanitizeFileName } from "./fileName";
 /** Where a downloaded attachment file is written — mirrors the two-mode choice already used elsewhere in the settings (e.g. `scope`). */
 export type AttachmentsDestination = "note-folder" | "global-folder";
 
+/** Which attachments a download run fetches — the two values are mutually exclusive (a run either takes everything or restricts to the card's cover), never cumulative. */
+export type AttachmentsDownloadScope = "all" | "cover-only";
+
 export interface AttachmentPathOptions {
 	destination: AttachmentsDestination;
 	/** The syncing note's own folder — used only when `destination` is "note-folder". */

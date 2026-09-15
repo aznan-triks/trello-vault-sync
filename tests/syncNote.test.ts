@@ -1054,6 +1054,110 @@ describe("syncNoteWithCard — attachment downloads (opt-in via downloadAttachme
 		).resolves.toBeDefined();
 		expect(vault.exists("spec.pdf")).toBe(false);
 	});
+
+	test("attachmentsDownloadScope 'cover-only' downloads just the cover attachment, skips the rest", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "cover.jpg", url: "https://trello.com/1/cards/c1/attachments/a1/download/cover.jpg", isUpload: true },
+				{ id: "a2", name: "spec.pdf", url: "https://trello.com/1/cards/c1/attachments/a2/download/spec.pdf", isUpload: true },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1", scaled: [{ url: "https://trello.com/cover.jpg", width: 800 }] },
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			downloadAttachments: true,
+			attachmentsDownloadScope: "cover-only",
+			fetchBinary: async () => new ArrayBuffer(1),
+		});
+
+		expect(vault.binarySize("WoT/85_Idées/cover.jpg")).not.toBeNull();
+		expect(vault.binarySize("WoT/85_Idées/spec.pdf")).toBeNull();
+	});
+
+	test("attachmentsDownloadScope 'cover-only' with a stale idAttachment (deleted on Trello since) downloads nothing, no error", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a2", name: "spec.pdf", url: "https://trello.com/1/cards/c1/attachments/a2/download/spec.pdf", isUpload: true },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1-deleted", scaled: [{ url: "https://trello.com/cover.jpg", width: 800 }] },
+		});
+
+		await expect(
+			syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+				...options,
+				downloadAttachments: true,
+				attachmentsDownloadScope: "cover-only",
+				fetchBinary: async () => new ArrayBuffer(1),
+			}),
+		).resolves.toBeDefined();
+
+		expect(vault.binarySize("WoT/85_Idées/spec.pdf")).toBeNull();
+	});
+
+	test("attachmentsDownloadScope 'cover-only' with no image cover makes no attachments request at all", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "spec.pdf", url: "https://trello.com/1/cards/c1/attachments/a1/download/spec.pdf", isUpload: true },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			downloadAttachments: true,
+			attachmentsDownloadScope: "cover-only",
+			fetchBinary: async () => new ArrayBuffer(1),
+		});
+
+		expect(requests.some((r) => r.url.includes("/attachments"))).toBe(false);
+		expect(vault.binarySize("WoT/85_Idées/spec.pdf")).toBeNull();
+	});
+
+	test("attachmentsDownloadScope 'all' (default) keeps downloading every uploaded attachment — no regression", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "cover.jpg", url: "https://trello.com/1/cards/c1/attachments/a1/download/cover.jpg", isUpload: true },
+				{ id: "a2", name: "spec.pdf", url: "https://trello.com/1/cards/c1/attachments/a2/download/spec.pdf", isUpload: true },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1", scaled: [{ url: "https://trello.com/cover.jpg", width: 800 }] },
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			downloadAttachments: true,
+			fetchBinary: async () => new ArrayBuffer(1),
+		});
+
+		expect(vault.binarySize("WoT/85_Idées/cover.jpg")).not.toBeNull();
+		expect(vault.binarySize("WoT/85_Idées/spec.pdf")).not.toBeNull();
+	});
 });
 
 describe("syncNoteWithCard — members (opt-in via syncMembers)", () => {

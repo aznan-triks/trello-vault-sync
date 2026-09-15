@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1] — 2026-09-15
+
+### Added
+
+- **Plain**: You can now restrict "Download attachments" to just the card's cover image, instead of every uploaded attachment — handy when you only want the banner locally and don't need every file offline.
+  **Technical**: `types.ts` adds `attachmentsDownloadScope: "all" | "cover-only"` (default `"all"`); `SettingsTab.ts` adds an "Attachment download scope" dropdown under "Attachments"; `convergeAttachmentDownloads` (`features/syncNote.ts`) filters the attachment list to the one matching `card.cover?.idAttachment` in `"cover-only"` mode, and skips the `getCardAttachments` request entirely when the card has no image cover.
+
 ## [1.16.0] — 2026-09-15
 
 ### Fixed

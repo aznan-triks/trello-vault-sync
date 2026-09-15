@@ -530,6 +530,18 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Attachment download scope")
+			.setDesc('What "Download attachments" (above) actually fetches — every uploaded attachment, or just the one set as the card\'s cover.')
+			.addDropdown((dropdown) => {
+				dropdown.addOption("all", "All attachments");
+				dropdown.addOption("cover-only", "Cover image only");
+				dropdown.setValue(this.plugin.settings.attachmentsDownloadScope).onChange((value) => {
+					this.plugin.settings.attachmentsDownloadScope = value === "cover-only" ? "cover-only" : "all";
+					void this.save();
+				});
+			});
+
+		new Setting(root)
 			.setName("Attachment download destination")
 			.setDesc("Where a downloaded attachment is written.")
 			.addDropdown((dropdown) => {
