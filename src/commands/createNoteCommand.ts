@@ -1,18 +1,25 @@
 import type { CommandContext } from "./context";
 import { resolveOrphanCardDestination } from "../core/orphanCardDestination";
+import { templateMissingCardRefKey } from "../core/template";
 import { buildCardIndex } from "../features/attachmentSync";
 import { createNoteFromCard, unlinkedCards } from "../features/createNoteFromCard";
 import type { TrelloCard } from "../trello/client";
 import { CardPickerModal } from "../ui/CardPickerModal";
 import { FolderPickerModal } from "../ui/FolderPickerModal";
 
-async function createInFolder(ctx: CommandContext, card: TrelloCard, folder: string): Promise<void> {
+export async function createInFolder(ctx: CommandContext, card: TrelloCard, folder: string): Promise<void> {
 	await ctx.run(
 		`Create note — ${card.name}`,
-		async () => {
+		async (reporter) => {
 			const mapping = ctx.settings.mappings.find((candidate) => candidate.listId === card.idList);
 			const templateName = mapping?.templateName || ctx.settings.defaultTemplateName || "";
 			const template = templateName ? await ctx.vault.readTemplate(templateName) : null;
+			if (template && templateMissingCardRefKey(template, ctx.settings.cardRefFrontmatterKey)) {
+				reporter.log(
+					"warn",
+					`Template "${templateName}" has no ${ctx.settings.cardRefFrontmatterKey} key — new notes from it won't link back to their card.`,
+				);
+			}
 			const note = await createNoteFromCard(ctx.vault, card, folder, template, ctx.settings.cardRefFrontmatterKey);
 			return `Created "${note.basename}.md" in ${note.folder || "(vault root)"}, linked to "${card.name}".`;
 		},

@@ -66,7 +66,6 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		this.renderLabels(containerEl);
 		this.renderAttachments(containerEl);
 		this.renderChecklists(containerEl);
-		this.renderCover(containerEl);
 		this.renderMembers(containerEl);
 		this.renderCustomFields(containerEl);
 		this.renderSyncHistory(containerEl);
@@ -498,7 +497,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root).setName("Attachments").setHeading();
 		root.createEl("p", {
 			cls: "setting-item-description",
-			text: "Whether a card's attachments show up as frontmatter links, and whether the files themselves get downloaded into the vault.",
+			text: "Whether a card's attachments show up as frontmatter links, whether the files themselves get downloaded into the vault, and whether the card's cover becomes the note's banner image.",
 		});
 
 		new Setting(root)
@@ -567,6 +566,28 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
 			});
 
+		new Setting(root)
+			.setName("Sync card cover")
+			.setDesc(
+				"Writes the card's cover image url into the note's frontmatter (Cover key, below) — readable by " +
+					"Pixelbanner or any other banner plugin that reads the same key. Pull-only, no extra Trello request.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncCardCover).onChange((value) => {
+					this.plugin.settings.syncCardCover = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Cover key")
+			.setDesc('The frontmatter key holding the cover image url — "banner" is what Pixelbanner itself reads.')
+			.addText((text) =>
+				text.setValue(this.plugin.settings.coverFrontmatterKey).onChange((value) => {
+					this.plugin.settings.coverFrontmatterKey = safeFrontmatterKey(value, DEFAULT_COVER_KEY);
+					void this.save();
+				}),
+			);
 	}
 
 	private renderChecklists(root: HTMLElement): void {
@@ -602,37 +623,6 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(this.plugin.settings.checklistHeading).onChange((value) => {
 					this.plugin.settings.checklistHeading = safeFrontmatterKey(value, DEFAULT_CHECKLIST_HEADING);
-					void this.save();
-				}),
-			);
-	}
-
-	private renderCover(root: HTMLElement): void {
-		new Setting(root).setName("Cover image").setHeading();
-		root.createEl("p", {
-			cls: "setting-item-description",
-			text: "Whether a card's cover photo becomes the note's banner image — works with the Pixelbanner plugin, or any other reading the same frontmatter key.",
-		});
-
-		new Setting(root)
-			.setName("Sync card cover")
-			.setDesc(
-				"Writes the card's cover image url into the note's frontmatter (Cover key, below) — readable by " +
-					"Pixelbanner or any other banner plugin that reads the same key. Pull-only, no extra Trello request.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.syncCardCover).onChange((value) => {
-					this.plugin.settings.syncCardCover = value;
-					void this.save();
-				}),
-			);
-
-		new Setting(root)
-			.setName("Cover key")
-			.setDesc('The frontmatter key holding the cover image url — "banner" is what Pixelbanner itself reads.')
-			.addText((text) =>
-				text.setValue(this.plugin.settings.coverFrontmatterKey).onChange((value) => {
-					this.plugin.settings.coverFrontmatterKey = safeFrontmatterKey(value, DEFAULT_COVER_KEY);
 					void this.save();
 				}),
 			);
