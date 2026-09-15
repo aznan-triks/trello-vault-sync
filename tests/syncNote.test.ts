@@ -1799,3 +1799,99 @@ describe("frontmatter key order — stable regardless of fetchCardDetailsWithCar
 		expect(toggledContent).toBe(baselineContent);
 	});
 });
+
+describe("granular sync switches (syncDescription, syncDue, syncLabels)", () => {
+	test("syncDescription: false leaves note body intact on pull and does not push body to Trello", async () => {
+		const { vault, client, requests } = setup("local body untouched", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "remote text from Trello", dateLastActivity: "2026-03-01" });
+
+		// Forced pull with syncDescription: false
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			force: "pull",
+			syncDescription: false,
+		});
+		expect(vault.contentOf(PATH)).toContain("local body untouched");
+		expect(vault.contentOf(PATH)).not.toContain("remote text from Trello");
+
+		// Forced push with syncDescription: false and no title change -> 0 requests
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			force: "push",
+			syncDescription: false,
+		});
+		expect(requests).toHaveLength(0);
+
+		// If title changed too, title is pushed but desc is excluded
+		const noteWithNewTitle = await vault.rename(vault.note(PATH), "WoT/NewTitle.md");
+		await syncNoteWithCard(vault, client, noteWithNewTitle, remote, {
+			...options,
+			force: "push",
+			syncDescription: false,
+		});
+		expect(requests).toHaveLength(1);
+		expect(requests[0]?.body).toContain("name=NewTitle");
+		expect(requests[0]?.body).not.toContain("desc=");
+	});
+
+	test("syncDue: false leaves note due date frontmatter intact on pull and does not push due to Trello", async () => {
+		const { vault, client, requests } = setup("body", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "body",
+			due: "2026-12-31T12:00:00.000Z",
+			dateLastActivity: "2026-03-01",
+		});
+
+		// Pull with syncDue: false
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			force: "pull",
+			syncDue: false,
+		});
+		expect(vault.readFrontmatter(vault.note(PATH))?.trello_due).toBeUndefined();
+
+		// Push with local due set and syncDue: false (no other fields changed -> 0 requests)
+		await vault.writeFrontmatter(vault.note(PATH), (fm) => {
+			fm.trello_due = "2026-05-01";
+		});
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			force: "push",
+			syncDue: false,
+		});
+		expect(requests).toHaveLength(0);
+
+		// If title also changed, title is pushed but due is excluded
+		const noteWithNewTitle = await vault.rename(vault.note(PATH), "WoT/DueTitle.md");
+		await syncNoteWithCard(vault, client, noteWithNewTitle, remote, {
+			...options,
+			force: "push",
+			syncDue: false,
+		});
+		expect(requests).toHaveLength(1);
+		expect(requests[0]?.body).toContain("name=DueTitle");
+		expect(requests[0]?.body).not.toContain("due=");
+	});
+
+	test("syncLabels: false does not merge or overwrite labels on pull or push", async () => {
+		const { vault, client, requests } = setup("body", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "body",
+			labels: [{ id: "l1", name: "TrelloLabel", color: "blue" }],
+			dateLastActivity: "2026-03-01",
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			force: "pull",
+			labelsSyncMode: "merge",
+			syncLabels: false,
+		});
+		expect(vault.readFrontmatter(vault.note(PATH))?.trello_labels).toBeUndefined();
+		expect(requests).toHaveLength(0);
+	});
+});

@@ -8,7 +8,7 @@ export async function runLinkAudit(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 
 	await ctx.run("Link audit", async (reporter, signal) => {
-		const result = await auditLinks(ctx.vault, ctx.client(reporter), ctx.auditOptions(), reporter, signal);
+		const result = await auditLinks(ctx.vault, ctx.client(reporter), ctx.auditOptions("links"), reporter, signal);
 		reporter.count("orphanCards", result.orphanCards);
 		reporter.count("phantoms", result.phantomNotes);
 		reporter.count("unlinkedNotes", result.unlinkedNotes);
@@ -20,7 +20,7 @@ export async function runLocationAudit(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 
 	await ctx.run("Location audit", async (reporter, signal) => {
-		const result = await auditLocations(ctx.vault, ctx.client(reporter), ctx.auditOptions(), reporter, signal);
+		const result = await auditLocations(ctx.vault, ctx.client(reporter), ctx.auditOptions("locations"), reporter, signal);
 		reporter.count("comparedNotes", result.rows);
 		return `${result.rows} note(s) compared`;
 	});
@@ -30,7 +30,7 @@ export async function runChangesAudit(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 
 	await ctx.run("Audit changes", async (reporter, signal) => {
-		const { boardId, reportPath, timestamp } = ctx.auditOptions();
+		const { boardId, reportPath, timestamp } = ctx.auditOptions("changes");
 		const result = await auditChanges(
 			ctx.vault,
 			ctx.client(reporter),

@@ -39,6 +39,6 @@ export interface CommandContext {
 	ready(needsBoard?: boolean): boolean;
 	noteOptions(force?: "pull" | "push"): NoteSyncOptions;
 	folderOptions(force?: "pull" | "push"): FolderSyncOptions;
-	auditOptions(): AuditOptions;
+	auditOptions(kind?: "links" | "locations" | "changes"): AuditOptions;
 	saveSettings(): Promise<void>;
 }

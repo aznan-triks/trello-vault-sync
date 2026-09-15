@@ -59,6 +59,22 @@ describe("syncFolder — creation", () => {
 		);
 	});
 
+	test("uses defaultTemplateName when the mapping does not specify a template", async () => {
+		const vault = new FakeVault();
+		vault.templates.set(
+			"global-fallback",
+			'---\ntype: default\ntrello_board_card_id: "{{BOARD_ID}};{{CARD_ID}}"\n---\n{{DESCRIPTION}}',
+		);
+		const { client } = clientFor([card({ id: "c1", name: "Sagondo", desc: "Global content." })]);
+		const mappingWithoutTemplate = { ...MAPPING, templateName: "" };
+
+		await syncFolder(vault, client, mappingWithoutTemplate, { ...options, defaultTemplateName: "global-fallback" });
+
+		expect(vault.contentOf(`${FOLDER}/Sagondo.md`)).toBe(
+			'---\ntype: default\ntrello_board_card_id: "board;c1"\n---\nGlobal content.',
+		);
+	});
+
 	test("a mapping override can force creation on even though the global setting is off", async () => {
 		const vault = new FakeVault();
 		const { client } = clientFor([card({ id: "c1", name: "Sagondo" })]);

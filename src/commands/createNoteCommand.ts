@@ -11,7 +11,8 @@ async function createInFolder(ctx: CommandContext, card: TrelloCard, folder: str
 		`Create note — ${card.name}`,
 		async () => {
 			const mapping = ctx.settings.mappings.find((candidate) => candidate.listId === card.idList);
-			const template = mapping?.templateName ? await ctx.vault.readTemplate(mapping.templateName) : null;
+			const templateName = mapping?.templateName || ctx.settings.defaultTemplateName || "";
+			const template = templateName ? await ctx.vault.readTemplate(templateName) : null;
 			const note = await createNoteFromCard(ctx.vault, card, folder, template, ctx.settings.cardRefFrontmatterKey);
 			return `Created "${note.basename}.md" in ${note.folder || "(vault root)"}, linked to "${card.name}".`;
 		},

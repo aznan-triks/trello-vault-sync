@@ -133,6 +133,9 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			policy: this.settings.policy,
 			marginMs: this.settings.marginSeconds * 1000,
 			syncTitle: this.settings.syncTitle,
+			syncDescription: this.settings.syncDescription,
+			syncDue: this.settings.syncDue,
+			syncLabels: this.settings.syncLabels,
 			dryRun: this.settings.dryRun,
 			labelsSyncMode: this.settings.labelsSyncMode,
 			dueFrontmatterKey: this.settings.dueFrontmatterKey,
@@ -166,14 +169,23 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			protectMovedOrArchivedCards: this.settings.protectMovedOrArchivedCards,
 			boardId: this.settings.boardId,
 			cardRefFrontmatterKey: this.settings.cardRefFrontmatterKey,
+			defaultTemplateName: this.settings.defaultTemplateName,
 		};
 	}
 
-	auditOptions(): AuditOptions {
+	auditOptions(kind?: "links" | "locations" | "changes"): AuditOptions {
+		let reportPath = this.settings.reportPath;
+		if (kind === "links") {
+			reportPath = this.settings.linkAuditReportPath || this.settings.reportPath;
+		} else if (kind === "locations") {
+			reportPath = this.settings.locationAuditReportPath || this.settings.reportPath;
+		} else if (kind === "changes") {
+			reportPath = this.settings.changesReportPath || this.settings.reportPath;
+		}
 		return {
 			scope: this.settings.scope,
 			boardId: this.settings.boardId,
-			reportPath: this.settings.reportPath,
+			reportPath,
 			timestamp: new Date().toLocaleString("en-CA", { hour12: false }),
 			excludedFolders: this.settings.excludedFolders,
 		};
