@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] — 2026-09-15
+
+### Fixed
+
+- **Plain**: "Download attachments" now actually downloads the file. Until now, every download silently failed — Trello rejected the way the plugin was authenticating the request — so only the link ever showed up, with nothing telling you why.
+  **Technical**: Trello's card-attachment download endpoint (`.../attachments/.../download/...`) rejects `key`/`token` in the query string (confirmed 401 against the live API) — `TrelloClient.authenticatedAttachmentUrl` (removed) used exactly that. `obsidianDownloadBinary` (`obsidian/transport.ts`) now accepts an optional `headers` param forwarded to `requestUrl`; `main.ts::noteOptions()` builds an `Authorization: OAuth oauth_consumer_key="...", oauth_token="..."` header from settings and passes it through `fetchBinary`. `AttachmentDownloadDeps`/`downloadAttachments()` (`features/attachmentDownload.ts`) drop the now-unnecessary `authenticatedUrl` step — the attachment's own url is fetched unmodified. Root cause and reproduction documented in `audits/AUDIT_attachment-download.md`.
+
 ## [1.15.6] — 2026-09-15
 
 ### Added

@@ -570,7 +570,6 @@ async function convergeAttachmentDownloads(
 		const result = await downloadAttachments(attachments, { destination, noteFolder: note.folder, globalFolder }, {
 			binarySize: (path) => vault.binarySize(path),
 			writeBinary: (path, data) => vault.writeBinary(path, data),
-			authenticatedUrl: (url) => client.authenticatedAttachmentUrl(url),
 			fetchBinary: (url) => fetchBinary(url, signal),
 			redact: (text) => client.redactOwnSecrets(text),
 		});

@@ -1010,7 +1010,7 @@ describe("syncNoteWithCard — attachment downloads (opt-in via downloadAttachme
 		expect(calls).toBe(0);
 	});
 
-	test("builds the authenticated download url with this client's own credentials", async () => {
+	test("passes the attachment's own url to fetchBinary unmodified — authentication is the caller's closure, not a query string (see audits/AUDIT_attachment-download.md)", async () => {
 		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
 		const { transport } = routedTransport({
 			"/cards/c1/attachments": [
@@ -1030,8 +1030,7 @@ describe("syncNoteWithCard — attachment downloads (opt-in via downloadAttachme
 			},
 		});
 
-		expect(seenUrls[0]).toContain("key=my-key");
-		expect(seenUrls[0]).toContain("token=my-token");
+		expect(seenUrls[0]).toBe("https://trello.com/1/cards/c1/attachments/a1/download/spec.pdf");
 	});
 
 	test("skips a download-folder note-vs-global mismatch explicitly instead of writing to the vault root", async () => {

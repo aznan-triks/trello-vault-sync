@@ -16,7 +16,6 @@ function deps(overrides: Partial<AttachmentDownloadDeps> = {}): AttachmentDownlo
 			sizes.set(path, data.byteLength);
 			writes.push({ path, size: data.byteLength });
 		},
-		authenticatedUrl: (url) => `${url}?key=k&token=t`,
 		fetchBinary: async () => new ArrayBuffer(10),
 		redact: (text) => text,
 		...overrides,
@@ -113,19 +112,15 @@ describe("downloadAttachments", () => {
 		expect(result.errors[0]).toContain("«masked»");
 	});
 
-	test("builds the authenticated url before fetching", async () => {
+	test("fetches the attachment's own url unmodified — authentication is the injected fetchBinary's concern, not a query string", async () => {
 		const seen: string[] = [];
 		const d = deps({
-			authenticatedUrl: (url) => {
-				const authed = `${url}?key=k&token=t`;
-				return authed;
-			},
 			fetchBinary: async (url) => {
 				seen.push(url);
 				return new ArrayBuffer(1);
 			},
 		});
 		await downloadAttachments([attachment({ id: "a1", name: "photo.jpg" })], DEST, d);
-		expect(seen[0]).toContain("?key=k&token=t");
+		expect(seen[0]).toBe("https://trello.com/1/cards/c1/attachments/a1/download/photo.jpg");
 	});
 });

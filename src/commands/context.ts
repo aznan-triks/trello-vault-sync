@@ -26,8 +26,13 @@ export interface CommandContext {
 	/** Replaces `history` wholesale — how "Undo last sync run"/"Undo last sync for the active note" consume a run after applying it. */
 	setHistory(next: readonly SyncRun[]): Promise<void>;
 	client(reporter?: Reporter): TrelloClient;
-	/** Downloads a url's bytes — `null` on anything short of success. `redactFrom` masks secrets out of a failure's console warning, for an authenticated attachment url (see `TrelloClient.authenticatedAttachmentUrl`); omitted for a public url (a Trello avatar) with nothing to redact. */
-	fetchBinary(url: string, signal?: AbortSignal, redactFrom?: (text: string) => string): Promise<ArrayBuffer | null>;
+	/** Downloads a url's bytes — `null` on anything short of success. `redactFrom` masks secrets out of a failure's console warning; `headers` carries request headers (e.g. `Authorization`) — see `obsidianDownloadBinary` for why a card attachment download needs one. Both omitted for a public url (a Trello avatar) with nothing to redact and no auth needed. */
+	fetchBinary(
+		url: string,
+		signal?: AbortSignal,
+		redactFrom?: (text: string) => string,
+		headers?: Record<string, string>,
+	): Promise<ArrayBuffer | null>;
 	run(
 		title: string,
 		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
