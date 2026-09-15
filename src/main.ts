@@ -124,8 +124,25 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		);
 	}
 
-	fetchBinary(url: string, signal?: AbortSignal, redactFrom?: (text: string) => string): Promise<ArrayBuffer | null> {
-		return obsidianDownloadBinary(url, signal, redactFrom);
+	fetchBinary(
+		url: string,
+		signal?: AbortSignal,
+		redactFrom?: (text: string) => string,
+		headers?: Record<string, string>,
+	): Promise<ArrayBuffer | null> {
+		return obsidianDownloadBinary(url, signal, redactFrom, headers);
+	}
+
+	/**
+	 * The header Trello's card-attachment download endpoint actually accepts —
+	 * see `audits/AUDIT_attachment-download.md` for why the query string this
+	 * plugin used before doesn't work. Built from `this.settings` directly
+	 * since a full `TrelloClient` isn't needed just for this string. No
+	 * quote-escaping: Trello's own key/token format is fixed-length hex
+	 * (`apps.trello.com`'s own docs), never containing a `"`.
+	 */
+	private attachmentAuthHeaders(): Record<string, string> {
+		return { Authorization: `OAuth oauth_consumer_key="${this.settings.apiKey}", oauth_token="${this.settings.token}"` };
 	}
 
 	noteOptions(force?: "pull" | "push"): NoteSyncOptions {
@@ -156,7 +173,12 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			attachmentsDestination: this.settings.attachmentsDestination,
 			attachmentsFolder: this.settings.attachmentsFolder,
 			fetchBinary: (url, signal) =>
-				this.fetchBinary(url, signal, (text) => redactSecrets(text, [this.settings.token, this.settings.apiKey])),
+				this.fetchBinary(
+					url,
+					signal,
+					(text) => redactSecrets(text, [this.settings.token, this.settings.apiKey]),
+					this.attachmentAuthHeaders(),
+				),
 			...(force ? { force } : {}),
 		};
 	}

@@ -402,24 +402,12 @@ export class TrelloClient {
 	}
 
 	/**
-	 * Appends this client's own credentials to an uploaded attachment's
-	 * "download" url — that endpoint requires the same key/token as every
-	 * other Trello API call (unlike a public avatar url). Kept on the client
-	 * so credentials never travel outside it: the caller passes this method
-	 * itself down to `features/attachmentDownload.ts`, never the raw key/token.
-	 */
-	authenticatedAttachmentUrl(url: string): string {
-		const separator = url.includes("?") ? "&" : "?";
-		return `${url}${separator}key=${encodeURIComponent(this.credentials.apiKey)}&token=${encodeURIComponent(this.credentials.token)}`;
-	}
-
-	/**
 	 * Redacts this client's own credentials from arbitrary text. Defense in
 	 * depth for `features/attachmentDownload.ts`, whose `fetchBinary` dependency
 	 * is contractually never supposed to throw (it resolves to `null` on
 	 * failure) — if a future transport swap broke that contract, an error
-	 * message built from an `authenticatedAttachmentUrl` could otherwise carry
-	 * the key/token into a console warning unredacted.
+	 * message could otherwise carry the key/token into a console warning
+	 * unredacted.
 	 */
 	redactOwnSecrets(text: string): string {
 		return this.redact(text);

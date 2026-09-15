@@ -11,11 +11,15 @@ export interface DownloadAttachmentsResult {
 export interface AttachmentDownloadDeps {
 	binarySize(path: string): number | null;
 	writeBinary(path: string, data: ArrayBuffer): Promise<void>;
-	/** Builds the authenticated download url for one attachment — see `TrelloClient.authenticatedAttachmentUrl`. */
-	authenticatedUrl(url: string): string;
-	/** Fetches bytes, or `null` on failure — contractually never throws. `redact` below covers the case it does anyway. */
+	/**
+	 * Fetches an attachment's bytes, or `null` on failure — contractually never
+	 * throws. Authentication (the `Authorization` header Trello's download
+	 * endpoint actually needs, see `audits/AUDIT_attachment-download.md`) is
+	 * the caller's concern, baked into this closure — the attachment's own
+	 * `url` is passed through unmodified, no query string added.
+	 */
 	fetchBinary(url: string, signal?: AbortSignal): Promise<ArrayBuffer | null>;
-	/** Masks this download's own credentials out of an error message — see `TrelloClient.redactOwnSecrets`. Defense in depth: `fetchBinary` isn't supposed to throw, but if it ever did, the message could otherwise carry an `authenticatedUrl` in the clear. */
+	/** Masks this download's own credentials out of an error message. Defense in depth: `fetchBinary` isn't supposed to throw, but if it ever did, the message could otherwise carry credentials in the clear. */
 	redact(text: string): string;
 }
 
@@ -52,7 +56,7 @@ export async function downloadAttachments(
 		}
 
 		try {
-			const bytes = await deps.fetchBinary(deps.authenticatedUrl(attachment.url), signal);
+			const bytes = await deps.fetchBinary(attachment.url, signal);
 			if (bytes === null) {
 				result.errors.push(`${attachment.name} — download failed`);
 				continue;

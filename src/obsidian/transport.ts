@@ -52,18 +52,24 @@ export const obsidianTransport: Transport = async (
  * Fetches a url and returns its bytes, or `null` on anything short of
  * success — originally for a public Trello avatar (a missing one must never
  * fail the export it's decorating), also used for an authenticated attachment
- * download url (`TrelloClient.authenticatedAttachmentUrl`). `redactFrom`
- * masks the caller's own secrets out of the warning below — the avatar case
- * passes none (there's nothing to redact), the attachment case passes its
- * key/token so neither ever reaches the console in the clear.
+ * download (`headers`, e.g. the `Authorization: OAuth ...` a card attachment
+ * needs — Trello's `.../attachments/.../download/...` endpoint rejects
+ * `?key=&token=` in the query string, see `audits/AUDIT_attachment-download.md`).
+ * `redactFrom` masks the caller's own secrets out of the warning below — the
+ * avatar case passes none (there's nothing to redact), the attachment case
+ * passes its key/token so neither ever reaches the console in the clear.
  */
 export async function obsidianDownloadBinary(
 	url: string,
 	signal?: AbortSignal,
 	redactFrom: (text: string) => string = (text) => text,
+	headers?: Record<string, string>,
 ): Promise<ArrayBuffer | null> {
 	try {
-		const response = await racedAgainst(requestUrl({ url, method: "GET", throw: false }), signal);
+		const response = await racedAgainst(
+			requestUrl({ url, method: "GET", ...(headers ? { headers } : {}), throw: false }),
+			signal,
+		);
 		return response.status >= 200 && response.status < 300 ? response.arrayBuffer : null;
 	} catch (error) {
 		// Still degrades to `null` (the initial fallback shows instead), but the
