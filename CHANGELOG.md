@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2] — 2026-09-15
+
+### Fixed
+
+- **Plain**: Creating a note manually from a Trello card now warns you the same way a folder sync already does, if your template doesn't link the note back to its card — instead of silently creating an orphaned note.
+  **Technical**: `createInFolder` (`commands/createNoteCommand.ts`, now exported for testing) calls `templateMissingCardRefKey` (`core/template.ts`) before `createNoteFromCard` and logs a `"warn"` via the run reporter — the same guard already wired in `syncFolder.ts`, previously missing from the manual "Create note from a Trello card" command.
+
+### Changed
+
+- **Plain**: The cover-image settings ("Sync card cover", "Cover key") now live under "Attachments" instead of their own separate section, since downloading the cover is really just a special case of attachment handling.
+  **Technical**: `SettingsTab.ts` removes the standalone `renderCover` method and its call in `display()`; its two `Setting` blocks move into `renderAttachments`, and the section description is updated to mention the cover. No settings added or renamed, no behavior change.
+
 ## [1.16.1] — 2026-09-15
 
 ### Added
