@@ -240,4 +240,41 @@ describe("decideSync", () => {
 		expect(decision.labelsChanged).toBe(false);
 		expect(decision.direction).toBe("skip");
 	});
+
+	test("ignores body differences when syncDescription is false", () => {
+		const decision = decideSync({
+			...base,
+			localBody: "local modified",
+			remoteBody: "remote text",
+			remoteMtime: 2_000_000,
+			syncDescription: false,
+		});
+		expect(decision.bodyChanged).toBe(false);
+		expect(decision.direction).toBe("skip");
+	});
+
+	test("ignores due date differences when syncDue is false", () => {
+		const decision = decideSync({
+			...base,
+			localDue: "2026-09-01",
+			remoteDue: "2026-09-15",
+			remoteMtime: 2_000_000,
+			syncDue: false,
+		});
+		expect(decision.dueChanged).toBe(false);
+		expect(decision.direction).toBe("skip");
+	});
+
+	test("ignores label differences in overwrite mode when syncLabels is false", () => {
+		const decision = decideSync({
+			...base,
+			localLabels: ["Bug"],
+			remoteLabels: ["Idea"],
+			labelsSyncMode: "overwrite",
+			remoteMtime: 2_000_000,
+			syncLabels: false,
+		});
+		expect(decision.labelsChanged).toBe(false);
+		expect(decision.direction).toBe("skip");
+	});
 });

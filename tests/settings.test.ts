@@ -370,4 +370,68 @@ describe("normalizeSettings", () => {
 	test("falls back maxBackoffDelayMs to the default when corrupted", () => {
 		expect(normalizeSettings({ maxBackoffDelayMs: "slow" as unknown as number }).maxBackoffDelayMs).toBe(30_000);
 	});
+
+	test("defaults linkAuditReportPath, locationAuditReportPath and changesReportPath to empty", () => {
+		const settings = normalizeSettings({});
+		expect(settings.linkAuditReportPath).toBe("");
+		expect(settings.locationAuditReportPath).toBe("");
+		expect(settings.changesReportPath).toBe("");
+	});
+
+	test("normalizes audit report paths the same way as reportPath", () => {
+		const settings = normalizeSettings({
+			linkAuditReportPath: "\\Reports\\Links.md",
+			locationAuditReportPath: "/Reports/Locations.md",
+			changesReportPath: "\\Reports\\Changes.md",
+		});
+		expect(settings.linkAuditReportPath).toBe("Reports/Links.md");
+		expect(settings.locationAuditReportPath).toBe("Reports/Locations.md");
+		expect(settings.changesReportPath).toBe("Reports/Changes.md");
+	});
+
+	test("inherits legacy reportPath for linkAuditReportPath, locationAuditReportPath and changesReportPath when they are absent", () => {
+		const settings = normalizeSettings({
+			reportPath: "/WoT/LegacyReport.md",
+		});
+		expect(settings.linkAuditReportPath).toBe("WoT/LegacyReport.md");
+		expect(settings.locationAuditReportPath).toBe("WoT/LegacyReport.md");
+		expect(settings.changesReportPath).toBe("WoT/LegacyReport.md");
+	});
+
+	test("prefers explicit audit report paths over legacy reportPath", () => {
+		const settings = normalizeSettings({
+			reportPath: "Legacy.md",
+			linkAuditReportPath: "ExplicitLinks.md",
+			locationAuditReportPath: "ExplicitLocations.md",
+			changesReportPath: "ExplicitChanges.md",
+		});
+		expect(settings.linkAuditReportPath).toBe("ExplicitLinks.md");
+		expect(settings.locationAuditReportPath).toBe("ExplicitLocations.md");
+		expect(settings.changesReportPath).toBe("ExplicitChanges.md");
+	});
+
+	test("defaults syncDescription, syncDue and syncLabels to true", () => {
+		const settings = normalizeSettings({});
+		expect(settings.syncDescription).toBe(true);
+		expect(settings.syncDue).toBe(true);
+		expect(settings.syncLabels).toBe(true);
+	});
+
+	test("keeps explicit false for syncDescription, syncDue and syncLabels", () => {
+		const settings = normalizeSettings({
+			syncDescription: false,
+			syncDue: false,
+			syncLabels: false,
+		});
+		expect(settings.syncDescription).toBe(false);
+		expect(settings.syncDue).toBe(false);
+		expect(settings.syncLabels).toBe(false);
+	});
+
+	test("defaults defaultTemplateName to empty and keeps a trimmed custom value", () => {
+		expect(normalizeSettings({}).defaultTemplateName).toBe("");
+		expect(normalizeSettings({ defaultTemplateName: "  Template Card  " }).defaultTemplateName).toBe(
+			"Template Card",
+		);
+	});
 });

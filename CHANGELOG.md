@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.6] — 2026-09-15
+
+### Added
+
+- **Plain**: You can now choose a separate note for each type of audit report: one for link audits, one for location comparisons, and one for the change log.
+  **Technical**: `types.ts` adds `linkAuditReportPath`, `locationAuditReportPath`, and `changesReportPath` to `TrelloVaultSyncSettings` with backward-compatible fallback to `reportPath`; `SettingsTab.ts` renders dedicated settings with `VaultPathSuggest` autocompletion in "Audit output"; `auditCommands.ts` and `main.ts` pass the audit kind to select the respective target note.
+- **Plain**: New toggles allow you to choose exactly what syncs: you can turn note body/description sync off to protect your text from overwrites while still syncing metadata, and toggle due dates or labels sync independently.
+  **Technical**: `types.ts` adds `syncDescription`, `syncDue`, and `syncLabels` boolean toggles (default `true`); `decideSync` (`core/syncDecision.ts`) and `syncNoteWithCard` (`features/syncNote.ts`) honor each toggle on both pull and push operations; `SettingsTab.ts` exposes "Sync descriptions" and "Sync due dates" in "Arbitration & safety" and "Sync labels" in "Labels".
+- **Plain**: A global default note template can now be set as a fallback for any new note created from a card whose list has no specific template.
+  **Technical**: `types.ts` adds `defaultTemplateName` (default `""`); `SettingsTab.ts` adds "Default note template" with `VaultPathSuggest` under "Note creation from a card"; `createNoteCommand.ts` and `syncFolder.ts` resolve `mapping?.templateName || defaultTemplateName`.
+
+### Changed
+
+- **Plain**: The settings section for orphan cards has been renamed to "Note creation from a card" to clarify where fallback settings for new notes are configured.
+  **Technical**: `SettingsTab.ts` updates the heading and description of `renderOrphanCards` to reflect fallback destination folder and fallback note template options.
+
 ## [1.15.5] — 2026-09-14
 
 ### Changed

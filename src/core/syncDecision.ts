@@ -31,6 +31,14 @@ export interface SyncInput {
 	 * like `dueChanged` here.
 	 */
 	labelsSyncMode?: "merge" | "overwrite";
+	/** Whether the note body and the card description follow each other. Defaults to true. */
+	syncDescription?: boolean;
+	/** Whether the note file name and the card title follow each other. Defaults to true. */
+	syncTitle?: boolean;
+	/** Whether the note frontmatter due date and the card due follow each other. Defaults to true. */
+	syncDue?: boolean;
+	/** Whether labels are synchronized. Defaults to true. */
+	syncLabels?: boolean;
 	policy: ConflictPolicy;
 	/** Timestamp tolerance below which the two sides are considered simultaneous. */
 	marginMs: number;
@@ -58,18 +66,20 @@ function normalizeDue(value: string | null): string | null {
  * `conflict` instead of being silently skipped.
  */
 export function decideSync(input: SyncInput): SyncDecision {
-	const bodyChanged = normalizeBody(input.localBody) !== normalizeBody(input.remoteBody);
+	const bodyChanged = input.syncDescription !== false && normalizeBody(input.localBody) !== normalizeBody(input.remoteBody);
 	// Compare against the sanitized form of the remote title: the note's own
 	// title is always filesystem-sanitized, so comparing against the raw card
 	// title would flag every special-character title as "changed" forever and
 	// push the sanitized filename back to Trello as if it were a real rename.
-	const titleChanged = input.localTitle.trim() !== sanitizeFileName(input.remoteTitle).trim();
-	const dueChanged = normalizeDue(input.localDue) !== normalizeDue(input.remoteDue);
+	const titleChanged = input.syncTitle !== false && input.localTitle.trim() !== sanitizeFileName(input.remoteTitle).trim();
+	const dueChanged = input.syncDue !== false && normalizeDue(input.localDue) !== normalizeDue(input.remoteDue);
 	// A "merge" (or unset) mode never surfaces a label divergence as a reason to
 	// sync or conflict — the labels converge as a non-destructive side effect
 	// wherever the direction ends up, never a cause of it.
 	const labelsChanged =
-		input.labelsSyncMode === "overwrite" && !sameLabelSet(input.localLabels ?? [], input.remoteLabels ?? []);
+		input.syncLabels !== false &&
+		input.labelsSyncMode === "overwrite" &&
+		!sameLabelSet(input.localLabels ?? [], input.remoteLabels ?? []);
 
 	if (!bodyChanged && !titleChanged && !dueChanged && !labelsChanged) {
 		return { direction: "skip", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "identical" };

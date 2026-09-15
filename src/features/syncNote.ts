@@ -54,6 +54,12 @@ export interface NoteSyncOptions {
 	marginMs: number;
 	/** Whether the note file name and the card title follow each other. */
 	syncTitle: boolean;
+	/** Whether the note body and the card description follow each other. Defaults to true. */
+	syncDescription?: boolean;
+	/** Whether the note frontmatter due date and the card due follow each other. Defaults to true. */
+	syncDue?: boolean;
+	/** Whether labels are synchronized. Defaults to true. */
+	syncLabels?: boolean;
 	dryRun: boolean;
 	/** Explicit user choice, bypassing timestamps entirely. */
 	force?: "pull" | "push";
@@ -154,7 +160,10 @@ export function decideForCard(
 	note: Pick<NoteHandle, "basename" | "mtime">,
 	card: TrelloCard,
 	localBody: string,
-	options: Pick<NoteSyncOptions, "policy" | "marginMs" | "labelsSyncMode">,
+	options: Pick<
+		NoteSyncOptions,
+		"policy" | "marginMs" | "labelsSyncMode" | "syncTitle" | "syncDescription" | "syncDue" | "syncLabels"
+	>,
 	localDue: string | null,
 	localLabels: string[] = [],
 ): SyncDecision {
@@ -176,6 +185,10 @@ export function decideForCard(
 		remoteDue: card.due,
 		remoteLabels: remoteLabelsOf(card),
 		labelsSyncMode: options.labelsSyncMode,
+		syncTitle: options.syncTitle,
+		syncDescription: options.syncDescription,
+		syncDue: options.syncDue,
+		syncLabels: options.syncLabels,
 		policy: options.policy,
 		marginMs: options.marginMs,
 	});
@@ -608,6 +621,10 @@ export async function syncNoteWithCard(
 	// change (the "identical = no-op" guarantee force pull/push relies on).
 	const direction = decision.direction === "skip" ? "skip" : (options.force ?? decision.direction);
 
+	const syncDescription = options.syncDescription !== false;
+	const syncDue = options.syncDue !== false;
+	const syncLabels = options.syncLabels !== false;
+
 	// Independent of the direction decided above for title/body/due — each step
 	// below can write the note, and runs even when that direction ends up "skip"
 	// or "conflict". `stale` tracks whether `content` may no longer match the file:
@@ -615,7 +632,7 @@ export async function syncNoteWithCard(
 	// and a stale snapshot would silently undo a write made before them. The note
 	// is re-read only then — never after a step that wrote nothing.
 	let stale = false;
-	if (labelsSyncMode === "merge" && !options.dryRun && !signal?.aborted) {
+	if (syncLabels && labelsSyncMode === "merge" && !options.dryRun && !signal?.aborted) {
 		const wrote = await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, options.onTrelloWrite, signal);
 		stale = stale || wrote;
 	}
@@ -714,10 +731,12 @@ export async function syncNoteWithCard(
 
 	if (direction === "pull") {
 		let current = note;
-		const nextContent = replaceBody(content, card.desc ?? "", syncChecklists ? checklistHeading : undefined);
-		if (nextContent !== content && !signal?.aborted) await vault.write(current, nextContent);
+		if (syncDescription) {
+			const nextContent = replaceBody(content, card.desc ?? "", syncChecklists ? checklistHeading : undefined);
+			if (nextContent !== content && !signal?.aborted) await vault.write(current, nextContent);
+		}
 
-		if (decision.dueChanged && !signal?.aborted) {
+		if (syncDue && decision.dueChanged && !signal?.aborted) {
 			await vault.writeFrontmatter(current, (frontmatter) => {
 				const formatted = formatDueRef(card.due);
 				if (formatted === null) delete frontmatter[dueKey];
@@ -725,7 +744,7 @@ export async function syncNoteWithCard(
 			});
 		}
 
-		if (labelsSyncMode === "overwrite" && !signal?.aborted) {
+		if (syncLabels && labelsSyncMode === "overwrite" && !signal?.aborted) {
 			const { nextLocal } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "pull");
 			if (nextLocal !== null) await writeLocalLabels(vault, current, nextLocal, labelsKey);
 		}
@@ -746,24 +765,27 @@ export async function syncNoteWithCard(
 		return { direction, renamed, note: current, reason: decision.reason };
 	}
 
-	const fields: { name?: string; desc?: string; due?: string | null; idLabels?: string[] } = { desc: localBody };
+	const fields: { name?: string; desc?: string; due?: string | null; idLabels?: string[] } = {};
+	if (syncDescription) fields.desc = localBody;
 	if (options.syncTitle && decision.titleChanged) fields.name = note.basename;
-	if (decision.dueChanged) fields.due = localDue;
-	if (labelsSyncMode === "overwrite") {
+	if (syncDue && decision.dueChanged) fields.due = localDue;
+	if (syncLabels && labelsSyncMode === "overwrite") {
 		const { nextRemote } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "push");
 		if (nextRemote !== null) fields.idLabels = await resolveLabelIdsForCard(client, card, nextRemote, signal);
 	}
 	if (signal?.aborted) {
 		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)` };
 	}
-	await client.updateCard(card.id, fields, signal);
-	if (options.onTrelloWrite) {
-		const previous: TrelloCardUpdateAction["previous"] = {};
-		if (fields.name !== undefined) previous.name = card.name;
-		if (fields.desc !== undefined) previous.desc = card.desc;
-		if (fields.due !== undefined) previous.due = card.due;
-		if (fields.idLabels !== undefined) previous.idLabels = (card.labels ?? []).map((label) => label.id);
-		options.onTrelloWrite({ kind: "trello-card", path: note.path, cardId: card.id, previous, written: fields });
+	if (Object.keys(fields).length > 0) {
+		await client.updateCard(card.id, fields, signal);
+		if (options.onTrelloWrite) {
+			const previous: TrelloCardUpdateAction["previous"] = {};
+			if (fields.name !== undefined) previous.name = card.name;
+			if (fields.desc !== undefined) previous.desc = card.desc;
+			if (fields.due !== undefined) previous.due = card.due;
+			if (fields.idLabels !== undefined) previous.idLabels = (card.labels ?? []).map((label) => label.id);
+			options.onTrelloWrite({ kind: "trello-card", path: note.path, cardId: card.id, previous, written: fields });
+		}
 	}
 	return { direction, renamed: false, note, reason: decision.reason };
 }

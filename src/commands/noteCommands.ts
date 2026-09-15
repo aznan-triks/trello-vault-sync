@@ -3,6 +3,7 @@ import type { CommandContext } from "./context";
 import { withHistoryRecording } from "./syncHistoryHelper";
 import { parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
+import { parseLabelsRef } from "../core/labelRef";
 import { extractBody } from "../core/noteBody";
 import { describeSyncOutcome, tallyNoteResult } from "../core/syncTally";
 import { linkActiveNote, linkNoteToCard } from "../features/linkNote";
@@ -89,15 +90,14 @@ export async function resolveConflict(ctx: CommandContext): Promise<void> {
 			ctx.settings.syncChecklists ? ctx.settings.checklistHeading : undefined,
 		);
 		const localDue = parseDueRef(ctx.vault.readFrontmatter(note)?.[ctx.settings.dueFrontmatterKey]);
+		const localLabels = parseLabelsRef(ctx.vault.readFrontmatter(note)?.[ctx.settings.labelsFrontmatterKey]);
 		const decision = decideForCard(
 			note,
 			card,
 			localBody,
-			{
-				policy: ctx.settings.policy,
-				marginMs: ctx.settings.marginSeconds * 1000,
-			},
+			ctx.noteOptions(),
 			localDue,
+			localLabels,
 		);
 		if (decision.direction !== "conflict") return "No conflict on this note — nothing to resolve.";
 

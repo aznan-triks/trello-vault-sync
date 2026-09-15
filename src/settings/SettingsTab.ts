@@ -273,18 +273,50 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root).setName("Audit output").setHeading();
 		root.createEl("p", {
 			cls: "setting-item-description",
-			text: "Where the two report-producing commands write their result.",
+			text: "Where the report-producing commands write their results.",
 		});
 
 		new Setting(root)
-			.setName("Report note")
-			.setDesc("Path of the note the audits write their report into. It must already exist.")
+			.setName("Link audit report note")
+			.setDesc('Path of the note "Audit links" writes its report into. It must already exist.')
 			.addText((text) => {
 				text
-					.setPlaceholder("Projects/Trello Sync Report.md")
-					.setValue(this.plugin.settings.reportPath)
+					.setPlaceholder("Projects/Trello Link Report.md")
+					.setValue(this.plugin.settings.linkAuditReportPath)
 					.onChange((value) => {
-						this.plugin.settings.reportPath = normalizeVaultPath(value.trim());
+						this.plugin.settings.linkAuditReportPath = normalizeVaultPath(value.trim());
+						void this.save();
+					});
+				new VaultPathSuggest(this.app, text.inputEl, () =>
+					this.app.vault.getMarkdownFiles().map((file) => file.path),
+				);
+			});
+
+		new Setting(root)
+			.setName("Location audit report note")
+			.setDesc('Path of the note "Compare locations against Trello" writes its report into. It must already exist.')
+			.addText((text) => {
+				text
+					.setPlaceholder("Projects/Trello Location Report.md")
+					.setValue(this.plugin.settings.locationAuditReportPath)
+					.onChange((value) => {
+						this.plugin.settings.locationAuditReportPath = normalizeVaultPath(value.trim());
+						void this.save();
+					});
+				new VaultPathSuggest(this.app, text.inputEl, () =>
+					this.app.vault.getMarkdownFiles().map((file) => file.path),
+				);
+			});
+
+		new Setting(root)
+			.setName("Change log report note")
+			.setDesc('Path of the markdown note "Audit changes" writes its log into. It must already exist.')
+			.addText((text) => {
+				text
+					.setPlaceholder("Projects/Trello Change Log.md")
+					.setValue(this.plugin.settings.changesReportPath)
+					.onChange((value) => {
+						this.plugin.settings.changesReportPath = normalizeVaultPath(value.trim());
 						void this.save();
 					});
 				new VaultPathSuggest(this.app, text.inputEl, () =>
@@ -306,7 +338,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.changesHtmlPath = normalizeVaultPath(value.trim());
 						void this.save();
 					});
-				// Suggests folders, not `reportPath`'s markdown-file list above — this page
+				// Suggests folders, not markdown-file list above — this page
 				// is machine-generated and usually doesn't exist yet on first setup.
 				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
 			});
@@ -350,6 +382,26 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.syncTitle).onChange((value) => {
 					this.plugin.settings.syncTitle = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Sync descriptions")
+			.setDesc("Synchronizes the note body and the card description. Off keeps both sides intact and syncs only metadata.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncDescription).onChange((value) => {
+					this.plugin.settings.syncDescription = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Sync due dates")
+			.setDesc("Synchronizes the card due date with the note frontmatter (Due date key, in Frontmatter keys below).")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncDue).onChange((value) => {
+					this.plugin.settings.syncDue = value;
 					void this.save();
 				}),
 			);
@@ -419,6 +471,16 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 	private renderLabels(root: HTMLElement): void {
 		new Setting(root).setName("Labels").setHeading();
+
+		new Setting(root)
+			.setName("Sync labels")
+			.setDesc("Whether labels are synchronized between Trello cards and notes.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncLabels).onChange((value) => {
+					this.plugin.settings.syncLabels = value;
+					void this.save();
+				}),
+			);
 
 		new Setting(root)
 			.setName("Labels sync")
@@ -692,10 +754,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	private renderOrphanCards(root: HTMLElement): void {
-		new Setting(root).setName("Create note from a card").setHeading();
+		new Setting(root).setName("Note creation from a card").setHeading();
 		root.createEl("p", {
 			cls: "setting-item-description",
-			text: "Where a new note lands when you create one from a Trello card whose list isn't mapped to any vault folder (\"Create note from a Trello card\" command).",
+			text: "Fallback settings when creating a note from a card — fallback destination folder for unmapped lists, and fallback note template when no mapping template is specified.",
 		});
 
 		new Setting(root)
@@ -713,6 +775,22 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						void this.save();
 					});
 				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+			});
+
+		new Setting(root)
+			.setName("Default note template")
+			.setDesc("Fallback note template when creating a note from a card whose list has no mapping template.")
+			.addText((text) => {
+				text
+					.setPlaceholder("Trello Card")
+					.setValue(this.plugin.settings.defaultTemplateName)
+					.onChange((value) => {
+						this.plugin.settings.defaultTemplateName = value.trim();
+						void this.save();
+					});
+				new VaultPathSuggest(this.app, text.inputEl, () =>
+					this.app.vault.getMarkdownFiles().map((file) => file.basename),
+				);
 			});
 	}
 

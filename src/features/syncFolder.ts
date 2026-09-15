@@ -51,6 +51,8 @@ export interface FolderSyncOptions extends NoteSyncOptions {
 	boardId: string;
 	/** `undefined` behaves as `DEFAULT_CARD_REF_KEY`. */
 	cardRefFrontmatterKey?: string;
+	/** Fallback template note used when the mapping doesn't specify one. */
+	defaultTemplateName?: string;
 }
 
 export interface FolderSyncStats {
@@ -159,11 +161,12 @@ export async function syncFolder(
 			(allowDelete ? plan.phantomNotes.length : 0),
 	);
 
-	const template = mapping.templateName ? await vault.readTemplate(mapping.templateName) : null;
+	const templateName = mapping.templateName || options.defaultTemplateName || "";
+	const template = templateName ? await vault.readTemplate(templateName) : null;
 	if (template && templateMissingCardRefKey(template, cardRefKey)) {
 		reporter.log(
 			"warn",
-			`Template "${mapping.templateName}" has no ${cardRefKey} key — new notes from it won't link back to their card.`,
+			`Template "${templateName}" has no ${cardRefKey} key — new notes from it won't link back to their card.`,
 		);
 	}
 	const byPath = new Map(handles.map((note) => [note.path, note]));

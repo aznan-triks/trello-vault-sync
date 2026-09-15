@@ -27,8 +27,14 @@ export interface TrelloVaultSyncSettings {
 	scope: string;
 	/** Folders ignored by vault-wide sync and audits, regardless of link state. */
 	excludedFolders: string[];
-	/** Note the audit reports are written into. */
+	/** Note the audit reports are written into. Legacy fallback for link/location/changes report paths. */
 	reportPath: string;
+	/** Note the link audit report is written into. */
+	linkAuditReportPath: string;
+	/** Note the location comparison report is written into. */
+	locationAuditReportPath: string;
+	/** Note the change log markdown report is written into. */
+	changesReportPath: string;
 	/** Page the "Export change log as HTML" command writes into — created if missing, overwritten if present. */
 	changesHtmlPath: string;
 
@@ -38,6 +44,9 @@ export interface TrelloVaultSyncSettings {
 	/** "merge" (default) unions both sides non-destructively; "overwrite" behaves like `policy` for labels. */
 	labelsSyncMode: LabelSyncMode;
 	syncTitle: boolean;
+	syncDescription: boolean;
+	syncDue: boolean;
+	syncLabels: boolean;
 	/** Global safety switch: plan everything, write nothing. */
 	dryRun: boolean;
 
@@ -118,6 +127,8 @@ export interface TrelloVaultSyncSettings {
 
 	/** Fallback folder for "Create note from a Trello card" when the card's list isn't mapped to one. Empty means the user is prompted at creation time instead of a silent guess. */
 	orphanCardFolder: string;
+	/** Fallback note template used when creating a new note if the mapping doesn't specify one. */
+	defaultTemplateName: string;
 
 	/** Off by default — an unsolicited sync writes to the vault. */
 	autoSyncEnabled: boolean;
@@ -148,11 +159,17 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	scope: "",
 	excludedFolders: [],
 	reportPath: "",
+	linkAuditReportPath: "",
+	locationAuditReportPath: "",
+	changesReportPath: "",
 	changesHtmlPath: "",
 	policy: "newer-wins",
 	marginSeconds: 60,
 	labelsSyncMode: DEFAULT_LABELS_SYNC_MODE,
 	syncTitle: true,
+	syncDescription: true,
+	syncDue: true,
+	syncLabels: true,
 	dryRun: false,
 	allowCreate: true,
 	allowDelete: false,
@@ -187,6 +204,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	attachmentsFolder: "",
 	confirmForceSync: true,
 	orphanCardFolder: "",
+	defaultTemplateName: "",
 	autoSyncEnabled: false,
 	autoSyncOnInterval: true,
 	autoSyncOnFocus: false,
@@ -284,10 +302,22 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			.map((folder) => normalizeVaultPath(safeString(folder)))
 			.filter((folder) => folder !== ""),
 		reportPath: normalizeVaultPath(safeString(input.reportPath, DEFAULT_SETTINGS.reportPath)),
+		linkAuditReportPath: normalizeVaultPath(
+			safeString(input.linkAuditReportPath ?? input.reportPath, DEFAULT_SETTINGS.linkAuditReportPath),
+		),
+		locationAuditReportPath: normalizeVaultPath(
+			safeString(input.locationAuditReportPath ?? input.reportPath, DEFAULT_SETTINGS.locationAuditReportPath),
+		),
+		changesReportPath: normalizeVaultPath(
+			safeString(input.changesReportPath ?? input.reportPath, DEFAULT_SETTINGS.changesReportPath),
+		),
 		changesHtmlPath: normalizeVaultPath(safeString(input.changesHtmlPath, DEFAULT_SETTINGS.changesHtmlPath)),
 		auditChangesCursor: safeString(input.auditChangesCursor, DEFAULT_SETTINGS.auditChangesCursor),
 		marginSeconds: safeNonNegativeNumber(input.marginSeconds, DEFAULT_SETTINGS.marginSeconds),
 		labelsSyncMode: input.labelsSyncMode === "overwrite" ? "overwrite" : DEFAULT_SETTINGS.labelsSyncMode,
+		syncDescription: input.syncDescription !== false,
+		syncDue: input.syncDue !== false,
+		syncLabels: input.syncLabels !== false,
 		maxRetries: safeNonNegativeNumber(
 			input.maxRetries,
 			DEFAULT_SETTINGS.maxRetries,
@@ -347,6 +377,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		attachmentsDestination: input.attachmentsDestination === "global-folder" ? "global-folder" : "note-folder",
 		attachmentsFolder: normalizeVaultPath(safeString(input.attachmentsFolder, DEFAULT_SETTINGS.attachmentsFolder)),
 		orphanCardFolder: normalizeVaultPath(safeString(input.orphanCardFolder, DEFAULT_SETTINGS.orphanCardFolder)),
+		defaultTemplateName: safeString(input.defaultTemplateName, DEFAULT_SETTINGS.defaultTemplateName).trim(),
 		autoSyncIntervalMinutes: safeNonNegativeNumber(
 			input.autoSyncIntervalMinutes,
 			DEFAULT_SETTINGS.autoSyncIntervalMinutes,

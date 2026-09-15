@@ -50,3 +50,53 @@ describe("runChangesHtmlExport", () => {
 		expect(ctx.settings.auditChangesCursor).toBe("prev-cursor");
 	});
 });
+
+describe("audit commands routing to dedicated report notes", () => {
+	test("runLinkAudit requests auditOptions with kind 'links'", async () => {
+		let requestedKind: string | undefined;
+		const ctx = fakeContext({
+			auditOptions: (kind) => {
+				requestedKind = kind;
+				return { scope: "", boardId: "board", reportPath: "LinkReport.md", timestamp: "t" };
+			},
+		});
+		(ctx.vault as FakeVault).create("LinkReport.md", "# Report");
+
+		const { runLinkAudit } = await import("../src/commands/auditCommands");
+		await runLinkAudit(ctx);
+
+		expect(requestedKind).toBe("links");
+	});
+
+	test("runLocationAudit requests auditOptions with kind 'locations'", async () => {
+		let requestedKind: string | undefined;
+		const ctx = fakeContext({
+			auditOptions: (kind) => {
+				requestedKind = kind;
+				return { scope: "", boardId: "board", reportPath: "LocationReport.md", timestamp: "t" };
+			},
+		});
+		(ctx.vault as FakeVault).create("LocationReport.md", "# Report");
+
+		const { runLocationAudit } = await import("../src/commands/auditCommands");
+		await runLocationAudit(ctx);
+
+		expect(requestedKind).toBe("locations");
+	});
+
+	test("runChangesAudit requests auditOptions with kind 'changes'", async () => {
+		let requestedKind: string | undefined;
+		const ctx = fakeContext({
+			auditOptions: (kind) => {
+				requestedKind = kind;
+				return { scope: "", boardId: "board", reportPath: "ChangesReport.md", timestamp: "t" };
+			},
+		});
+		(ctx.vault as FakeVault).create("ChangesReport.md", "# Report");
+
+		const { runChangesAudit } = await import("../src/commands/auditCommands");
+		await runChangesAudit(ctx);
+
+		expect(requestedKind).toBe("changes");
+	});
+});
