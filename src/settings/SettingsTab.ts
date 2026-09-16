@@ -276,8 +276,20 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		});
 
 		new Setting(root)
+			.setName("Auto-create report notes")
+			.setDesc(
+				"Create the report note below when it doesn't exist yet, instead of blocking the audit with an error.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.autoCreateReportNote).onChange((value) => {
+					this.plugin.settings.autoCreateReportNote = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Link audit report note")
-			.setDesc('Path of the note "Audit links" writes its report into. It must already exist.')
+			.setDesc('Path of the note "Audit links" writes its report into.')
 			.addText((text) => {
 				text
 					.setPlaceholder("Projects/Trello Link Report.md")
@@ -293,7 +305,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Location audit report note")
-			.setDesc('Path of the note "Compare locations against Trello" writes its report into. It must already exist.')
+			.setDesc('Path of the note "Compare locations against Trello" writes its report into.')
 			.addText((text) => {
 				text
 					.setPlaceholder("Projects/Trello Location Report.md")
@@ -309,7 +321,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Change log report note")
-			.setDesc('Path of the markdown note "Audit changes" writes its log into. It must already exist.')
+			.setDesc('Path of the markdown note "Audit changes" writes its log into.')
 			.addText((text) => {
 				text
 					.setPlaceholder("Projects/Trello Change Log.md")

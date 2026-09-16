@@ -27,7 +27,7 @@ export async function auditLinks(
 	reporter: Reporter = silentReporter,
 	signal?: AbortSignal,
 ): Promise<LinkAuditResult> {
-	const reportNote = requireReportNote(vault, options.reportPath);
+	const reportNote = await requireReportNote(vault, options.reportPath, options.autoCreateReportNote);
 
 	const { cards, listNames } = await fetchBoardIndex(client, options.boardId, signal);
 	const cardIds = new Set(cards.map((card) => card.id));

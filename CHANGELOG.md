@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.4] — 2026-09-16
+
+### Added
+
+- **Plain**: A new "Auto-create report notes" setting (on by default) makes the audit commands create their report note the first time, instead of blocking with a "Report note not found" error.
+  **Technical**: `types.ts` adds `autoCreateReportNote: boolean` (default `true`); `requireReportNote` (`features/auditShared.ts`) is now async and calls `vault.create(reportPath, "")` when the note is missing and the flag is on; `auditChanges`/`auditLinks`/`auditLocations` await it and forward `options.autoCreateReportNote`; `main.ts` passes `settings.autoCreateReportNote` into `AuditOptions`; `SettingsTab.ts` adds the toggle and drops the "It must already exist" wording from the three report-path descriptions.
+
 ## [1.16.3] — 2026-09-16
 
 ### Fixed

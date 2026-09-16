@@ -211,6 +211,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			reportPath,
 			timestamp: new Date().toLocaleString("en-CA", { hour12: false }),
 			excludedFolders: this.settings.excludedFolders,
+			autoCreateReportNote: this.settings.autoCreateReportNote,
 		};
 	}
 

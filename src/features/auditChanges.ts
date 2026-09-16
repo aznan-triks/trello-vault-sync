@@ -16,6 +16,8 @@ export interface ChangesAuditOptions {
 	timestamp: string;
 	/** Cursor from the previous run (an action id), "" for a first run. */
 	since: string;
+	/** Create the report note when missing instead of throwing. */
+	autoCreateReportNote?: boolean;
 }
 
 export interface ChangesAuditResult {
@@ -33,7 +35,7 @@ export async function auditChanges(
 	reporter: Reporter = silentReporter,
 	signal?: AbortSignal,
 ): Promise<ChangesAuditResult> {
-	const reportNote = requireReportNote(vault, options.reportPath);
+	const reportNote = await requireReportNote(vault, options.reportPath, options.autoCreateReportNote);
 
 	const actions = await client.getActions(options.boardId, { since: options.since || undefined }, signal);
 	reporter.setTotal(actions.length);

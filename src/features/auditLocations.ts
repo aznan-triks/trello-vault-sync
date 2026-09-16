@@ -23,7 +23,7 @@ export async function auditLocations(
 	reporter: Reporter = silentReporter,
 	signal?: AbortSignal,
 ): Promise<LocationAuditResult> {
-	const reportNote = requireReportNote(vault, options.reportPath);
+	const reportNote = await requireReportNote(vault, options.reportPath, options.autoCreateReportNote);
 
 	const { cards, listNames } = await fetchBoardIndex(client, options.boardId, signal);
 	const byId = new Map(cards.map((card) => [card.id, card]));

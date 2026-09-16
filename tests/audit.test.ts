@@ -114,6 +114,21 @@ describe("auditLinks", () => {
 			}),
 		).rejects.toThrow(/absent\.md/);
 	});
+
+	test("creates the report note automatically when autoCreateReportNote is enabled", async () => {
+		const vault = new FakeVault();
+		const { client } = clientFor([]);
+
+		await auditLinks(vault, client, {
+			scope: "WoT",
+			boardId: "board",
+			reportPath: "WoT/00_Metatrois/New.md",
+			timestamp: "t",
+			autoCreateReportNote: true,
+		});
+
+		expect(vault.contentOf("WoT/00_Metatrois/New.md")).toContain("Trello Link Report");
+	});
 });
 
 describe("auditLocations", () => {
