@@ -717,6 +717,20 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Sync linked cards")
+			.setDesc(
+				"Only matters when \"Sync attachments\" (above) is on. Resolves a card-link attachment to a " +
+					"wikilink in the Linked cards key (below). Off writes plain attachment urls as usual but " +
+					"leaves this key untouched — no extra Trello request either way, it rides the same attachment list.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.syncLinkedCards).onChange((value) => {
+					this.plugin.settings.syncLinkedCards = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Download attachments")
 			.setDesc(
 				"⚠️ Writes binary files into the vault: downloads each uploaded (non-link) attachment to the " +

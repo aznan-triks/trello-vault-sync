@@ -164,6 +164,11 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ syncAttachments: false }).syncAttachments).toBe(false);
 	});
 
+	test("defaults syncLinkedCards to on and keeps an explicit false", () => {
+		expect(normalizeSettings({}).syncLinkedCards).toBe(true);
+		expect(normalizeSettings({ syncLinkedCards: false }).syncLinkedCards).toBe(false);
+	});
+
 	test("defaults the attachment frontmatter keys to their historical values", () => {
 		const settings = normalizeSettings({});
 		expect(settings.attachmentsFrontmatterKey).toBe("trello_attachments");
