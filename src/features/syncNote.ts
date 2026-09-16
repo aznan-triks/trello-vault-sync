@@ -581,7 +581,7 @@ async function convergeAttachmentDownloads(
 			writeBinary: (path, data) => vault.writeBinary(path, data),
 			fetchBinary: (url) => fetchBinary(url, signal),
 			redact: (text) => client.redactOwnSecrets(text),
-		});
+		}, signal);
 		for (const message of result.errors) {
 			console.warn(`[trello-vault-sync] ${message}`);
 		}
@@ -616,7 +616,12 @@ export async function syncNoteWithCard(
 	const syncChecklists = options.syncChecklists ?? DEFAULT_SYNC_CHECKLISTS;
 	const checklistHeading = options.checklistHeading ?? DEFAULT_CHECKLIST_HEADING;
 	let content = await vault.read(note);
-	const localBody = extractBody(content, syncChecklists ? checklistHeading : undefined);
+	// Always split off the checklist section, whether or not `syncChecklists` is
+	// currently on: the heading marks plugin-managed content that was never part
+	// of the Trello description, and a note can carry a leftover section from
+	// when the toggle was on. Only the active reconciliation against Trello's
+	// own checklists (below) is gated by the setting.
+	const localBody = extractBody(content, checklistHeading);
 	const localDue = parseDueRef(vault.readFrontmatter(note)?.[dueKey]);
 	const localLabels = parseLabelsRef(vault.readFrontmatter(note)?.[labelsKey]);
 	const remoteLabels = remoteLabelsOf(card);
@@ -741,7 +746,10 @@ export async function syncNoteWithCard(
 	if (direction === "pull") {
 		let current = note;
 		if (syncDescription) {
-			const nextContent = replaceBody(content, card.desc ?? "", syncChecklists ? checklistHeading : undefined);
+			// Same reasoning as `localBody` above: preserve a leftover checklist
+			// section on pull regardless of `syncChecklists`, so turning the toggle
+			// off never destroys it.
+			const nextContent = replaceBody(content, card.desc ?? "", checklistHeading);
 			if (nextContent !== content && !signal?.aborted) await vault.write(current, nextContent);
 		}
 

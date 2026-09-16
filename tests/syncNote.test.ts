@@ -659,6 +659,17 @@ describe("syncNoteWithCard — attachments (opt-in via syncAttachments)", () => 
 });
 
 describe("syncNoteWithCard — checklists (opt-in via syncChecklists)", () => {
+	test("does not leak a leftover checklist section into card.desc when syncChecklists is turned back off", async () => {
+		const noteBody = `same\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [x] Réserver`;
+		const { vault, client, requests } = setup(noteBody, at("2026-03-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, options);
+
+		expect(result.direction).toBe("skip");
+		expect(requests).toHaveLength(0);
+	});
+
 	test("does nothing when syncChecklists is off, even with a checklist on the card", async () => {
 		const { vault, client, requests } = setup("same", at("2026-01-01"));
 		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });

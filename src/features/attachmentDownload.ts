@@ -37,6 +37,7 @@ export async function downloadAttachments(
 ): Promise<DownloadAttachmentsResult> {
 	const result: DownloadAttachmentsResult = { downloaded: 0, skipped: 0, errors: [] };
 	for (const attachment of attachments) {
+		if (signal?.aborted) break;
 		if (!attachment.isUpload) continue;
 
 		const planned = resolveAttachmentPath(attachment.name, destination);

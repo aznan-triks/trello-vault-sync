@@ -38,14 +38,18 @@ export function splitFrontmatter(content: string): SplitNote {
 }
 
 /**
- * Splits `body` at the line matching `heading` exactly (trimmed) — everything
- * from that line to the end is the checklist block, verbatim, including the
- * heading line itself. The checklist section is always the LAST thing in a
- * note's body: nothing after it is preserved separately.
+ * Splits `body` at the LAST line matching `heading` exactly (trimmed) —
+ * everything from that line to the end is the checklist block, verbatim,
+ * including the heading line itself. The checklist section is always the
+ * LAST thing in a note's body: nothing after it is preserved separately.
+ * Matching the last occurrence (not the first) protects prose that happens to
+ * mention the heading text earlier in the note from being swallowed into the
+ * checklist block.
  */
 export function splitChecklistSection(body: string, heading: string): { rest: string; checklistBlock: string | null } {
 	const lines = body.split("\n");
-	const index = lines.findIndex((line) => line.trim() === heading.trim());
+	const trimmedHeading = heading.trim();
+	const index = lines.findLastIndex((line) => line.trim() === trimmedHeading);
 	if (index === -1) return { rest: body, checklistBlock: null };
 	return { rest: lines.slice(0, index).join("\n"), checklistBlock: lines.slice(index).join("\n") };
 }
