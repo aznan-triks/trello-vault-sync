@@ -164,6 +164,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			checklistHeading: this.settings.checklistHeading,
 			syncCardCover: this.settings.syncCardCover,
 			coverFrontmatterKey: this.settings.coverFrontmatterKey,
+			preferLocalCover: this.settings.preferLocalCover,
+			coverLocalFormat: this.settings.coverLocalFormat,
 			syncMembers: this.settings.syncMembers,
 			membersFrontmatterKey: this.settings.membersFrontmatterKey,
 			syncCustomFields: this.settings.syncCustomFields,

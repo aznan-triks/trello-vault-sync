@@ -52,6 +52,15 @@ export const DEFAULT_COVER_KEY = "banner";
 /** On by default — no extra Trello request: `cover` rides the same card object every fetch already pulls. */
 export const DEFAULT_SYNC_CARD_COVER = true;
 
+/** Link format written into frontmatter when a local cover image is used. */
+export type CoverLocalFormat = "vault-path" | "wikilink";
+
+/** Off by default — writes the remote Trello url unless explicitly configured to prefer local downloaded files. */
+export const DEFAULT_PREFER_LOCAL_COVER = false;
+
+/** Default link format for local cover images — vault-relative path. */
+export const DEFAULT_COVER_LOCAL_FORMAT: CoverLocalFormat = "vault-path";
+
 /** A card's cover, as much of Trello's `cover` field as this plugin reads (see `trello/client.ts::TrelloCard`). */
 export interface CardCoverLike {
 	scaled?: { url: string; width: number }[];
@@ -63,3 +72,4 @@ export function coverImageUrl(cover: CardCoverLike | null | undefined): string |
 	if (!images || images.length === 0) return null;
 	return images.reduce((largest, image) => (image.width > largest.width ? image : largest)).url;
 }
+

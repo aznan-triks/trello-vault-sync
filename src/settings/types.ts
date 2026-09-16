@@ -1,9 +1,12 @@
 import {
 	DEFAULT_ATTACHMENTS_KEY,
 	DEFAULT_COVER_KEY,
+	DEFAULT_COVER_LOCAL_FORMAT,
 	DEFAULT_LINKED_CARDS_KEY,
+	DEFAULT_PREFER_LOCAL_COVER,
 	DEFAULT_SYNC_ATTACHMENTS,
 	DEFAULT_SYNC_CARD_COVER,
+	type CoverLocalFormat,
 } from "../core/attachmentRef";
 import type { AttachmentsDestination, AttachmentsDownloadScope } from "../core/attachmentPath";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
@@ -16,6 +19,8 @@ import { DEFAULT_LABELS_SYNC_MODE, type LabelSyncMode } from "../core/labelMerge
 import { safeOverrideMode } from "../core/mappingOverride";
 import type { ConflictPolicy } from "../core/syncDecision";
 import type { FolderMapping } from "../features/syncFolder";
+
+export type { CoverLocalFormat };
 
 export interface TrelloVaultSyncSettings {
 	/** The single Trello credential pair used by every command. */
@@ -118,6 +123,10 @@ export interface TrelloVaultSyncSettings {
 	/** Pull-only, no extra Trello request. */
 	syncCardCover: boolean;
 	coverFrontmatterKey: string;
+	/** Off by default — when enabled, writes the local path or wikilink of the downloaded cover image into the cover key instead of Trello's remote url. */
+	preferLocalCover: boolean;
+	/** Link format written into the frontmatter when a local cover image is used. */
+	coverLocalFormat: CoverLocalFormat;
 	/** Off by default — writes binary files into the vault, unlike every other sync feature here. */
 	downloadAttachments: boolean;
 	attachmentsDestination: AttachmentsDestination;
@@ -204,6 +213,8 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	confirmUndo: true,
 	syncCardCover: DEFAULT_SYNC_CARD_COVER,
 	coverFrontmatterKey: DEFAULT_COVER_KEY,
+	preferLocalCover: DEFAULT_PREFER_LOCAL_COVER,
+	coverLocalFormat: DEFAULT_COVER_LOCAL_FORMAT,
 	downloadAttachments: false,
 	attachmentsDestination: "note-folder",
 	attachmentsDownloadScope: "all",
@@ -380,6 +391,8 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		),
 		checklistHeading: safeFrontmatterKey(input.checklistHeading, DEFAULT_SETTINGS.checklistHeading),
 		coverFrontmatterKey: safeFrontmatterKey(input.coverFrontmatterKey, DEFAULT_SETTINGS.coverFrontmatterKey),
+		preferLocalCover: input.preferLocalCover === true,
+		coverLocalFormat: input.coverLocalFormat === "wikilink" ? "wikilink" : "vault-path",
 		attachmentsDestination: input.attachmentsDestination === "global-folder" ? "global-folder" : "note-folder",
 		attachmentsDownloadScope: input.attachmentsDownloadScope === "cover-only" ? "cover-only" : "all",
 		attachmentsFolder: normalizeVaultPath(safeString(input.attachmentsFolder, DEFAULT_SETTINGS.attachmentsFolder)),

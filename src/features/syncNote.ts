@@ -1,16 +1,24 @@
 import {
 	DEFAULT_ATTACHMENTS_KEY,
 	DEFAULT_COVER_KEY,
+	DEFAULT_COVER_LOCAL_FORMAT,
 	DEFAULT_LINKED_CARDS_KEY,
+	DEFAULT_PREFER_LOCAL_COVER,
 	DEFAULT_SYNC_ATTACHMENTS,
 	DEFAULT_SYNC_CARD_COVER,
 	coverImageUrl,
 	formatAttachmentsRef,
 	formatLinkedCardsRef,
+	formatWikilink,
 	parseAttachmentsRef,
 	parseLinkedCardsRef,
+	type CoverLocalFormat,
 } from "../core/attachmentRef";
-import type { AttachmentsDestination, AttachmentsDownloadScope } from "../core/attachmentPath";
+import {
+	resolveAttachmentPath,
+	type AttachmentsDestination,
+	type AttachmentsDownloadScope,
+} from "../core/attachmentPath";
 import { DEFAULT_CHECKLIST_HEADING, DEFAULT_SYNC_CHECKLISTS } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY, formatDueRef, parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
@@ -83,6 +91,10 @@ export interface NoteSyncOptions {
 	syncCardCover?: boolean;
 	/** `undefined` behaves as `DEFAULT_COVER_KEY`. */
 	coverFrontmatterKey?: string;
+	/** `undefined` behaves as `DEFAULT_PREFER_LOCAL_COVER` (false). */
+	preferLocalCover?: boolean;
+	/** `undefined` behaves as `DEFAULT_COVER_LOCAL_FORMAT` ("vault-path"). */
+	coverLocalFormat?: CoverLocalFormat;
 	/** Off by default — downloads uploaded (non-link) attachments into the vault. */
 	downloadAttachments?: boolean;
 	/** `undefined` behaves as `"note-folder"`. */
@@ -412,15 +424,54 @@ async function convergeChecklists(
  * card), so unlike `convergeAttachments`/`convergeChecklists` this never needs
  * a try/catch around it. Deletes the key when the card has no image cover
  * (a plain color, or nothing set) instead of leaving a stale url behind.
+ * When `preferLocalCover` is enabled and a matching downloaded cover exists in the
+ * vault, writes its local link (vault path or wikilink) instead of the remote url.
  */
 async function convergeCover(
 	vault: VaultGateway,
+	client: TrelloClient,
 	note: NoteHandle,
 	card: TrelloCard,
 	coverKey: string,
+	options?: {
+		preferLocalCover?: boolean;
+		coverLocalFormat?: CoverLocalFormat;
+		attachmentsDestination?: AttachmentsDestination;
+		attachmentsFolder?: string;
+	},
 	signal?: AbortSignal,
 ): Promise<boolean> {
-	const desired = coverImageUrl(card.cover);
+	let desired: string | null = null;
+	if (options?.preferLocalCover && card.cover?.idAttachment) {
+		let attachments = card.attachments;
+		if (!attachments) {
+			try {
+				attachments = await client.getCardAttachments(card.id, signal);
+				card.attachments = attachments;
+			} catch {
+				attachments = undefined;
+			}
+		}
+		const coverAttachment = attachments?.find((a) => a.id === card.cover?.idAttachment);
+		if (coverAttachment) {
+			const destination = options.attachmentsDestination ?? "note-folder";
+			const globalFolder = options.attachmentsFolder ?? "";
+			const planned = resolveAttachmentPath(coverAttachment.name, {
+				destination,
+				noteFolder: note.folder,
+				globalFolder,
+			});
+			if (planned.ok && vault.binarySize(planned.path) !== null) {
+				desired =
+					options.coverLocalFormat === "wikilink"
+						? formatWikilink(planned.path)
+						: planned.path;
+			}
+		}
+	}
+	if (desired === null) {
+		desired = coverImageUrl(card.cover);
+	}
 	const current = vault.readFrontmatter(note)?.[coverKey];
 	if (current === desired || (desired === null && current === undefined)) return false;
 	if (signal?.aborted) return false;
@@ -573,6 +624,9 @@ async function convergeAttachmentDownloads(
 		// request just to filter its result down to nothing.
 		if (scope === "cover-only" && !card.cover?.idAttachment) return;
 		const attachments = card.attachments ?? (await client.getCardAttachments(card.id, signal));
+		if (!card.attachments) {
+			card.attachments = attachments;
+		}
 		if (signal?.aborted) return;
 		const toDownload =
 			scope === "cover-only" ? attachments.filter((a) => a.id === card.cover?.idAttachment) : attachments;
@@ -675,9 +729,42 @@ export async function syncNoteWithCard(
 		stale = await convergeChecklists(vault, client, note, card, checklistHeading, content, options.onTrelloWrite, signal);
 	}
 
+	if (options.downloadAttachments && !options.dryRun && !signal?.aborted) {
+		if (options.fetchBinary) {
+			await convergeAttachmentDownloads(
+				vault,
+				client,
+				note,
+				card,
+				options.attachmentsDestination ?? "note-folder",
+				options.attachmentsFolder ?? "",
+				options.attachmentsDownloadScope ?? "all",
+				options.fetchBinary,
+				signal,
+			);
+		} else {
+			console.warn(
+				`[trello-vault-sync] Attachment download is enabled but no downloader was wired — skipped for "${card.name}".`,
+			);
+		}
+	}
+
 	const syncCardCover = options.syncCardCover ?? DEFAULT_SYNC_CARD_COVER;
 	if (syncCardCover && !options.dryRun && !signal?.aborted) {
-		const wrote = await convergeCover(vault, note, card, options.coverFrontmatterKey ?? DEFAULT_COVER_KEY, signal);
+		const wrote = await convergeCover(
+			vault,
+			client,
+			note,
+			card,
+			options.coverFrontmatterKey ?? DEFAULT_COVER_KEY,
+			{
+				preferLocalCover: options.preferLocalCover ?? DEFAULT_PREFER_LOCAL_COVER,
+				coverLocalFormat: options.coverLocalFormat ?? DEFAULT_COVER_LOCAL_FORMAT,
+				attachmentsDestination: options.attachmentsDestination,
+				attachmentsFolder: options.attachmentsFolder,
+			},
+			signal,
+		);
 		stale = stale || wrote;
 	}
 
@@ -710,26 +797,6 @@ export async function syncNoteWithCard(
 	}
 
 	if (stale) content = await vault.read(note);
-
-	if (options.downloadAttachments && !options.dryRun && !signal?.aborted) {
-		if (options.fetchBinary) {
-			await convergeAttachmentDownloads(
-				vault,
-				client,
-				note,
-				card,
-				options.attachmentsDestination ?? "note-folder",
-				options.attachmentsFolder ?? "",
-				options.attachmentsDownloadScope ?? "all",
-				options.fetchBinary,
-				signal,
-			);
-		} else {
-			console.warn(
-				`[trello-vault-sync] Attachment download is enabled but no downloader was wired — skipped for "${card.name}".`,
-			);
-		}
-	}
 
 	if (direction === "skip" || direction === "conflict") {
 		return { direction, renamed: false, note, reason: decision.reason };

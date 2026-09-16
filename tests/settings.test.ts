@@ -434,4 +434,19 @@ describe("normalizeSettings", () => {
 			"Template Card",
 		);
 	});
+
+	test("defaults preferLocalCover to false and keeps explicit boolean", () => {
+		expect(normalizeSettings({}).preferLocalCover).toBe(false);
+		expect(normalizeSettings({ preferLocalCover: true }).preferLocalCover).toBe(true);
+		expect(normalizeSettings({ preferLocalCover: "true" as unknown as boolean }).preferLocalCover).toBe(false);
+	});
+
+	test("defaults coverLocalFormat to vault-path and accepts wikilink", () => {
+		expect(normalizeSettings({}).coverLocalFormat).toBe("vault-path");
+		expect(normalizeSettings({ coverLocalFormat: "wikilink" }).coverLocalFormat).toBe("wikilink");
+		expect(normalizeSettings({ coverLocalFormat: "invalid" as unknown as "wikilink" }).coverLocalFormat).toBe(
+			"vault-path",
+		);
+	});
 });
+
