@@ -112,6 +112,25 @@ describe("downloadAttachments", () => {
 		expect(result.errors[0]).toContain("«masked»");
 	});
 
+	test("stops before fetching the next attachment once the signal is aborted mid-batch", async () => {
+		const controller = new AbortController();
+		const fetched: string[] = [];
+		const d = deps({
+			fetchBinary: async (url) => {
+				fetched.push(url);
+				controller.abort();
+				return new ArrayBuffer(1);
+			},
+		});
+		await downloadAttachments(
+			[attachment({ id: "a1", name: "one.jpg" }), attachment({ id: "a2", name: "two.jpg" })],
+			DEST,
+			d,
+			controller.signal,
+		);
+		expect(fetched).toHaveLength(1);
+	});
+
 	test("fetches the attachment's own url unmodified — authentication is the injected fetchBinary's concern, not a query string", async () => {
 		const seen: string[] = [];
 		const d = deps({

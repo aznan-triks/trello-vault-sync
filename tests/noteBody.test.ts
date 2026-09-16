@@ -116,6 +116,14 @@ describe("splitChecklistSection", () => {
 		const body = "Text\n\n  ## Checklist  \n- [ ] Item";
 		expect(splitChecklistSection(body, "## Checklist").checklistBlock).toBe("  ## Checklist  \n- [ ] Item");
 	});
+
+	test("splits at the LAST matching line, not the first — a heading mentioned earlier in the prose must not swallow the real section", () => {
+		const body = "Intro that happens to mention\n\n## Checklist\n\nas an example, then more real text.\n\n## Checklist\n- [ ] Item";
+		expect(splitChecklistSection(body, "## Checklist")).toEqual({
+			rest: "Intro that happens to mention\n\n## Checklist\n\nas an example, then more real text.\n",
+			checklistBlock: "## Checklist\n- [ ] Item",
+		});
+	});
 });
 
 describe("insertChecklistSection", () => {

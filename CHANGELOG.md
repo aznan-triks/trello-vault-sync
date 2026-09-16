@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.3] — 2026-09-16
+
+### Fixed
+
+- **Plain**: A checklist section left over from a time when "Sync checklists" was turned on no longer leaks into the card's description on Trello, or gets wiped out, once you turn that setting back off.
+  **Technical**: `syncNoteWithCard` (`features/syncNote.ts`) now always passes `checklistHeading` to `extractBody`/`replaceBody`, decoupling "split off the checklist section" from the `syncChecklists` toggle — only the active reconciliation against Trello's own checklists stays gated by the setting.
+- **Plain**: If your note's own text happens to contain a line matching the checklist heading (e.g. `## Checklist`) before the real checklist section, the plugin no longer mistakes that line for the start of the checklist and overwrites everything after it.
+  **Technical**: `splitChecklistSection` (`core/noteBody.ts`) now matches the LAST line equal to `heading`, not the first, consistent with the documented invariant that the checklist section is always the last thing in a note's body.
+- **Plain**: Cancelling a running sync while attachments are downloading now stops immediately instead of finishing the whole batch first.
+  **Technical**: `downloadAttachments` (`features/attachmentDownload.ts`) now checks `signal?.aborted` at the top of its loop, matching the pattern already used by `convergeChecklists`/`convergeAttachments`/etc. `convergeAttachmentDownloads` (`features/syncNote.ts`) also now actually forwards its `signal` to `downloadAttachments` — it was never wired through before, so the new guard would otherwise have had no effect.
+
+Bugs found and confirmed by re-reading the code against an external review (Grok) supplied by the user; three other claims from that review were checked and declined — see `plans/PLAN_2026-09-16_fix-grok-review-findings.md` (gitignored) for the full diagnostic and the reasoning for each.
+
 ## [1.16.2] — 2026-09-15
 
 ### Fixed
