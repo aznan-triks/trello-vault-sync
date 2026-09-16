@@ -101,6 +101,8 @@ export interface TrelloVaultSyncSettings {
 
 	/** On by default — costs one extra Trello request per note synced (checklists aren't embedded in the card object either). */
 	syncChecklists: boolean;
+	/** On by default — an audit creates its report note instead of throwing "Report note not found" when it doesn't exist yet. */
+	autoCreateReportNote: boolean;
 	/** Heading marking the checklist section — always the last thing in a note's body, not a frontmatter key. */
 	checklistHeading: string;
 
@@ -194,6 +196,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	linkedCardsFrontmatterKey: DEFAULT_LINKED_CARDS_KEY,
 	syncAttachments: DEFAULT_SYNC_ATTACHMENTS,
 	syncChecklists: DEFAULT_SYNC_CHECKLISTS,
+	autoCreateReportNote: true,
 	checklistHeading: DEFAULT_CHECKLIST_HEADING,
 	historyEnabled: true,
 	historyMaxRuns: 20,
