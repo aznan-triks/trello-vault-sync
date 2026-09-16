@@ -9,8 +9,10 @@
  * own timers), `globalThis` under the unit tests, which run in Node where there is
  * no `window` at all — `core/` must stay importable outside Obsidian (see CONTEXT §9).
  */
-const timers: { setTimeout: typeof globalThis.setTimeout } =
-	typeof window === "undefined" ? globalThis : window;
+const timers: { setTimeout: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number } =
+	typeof window !== "undefined"
+		? window
+		: (typeof global !== "undefined" ? (global as unknown as Window) : ({} as Window));
 
 export async function yieldPeriodically(index: number, everyN = 200): Promise<void> {
 	if (index > 0 && index % everyN === 0) {

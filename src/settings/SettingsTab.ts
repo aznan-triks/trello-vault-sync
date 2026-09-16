@@ -155,8 +155,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					});
 			});
 
-		this.searchCountEl = searchContainer.createDiv({ cls: "tvs-settings__search-count" });
-		this.searchCountEl.style.display = "none";
+		this.searchCountEl = searchContainer.createDiv({ cls: "tvs-settings__search-count is-hidden" });
 	}
 
 	private renderNav(root: HTMLElement): void {
@@ -221,7 +220,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			const tab = sectionEl.dataset.tab;
 			if (!isSearching) {
 				const isCurrentTab = tab === this.activeTab;
-				sectionEl.style.display = isCurrentTab ? "" : "none";
+				sectionEl.toggleClass("is-hidden", !isCurrentTab);
 				sectionEl.querySelectorAll<HTMLElement>(".setting-item").forEach((item) => {
 					item.removeClass("tvs-setting--hidden");
 				});
@@ -239,22 +238,22 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						item.addClass("tvs-setting--hidden");
 					}
 				});
-				sectionEl.style.display = sectionHasMatch ? "" : "none";
+				sectionEl.toggleClass("is-hidden", !sectionHasMatch);
 			}
 		});
 
 		if (this.searchCountEl) {
 			if (isSearching) {
 				this.searchCountEl.setText(`Found ${matchCount} setting(s) matching "${this.searchQuery}"`);
-				this.searchCountEl.style.display = "";
+				this.searchCountEl.removeClass("is-hidden");
 			} else {
 				this.searchCountEl.setText("");
-				this.searchCountEl.style.display = "none";
+				this.searchCountEl.addClass("is-hidden");
 			}
 		}
 
 		if (this.navEl) {
-			this.navEl.style.display = isSearching ? "none" : "";
+			this.navEl.toggleClass("is-hidden", isSearching);
 		}
 	}
 
@@ -1352,10 +1351,6 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addSlider((slider) =>
 				slider
 					.setLimits(0.1, 1, 0.05)
-					// Deprecated from Obsidian 1.13 on (the value shows inline there), but this
-					// tab renders imperatively for 1.7-1.12 too, where it is the only way to see
-					// the value while dragging. Remove it with `display()`, never before.
-					.setDynamicTooltip()
 					.setValue(this.plugin.settings.similarityThreshold)
 					.onChange((value) => {
 						this.plugin.settings.similarityThreshold = value;

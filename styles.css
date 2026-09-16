@@ -484,7 +484,11 @@
 }
 
 /* Filter search */
-.tvs-setting--hidden {
+.tvs-setting--hidden,
+.tvs-settings__section.is-hidden,
+.tvs-settings__search-count.is-hidden,
+.tvs-settings__nav.is-hidden,
+.is-hidden {
 	display: none !important;
 }
 
