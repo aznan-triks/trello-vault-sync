@@ -13,6 +13,8 @@ export const DEFAULT_ATTACHMENTS_KEY = "trello_attachments";
 export const DEFAULT_SYNC_ATTACHMENTS = true;
 /** Default frontmatter key for card-link attachments — configurable via `linkedCardsFrontmatterKey`. */
 export const DEFAULT_LINKED_CARDS_KEY = "trello_linked_cards";
+/** On by default (matches the historical, un-toggleable behavior) — separate from `syncAttachments` so a card-link attachment can be excluded from the wikilink list without turning off plain-url attachments too. No extra Trello request: rides the same attachment list `syncAttachments` already fetches. */
+export const DEFAULT_SYNC_LINKED_CARDS = true;
 
 /** Parse a frontmatter value into a list of trimmed, non-empty strings. */
 export function parseAttachmentsRef(raw: unknown): string[] {

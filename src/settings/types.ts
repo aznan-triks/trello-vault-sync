@@ -6,6 +6,7 @@ import {
 	DEFAULT_PREFER_LOCAL_COVER,
 	DEFAULT_SYNC_ATTACHMENTS,
 	DEFAULT_SYNC_CARD_COVER,
+	DEFAULT_SYNC_LINKED_CARDS,
 	type CoverLocalFormat,
 } from "../core/attachmentRef";
 import type { AttachmentsDestination, AttachmentsDownloadScope } from "../core/attachmentPath";
@@ -103,6 +104,8 @@ export interface TrelloVaultSyncSettings {
 
 	/** Pull-only, on by default — costs one extra Trello request per note synced (attachments aren't embedded in the card object). */
 	syncAttachments: boolean;
+	/** Only meaningful when `syncAttachments` is on — resolves a card-link attachment to a wikilink. On by default (matches the historical, un-toggleable behavior). No extra Trello request. */
+	syncLinkedCards: boolean;
 
 	/** On by default — costs one extra Trello request per note synced (checklists aren't embedded in the card object either). */
 	syncChecklists: boolean;
@@ -204,6 +207,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	attachmentsFrontmatterKey: DEFAULT_ATTACHMENTS_KEY,
 	linkedCardsFrontmatterKey: DEFAULT_LINKED_CARDS_KEY,
 	syncAttachments: DEFAULT_SYNC_ATTACHMENTS,
+	syncLinkedCards: DEFAULT_SYNC_LINKED_CARDS,
 	syncChecklists: DEFAULT_SYNC_CHECKLISTS,
 	autoCreateReportNote: true,
 	checklistHeading: DEFAULT_CHECKLIST_HEADING,

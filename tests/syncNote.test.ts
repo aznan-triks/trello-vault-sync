@@ -596,6 +596,49 @@ describe("syncNoteWithCard — attachments (opt-in via syncAttachments)", () => 
 		expect(vault.readFrontmatter(vault.note(PATH))?.[DEFAULT_LINKED_CARDS_KEY]).toEqual(["[[Idée business X]]"]);
 	});
 
+	test("skips linked-card wikilinks when syncLinkedCards is off, but still writes plain attachment urls", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({
+			"/cards/c1/attachments": [
+				{ id: "a1", name: "spec.pdf", url: "https://example.com/spec.pdf", isUpload: true },
+				{ id: "a2", name: "Idée business X", url: "https://trello.com/c/AbC123/9-idee", isUpload: false },
+			],
+			"/cards/AbC123": { id: "real1", idBoard: "board", name: "Idée business X" },
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncAttachments: true,
+			syncLinkedCards: false,
+		});
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.[DEFAULT_ATTACHMENTS_KEY]).toEqual([
+			"https://example.com/spec.pdf",
+		]);
+		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty(DEFAULT_LINKED_CARDS_KEY);
+	});
+
+	test("leaves a stale linked-card key untouched when syncLinkedCards is off — same as syncAttachments off does for its own keys", async () => {
+		const withLinkedCard = FRONTMATTER.replace(
+			"---\n\n",
+			`${DEFAULT_LINKED_CARDS_KEY}:\n  - "[[Old Link]]"\n---\n\n`,
+		);
+		const vault = new FakeVault({ [PATH]: { content: withLinkedCard, mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({ "/cards/c1/attachments": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncAttachments: true,
+			syncLinkedCards: false,
+		});
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.[DEFAULT_LINKED_CARDS_KEY]).toEqual(["[[Old Link]]"]);
+	});
+
 	test("clears stale attachment keys when the card no longer has any attachments", async () => {
 		const withAttachments = FRONTMATTER.replace(
 			"---\n\n",

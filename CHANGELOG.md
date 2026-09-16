@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.8] — 2026-09-16
+
+### Added
+
+- **Plain**: "Linked cards" (the wikilinks a card-link attachment resolves to) now has its own on/off switch, separate from "Sync attachments" — you can keep plain attachment urls syncing while turning off the linked-card wikilinks, or the other way isn't needed since it's the same list either way.
+  **Technical**: New `syncLinkedCards: boolean` setting (default `true`, matching the previous un-toggleable behavior — `DEFAULT_SYNC_LINKED_CARDS`, `core/attachmentRef.ts`). `convergeAttachments` (`features/syncNote.ts`) now takes it as a parameter and skips reading/writing the linked-cards key when off, without touching plain attachment urls or costing an extra Trello request (both lists come from the same already-fetched attachment array). Toggle added to `SettingsTab.ts` right below "Sync attachments". This closes a gap against the project's own "every behavior ships with a setting" rule — the wikilink resolution had none until now.
+
 ## [1.16.7] — 2026-09-16
 
 ### Fixed

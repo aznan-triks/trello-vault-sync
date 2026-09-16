@@ -6,6 +6,7 @@ import {
 	DEFAULT_PREFER_LOCAL_COVER,
 	DEFAULT_SYNC_ATTACHMENTS,
 	DEFAULT_SYNC_CARD_COVER,
+	DEFAULT_SYNC_LINKED_CARDS,
 	coverImageUrl,
 	formatAttachmentsRef,
 	formatLinkedCardsRef,
@@ -83,6 +84,8 @@ export interface NoteSyncOptions {
 	attachmentsFrontmatterKey?: string;
 	/** `undefined` behaves as `DEFAULT_LINKED_CARDS_KEY`. */
 	linkedCardsFrontmatterKey?: string;
+	/** Only meaningful when `syncAttachments` is on — resolves a card-link attachment to a wikilink. `undefined` behaves as `DEFAULT_SYNC_LINKED_CARDS`. */
+	syncLinkedCards?: boolean;
 	/** See `DEFAULT_SYNC_CHECKLISTS` for its request cost. `undefined` behaves as `true`. */
 	syncChecklists?: boolean;
 	/** `undefined` behaves as `DEFAULT_CHECKLIST_HEADING`. */
@@ -325,6 +328,7 @@ async function convergeAttachments(
 	cardIndex: Map<string, NoteHandle>,
 	attachmentsKey: string,
 	linkedCardsKey: string,
+	syncLinkedCards: boolean,
 	signal?: AbortSignal,
 ): Promise<boolean> {
 	try {
@@ -332,8 +336,9 @@ async function convergeAttachments(
 		const { urls, linkedCards } = await resolveAttachments(client, card.id, cardIndex, signal, card.attachments);
 		const frontmatter = vault.readFrontmatter(note);
 		const currentUrls = parseAttachmentsRef(frontmatter?.[attachmentsKey]);
-		const currentLinkedCards = parseLinkedCardsRef(frontmatter?.[linkedCardsKey]);
-		if (sameOrderedList(currentUrls, urls) && sameOrderedList(currentLinkedCards, linkedCards)) return false;
+		const currentLinkedCards = syncLinkedCards ? parseLinkedCardsRef(frontmatter?.[linkedCardsKey]) : [];
+		const nextLinkedCards = syncLinkedCards ? linkedCards : [];
+		if (sameOrderedList(currentUrls, urls) && sameOrderedList(currentLinkedCards, nextLinkedCards)) return false;
 		if (signal?.aborted) return false;
 
 		await vault.writeFrontmatter(note, (fm) => {
@@ -341,9 +346,11 @@ async function convergeAttachments(
 			if (formattedUrls === null) delete fm[attachmentsKey];
 			else fm[attachmentsKey] = formattedUrls;
 
-			const formattedLinkedCards = formatLinkedCardsRef(linkedCards);
-			if (formattedLinkedCards === null) delete fm[linkedCardsKey];
-			else fm[linkedCardsKey] = formattedLinkedCards;
+			if (syncLinkedCards) {
+				const formattedLinkedCards = formatLinkedCardsRef(linkedCards);
+				if (formattedLinkedCards === null) delete fm[linkedCardsKey];
+				else fm[linkedCardsKey] = formattedLinkedCards;
+			}
 		});
 		return true;
 	} catch (error) {
@@ -708,6 +715,7 @@ export async function syncNoteWithCard(
 	if (syncAttachments && !options.dryRun && !signal?.aborted) {
 		const attachmentsKey = options.attachmentsFrontmatterKey ?? DEFAULT_ATTACHMENTS_KEY;
 		const linkedCardsKey = options.linkedCardsFrontmatterKey ?? DEFAULT_LINKED_CARDS_KEY;
+		const syncLinkedCards = options.syncLinkedCards ?? DEFAULT_SYNC_LINKED_CARDS;
 		const wrote = await convergeAttachments(
 			vault,
 			client,
@@ -716,6 +724,7 @@ export async function syncNoteWithCard(
 			cardIndex ?? buildCardIndex(vault, vault.listNotes("")),
 			attachmentsKey,
 			linkedCardsKey,
+			syncLinkedCards,
 			signal,
 		);
 		stale = stale || wrote;
