@@ -38,9 +38,29 @@ const LABELS_SYNC_MODE_LABELS: Record<LabelSyncMode, string> = {
 	overwrite: "Overwrite (same rule as arbitration above)",
 };
 
+type SettingsTabId = "general" | "sync-rules" | "mappings" | "automation" | "advanced";
+
+interface TabDefinition {
+	id: SettingsTabId;
+	label: string;
+}
+
+const SETTINGS_TABS: TabDefinition[] = [
+	{ id: "general", label: "General & Scope" },
+	{ id: "sync-rules", label: "Sync Rules" },
+	{ id: "mappings", label: "Mappings" },
+	{ id: "automation", label: "Automation & History" },
+	{ id: "advanced", label: "Advanced" },
+];
+
 export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	private listNames = new Map<string, string>();
 	private boardName: string | null = null;
+	private activeTab: SettingsTabId = "general";
+	private searchQuery = "";
+	private tokenRevealed = false;
+	private searchCountEl: HTMLElement | null = null;
+	private navEl: HTMLElement | null = null;
 
 	constructor(
 		app: App,
@@ -59,23 +79,183 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		const scrollTop = containerEl.scrollTop;
 		containerEl.empty();
 
-		this.renderCredentials(containerEl);
-		this.renderScope(containerEl);
-		this.renderAuditOutput(containerEl);
-		this.renderArbitration(containerEl);
-		this.renderLabels(containerEl);
-		this.renderAttachments(containerEl);
-		this.renderChecklists(containerEl);
-		this.renderMembers(containerEl);
-		this.renderCustomFields(containerEl);
-		this.renderSyncHistory(containerEl);
-		this.renderOrphanCards(containerEl);
-		this.renderAutoSync(containerEl);
-		this.renderMappings(containerEl);
-		this.renderRibbon(containerEl);
-		this.renderAdvanced(containerEl);
+		this.renderHeader(containerEl);
+		this.renderSearchBar(containerEl);
+		this.renderNav(containerEl);
+
+		const contentContainer = containerEl.createDiv({ cls: "tvs-settings__content" });
+		this.renderAllSections(contentContainer);
+
+		this.updateVisibility();
 
 		containerEl.scrollTop = scrollTop;
+	}
+
+	private renderHeader(root: HTMLElement): void {
+		const header = root.createDiv({ cls: "tvs-settings__header" });
+		const title = header.createDiv({ cls: "tvs-settings__header-title" });
+		title.createSpan({ text: "Trello Vault Sync" });
+
+		const badges = header.createDiv({ cls: "tvs-settings__badges" });
+
+		// 1. Connection status badge (100% computed locally without network request, Directive R3)
+		const hasCreds = Boolean(
+			this.plugin.settings.apiKey.trim() &&
+			this.plugin.settings.token.trim() &&
+			this.plugin.settings.boardId.trim(),
+		);
+		if (hasCreds) {
+			const boardLabel = this.boardName ? `Board: ${this.boardName}` : "Board configured";
+			badges.createSpan({
+				cls: "tvs-badge tvs-badge--ok",
+				text: `Connected (${boardLabel})`,
+			});
+		} else {
+			badges.createSpan({
+				cls: "tvs-badge tvs-badge--warn",
+				text: "Connection incomplete",
+			});
+		}
+
+		// 2. Mappings count badge
+		const mappingCount = this.plugin.settings.mappings.length;
+		badges.createSpan({
+			cls: "tvs-badge",
+			text: `${mappingCount} mapping${mappingCount === 1 ? "" : "s"}`,
+		});
+
+		// 3. Auto-sync status badge
+		if (this.plugin.settings.autoSyncEnabled) {
+			badges.createSpan({
+				cls: "tvs-badge tvs-badge--accent",
+				text: "Auto-sync: ON",
+			});
+		}
+
+		// 4. Dry run badge
+		if (this.plugin.settings.dryRun) {
+			badges.createSpan({
+				cls: "tvs-badge tvs-badge--warn",
+				text: "Dry run: ON",
+			});
+		}
+	}
+
+	private renderSearchBar(root: HTMLElement): void {
+		const searchContainer = root.createDiv({ cls: "tvs-settings__search-container" });
+		new Setting(searchContainer)
+			.setClass("tvs-settings__search-setting")
+			.addSearch((search) => {
+				search
+					.setPlaceholder("Search all settings...")
+					.setValue(this.searchQuery)
+					.onChange((value) => {
+						this.searchQuery = value.trim().toLowerCase();
+						this.updateVisibility();
+					});
+			});
+
+		this.searchCountEl = searchContainer.createDiv({ cls: "tvs-settings__search-count" });
+		this.searchCountEl.style.display = "none";
+	}
+
+	private renderNav(root: HTMLElement): void {
+		this.navEl = root.createDiv({ cls: "tvs-settings__nav" });
+		for (const tab of SETTINGS_TABS) {
+			const btn = this.navEl.createEl("button", {
+				cls: `tvs-settings__tab-btn ${this.activeTab === tab.id ? "is-active" : ""}`,
+				text: tab.label,
+			});
+			if (tab.id === "mappings") {
+				const count = this.plugin.settings.mappings.length;
+				btn.createSpan({ cls: "tvs-settings__tab-count", text: String(count) });
+			}
+			btn.addEventListener("click", () => {
+				this.activeTab = tab.id;
+				this.navEl?.querySelectorAll(".tvs-settings__tab-btn").forEach((b) => b.removeClass("is-active"));
+				btn.addClass("is-active");
+				this.updateVisibility();
+			});
+		}
+	}
+
+	private renderAllSections(container: HTMLElement): void {
+		const sections: Array<{ id: string; tab: SettingsTabId; render: (root: HTMLElement) => void }> = [
+			// Tab 1: General & Scope
+			{ id: "credentials", tab: "general", render: (el) => this.renderCredentials(el) },
+			{ id: "scope", tab: "general", render: (el) => this.renderScope(el) },
+			{ id: "audit-output", tab: "general", render: (el) => this.renderAuditOutput(el) },
+			// Tab 2: Sync Rules
+			{ id: "arbitration", tab: "sync-rules", render: (el) => this.renderArbitration(el) },
+			{ id: "labels", tab: "sync-rules", render: (el) => this.renderLabels(el) },
+			{ id: "attachments", tab: "sync-rules", render: (el) => this.renderAttachments(el) },
+			{ id: "checklists", tab: "sync-rules", render: (el) => this.renderChecklists(el) },
+			{ id: "members", tab: "sync-rules", render: (el) => this.renderMembers(el) },
+			{ id: "custom-fields", tab: "sync-rules", render: (el) => this.renderCustomFields(el) },
+			{ id: "sync-history", tab: "sync-rules", render: (el) => this.renderSyncHistory(el) },
+			// Tab 3: Mappings
+			{ id: "mappings", tab: "mappings", render: (el) => this.renderMappings(el) },
+			{ id: "orphan-cards", tab: "mappings", render: (el) => this.renderOrphanCards(el) },
+			// Tab 4: Automation
+			{ id: "auto-sync", tab: "automation", render: (el) => this.renderAutoSync(el) },
+			{ id: "ribbon", tab: "automation", render: (el) => this.renderRibbon(el) },
+			// Tab 5: Advanced
+			{ id: "advanced", tab: "advanced", render: (el) => this.renderAdvanced(el) },
+		];
+
+		for (const sec of sections) {
+			const secEl = container.createDiv({
+				cls: `tvs-settings__section tvs-settings__section--${sec.id}`,
+			});
+			secEl.dataset.tab = sec.tab;
+			sec.render(secEl);
+		}
+	}
+
+	private updateVisibility(): void {
+		const isSearching = this.searchQuery.length > 0;
+		const allSections = this.containerEl.querySelectorAll<HTMLElement>(".tvs-settings__section");
+		let matchCount = 0;
+
+		allSections.forEach((sectionEl) => {
+			const tab = sectionEl.dataset.tab;
+			if (!isSearching) {
+				const isCurrentTab = tab === this.activeTab;
+				sectionEl.style.display = isCurrentTab ? "" : "none";
+				sectionEl.querySelectorAll<HTMLElement>(".setting-item").forEach((item) => {
+					item.removeClass("tvs-setting--hidden");
+				});
+			} else {
+				let sectionHasMatch = false;
+				const items = sectionEl.querySelectorAll<HTMLElement>(".setting-item");
+				items.forEach((item) => {
+					const text = (item.textContent || "").toLowerCase();
+					const matches = text.includes(this.searchQuery);
+					if (matches) {
+						item.removeClass("tvs-setting--hidden");
+						sectionHasMatch = true;
+						matchCount++;
+					} else {
+						item.addClass("tvs-setting--hidden");
+					}
+				});
+				sectionEl.style.display = sectionHasMatch ? "" : "none";
+			}
+		});
+
+		if (this.searchCountEl) {
+			if (isSearching) {
+				this.searchCountEl.setText(`Found ${matchCount} setting(s) matching "${this.searchQuery}"`);
+				this.searchCountEl.style.display = "";
+			} else {
+				this.searchCountEl.setText("");
+				this.searchCountEl.style.display = "none";
+			}
+		}
+
+		if (this.navEl) {
+			this.navEl.style.display = isSearching ? "none" : "";
+		}
 	}
 
 	private save(): Promise<void> {
@@ -152,20 +332,31 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(root)
+		const tokenSetting = new Setting(root)
 			.setName("Token")
 			.setDesc("Personal token generated from the page above.")
-			.setClass("tvs-secret")
-			.addText((text) => {
-				text.inputEl.type = "password";
-				text
-					.setPlaceholder("token")
-					.setValue(this.plugin.settings.token)
-					.onChange((value) => {
-						this.plugin.settings.token = value.trim();
-						void this.save();
-					});
-			});
+			.setClass("tvs-secret");
+
+		tokenSetting.addText((text) => {
+			text.inputEl.type = this.tokenRevealed ? "text" : "password";
+			text
+				.setPlaceholder("token")
+				.setValue(this.plugin.settings.token)
+				.onChange((value) => {
+					this.plugin.settings.token = value.trim();
+					void this.save();
+				});
+		});
+
+		tokenSetting.addExtraButton((button) =>
+			button
+				.setIcon(this.tokenRevealed ? "eye-off" : "eye")
+				.setTooltip(this.tokenRevealed ? "Hide token" : "Show token")
+				.onClick(() => {
+					this.tokenRevealed = !this.tokenRevealed;
+					this.display();
+				}),
+		);
 
 		new Setting(root)
 			.setName("Board id")
@@ -600,6 +791,31 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 				}),
 			);
+
+		new Setting(root)
+			.setName("Prefer local cover")
+			.setDesc(
+				"When a downloaded cover image exists in the vault, write its local link into the cover " +
+					"frontmatter key instead of the remote Trello url. Falls back to the remote url if not downloaded.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.preferLocalCover).onChange((value) => {
+					this.plugin.settings.preferLocalCover = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Local cover format")
+			.setDesc("Link format written into the frontmatter when using a local cover.")
+			.addDropdown((dropdown) => {
+				dropdown.addOption("vault-path", "Vault path (e.g. Attachments/cover.jpg)");
+				dropdown.addOption("wikilink", "Wikilink (e.g. [[Attachments/cover.jpg]])");
+				dropdown.setValue(this.plugin.settings.coverLocalFormat).onChange((value) => {
+					this.plugin.settings.coverLocalFormat = value === "wikilink" ? "wikilink" : "vault-path";
+					void this.save();
+				});
+			});
 	}
 
 	private renderChecklists(root: HTMLElement): void {
@@ -922,23 +1138,37 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		});
 
 		this.plugin.settings.mappings.forEach((mapping, index) => {
-			const row = root.createDiv({ cls: "tvs-mapping" });
-
-			new Setting(row)
-				.setName(`Mapping ${index + 1}`)
-				.addExtraButton((button) =>
-					button
-						.setIcon("trash")
-						.setTooltip("Remove")
-						.onClick(() => {
-							this.plugin.settings.mappings.splice(index, 1);
-							void this.save();
-							this.display();
-						}),
-				);
+			const card = root.createDiv({ cls: "tvs-mapping-card" });
+			const cardHeader = card.createDiv({ cls: "tvs-mapping-card__header" });
+			const titleDiv = cardHeader.createDiv({ cls: "tvs-mapping-card__title" });
+			titleDiv.createSpan({ text: `Mapping #${index + 1}` });
 
 			const resolvedName = this.listNames.get(mapping.listId);
-			new Setting(row)
+			if (resolvedName) {
+				titleDiv.createSpan({ cls: "tvs-badge tvs-badge--ok", text: resolvedName });
+			}
+
+			const hasOverride =
+				(mapping.allowCreateOverride && mapping.allowCreateOverride !== "inherit") ||
+				(mapping.allowDeleteOverride && mapping.allowDeleteOverride !== "inherit");
+			if (hasOverride) {
+				titleDiv.createSpan({ cls: "tvs-badge tvs-badge--warn", text: "Custom overrides" });
+			}
+
+			new Setting(cardHeader).addExtraButton((button) =>
+				button
+					.setIcon("trash")
+					.setTooltip("Remove mapping")
+					.onClick(() => {
+						this.plugin.settings.mappings.splice(index, 1);
+						void this.save();
+						this.display();
+					}),
+			);
+
+			const cardBody = card.createDiv({ cls: "tvs-mapping-card__body" });
+
+			new Setting(cardBody)
 				.setName("Trello list")
 				.setDesc(
 					resolvedName
@@ -970,7 +1200,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					);
 				});
 
-			new Setting(row)
+			new Setting(cardBody)
 				.setName("Folder")
 				.setDesc("Vault folder synced with this Trello list.")
 				.addText((text) => {
@@ -984,7 +1214,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
 				});
 
-			new Setting(row)
+			new Setting(cardBody)
 				.setName("Note template")
 				.setDesc("Note used as the template for new notes created from this list; empty = a plain description.")
 				.addText((text) => {
@@ -1000,7 +1230,20 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					);
 				});
 
-			this.renderMappingOverride(row, {
+			// Collapsible folder overrides (Directive R2)
+			const details = cardBody.createEl("details", { cls: "tvs-mapping-card__details" });
+			if (hasOverride) {
+				details.open = true;
+			}
+			const summary = details.createEl("summary", { cls: "tvs-mapping-card__summary" });
+			summary.createSpan({ text: "Folder overrides (create / delete)" });
+			if (hasOverride) {
+				summary.createSpan({ cls: "tvs-badge tvs-badge--warn", text: "Active" });
+			}
+
+			const detailsContent = details.createDiv({ cls: "tvs-mapping-card__details-content" });
+
+			this.renderMappingOverride(detailsContent, {
 				name: "Create missing notes (this folder)",
 				globalName: "Create missing notes",
 				globalEnabled: this.plugin.settings.allowCreate,
@@ -1013,7 +1256,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				},
 			});
 
-			this.renderMappingOverride(row, {
+			this.renderMappingOverride(detailsContent, {
 				name: "Delete phantom notes (this folder)",
 				globalName: "Delete phantom notes",
 				globalEnabled: this.plugin.settings.allowDelete,

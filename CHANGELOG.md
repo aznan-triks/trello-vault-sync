@@ -10,6 +10,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Plain**: A new "Auto-create report notes" setting (on by default) makes the audit commands create their report note the first time, instead of blocking with a "Report note not found" error.
   **Technical**: `types.ts` adds `autoCreateReportNote: boolean` (default `true`); `requireReportNote` (`features/auditShared.ts`) is now async and calls `vault.create(reportPath, "")` when the note is missing and the flag is on; `auditChanges`/`auditLinks`/`auditLocations` await it and forward `options.autoCreateReportNote`; `main.ts` passes `settings.autoCreateReportNote` into `AuditOptions`; `SettingsTab.ts` adds the toggle and drops the "It must already exist" wording from the three report-path descriptions.
+- **Plain**: You can now choose to replace the remote Trello image URL for a card's cover with a local link to the downloaded image file in your vault (either as a vault path or an Obsidian wikilink like `[[Attachments/cover.jpg]]`).
+  **Technical**: `types.ts` adds `preferLocalCover: boolean` (default `false`) and `coverLocalFormat: "vault-path" | "wikilink"` (default `"vault-path"`); `syncNote.ts` runs `convergeAttachmentDownloads` before `convergeCover`, caches attachments on `card.attachments`, and checks for the downloaded file on disk (`vault.binarySize`), writing `planned.path` or `formatWikilink(planned.path)` when present, with automatic fallback to `coverImageUrl(card.cover)` when absent; `SettingsTab.ts` exposes "Prefer local cover" and "Local cover format" in the Sync Rules tab under "Attachments"; `main.ts` threads both options into `noteOptions()`.
+
+### Changed
+
+- **Plain**: The settings tab is now organized into five clean categories (General & Scope, Sync Rules, Mappings, Automation & History, Advanced) with instant global search, compact mapping cards with collapsible override options, state summary badges, and an eye toggle to show or hide the API token.
+  **Technical**: `SettingsTab.ts` introduces tabbed navigation (`SETTINGS_TABS`), instant live CSS search filtering (`updateVisibility`) preserving input focus without DOM rebuilding, mapping card layout with collapsible `<details>` for per-mapping create/delete overrides and status badges, token visibility toggle, and connection/mapping/auto-sync status badges without passive network calls. `styles.css` adds scoped styles for tabs, badges, mapping cards, and search feedback. All 48 settings, suggesters, and imperative `display()` compatibility are 100% preserved and verified by an independent regression monitor agent.
 
 ## [1.16.3] — 2026-09-16
 

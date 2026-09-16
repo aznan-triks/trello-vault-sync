@@ -938,6 +938,91 @@ describe("syncNoteWithCard — card cover (on by default via syncCardCover)", ()
 
 		expect(vault.readFrontmatter(vault.note(PATH))).not.toHaveProperty("banner");
 	});
+
+	test("writes local vault path when preferLocalCover is true and file exists in vault", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		await vault.writeBinary("WoT/85_Idées/cover.jpg", new ArrayBuffer(8));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1", scaled: [{ url: "big.jpg", width: 800 }] },
+			attachments: [{ id: "a1", name: "cover.jpg", url: "https://trello.com/a1", isUpload: true, bytes: 8 }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			preferLocalCover: true,
+			coverLocalFormat: "vault-path",
+		});
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.banner).toBe("WoT/85_Idées/cover.jpg");
+	});
+
+	test("writes wikilink when preferLocalCover is true and coverLocalFormat is wikilink", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		await vault.writeBinary("WoT/85_Idées/cover.jpg", new ArrayBuffer(8));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1", scaled: [{ url: "big.jpg", width: 800 }] },
+			attachments: [{ id: "a1", name: "cover.jpg", url: "https://trello.com/a1", isUpload: true, bytes: 8 }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			preferLocalCover: true,
+			coverLocalFormat: "wikilink",
+		});
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.banner).toBe("[[WoT/85_Idées/cover.jpg]]");
+	});
+
+	test("falls back to remote url when preferLocalCover is true but file does not exist locally", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1", scaled: [{ url: "big.jpg", width: 800 }] },
+			attachments: [{ id: "a1", name: "cover.jpg", url: "https://trello.com/a1", isUpload: true, bytes: 8 }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			preferLocalCover: true,
+		});
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.banner).toBe("big.jpg");
+	});
+
+	test("downloads cover and links locally in the same sync run", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const remote = card({
+			id: "c1",
+			name: "Sagondo",
+			desc: "same",
+			dateLastActivity: "2026-02-01",
+			cover: { idAttachment: "a1", scaled: [{ url: "big.jpg", width: 800 }] },
+			attachments: [{ id: "a1", name: "cover.jpg", url: "https://trello.com/a1", isUpload: true, bytes: 10 }],
+		});
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			downloadAttachments: true,
+			attachmentsDownloadScope: "cover-only",
+			preferLocalCover: true,
+			coverLocalFormat: "vault-path",
+			fetchBinary: async () => new ArrayBuffer(10),
+		});
+
+		expect(vault.binarySize("WoT/85_Idées/cover.jpg")).toBe(10);
+		expect(vault.readFrontmatter(vault.note(PATH))?.banner).toBe("WoT/85_Idées/cover.jpg");
+	});
 });
 
 describe("syncNoteWithCard — attachment downloads (opt-in via downloadAttachments)", () => {
