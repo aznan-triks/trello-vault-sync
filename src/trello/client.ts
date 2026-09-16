@@ -208,7 +208,7 @@ const MEMBER_CREATOR_FIELDS = "avatarUrl,fullName";
 const timers: { setTimeout: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number } =
 	typeof window !== "undefined"
 		? window
-		: (typeof global !== "undefined" ? (global as unknown as Window) : ({} as Window));
+		: (typeof global !== "undefined" ? global : ({} as Window));
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => timers.setTimeout(resolve, ms));
 

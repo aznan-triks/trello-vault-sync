@@ -12,7 +12,7 @@
 const timers: { setTimeout: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number } =
 	typeof window !== "undefined"
 		? window
-		: (typeof global !== "undefined" ? (global as unknown as Window) : ({} as Window));
+		: (typeof global !== "undefined" ? global : ({} as Window));
 
 export async function yieldPeriodically(index: number, everyN = 200): Promise<void> {
 	if (index > 0 && index % everyN === 0) {

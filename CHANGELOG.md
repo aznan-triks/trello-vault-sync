@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.7] — 2026-09-16
+
+### Fixed
+
+- **Plain**: Fixed two more findings from the Obsidian community validator — a redundant type check and an unnecessary style override, neither changing how the plugin behaves.
+  **Technical**: Removed the unnecessary `as unknown as Window` type assertion in the timer-host fallback (`asyncUtil.ts`, `client.ts`) — the receiver's declared type already accepts `global` directly. Removed the redundant `!important` on `.tvs-sidebar__search-clear.is-hidden` in `styles.css`, where the compound class selector already outranks the base rule's specificity in the same stylesheet.
+
 ## [1.16.6] — 2026-09-16
 
 ### Fixed
