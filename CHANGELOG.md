@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.5] — 2026-09-16
+
+### Changed
+
+- **Plain**: The sidebar view opened via "Open Trello Vault Sync" has been completely redesigned into a compact, practical command center featuring real-time search, category filtering tabs, quick dry-run toggle at the top, semantic action cards, and a manageable activity journal.
+  **Technical**: `SidebarView.ts` replaces the vertical full-setting rows with a modern layout: header with quick settings shortcut and refresh button, status badges (connection and mappings count), top-level Dry-run toggle with real-time `SIMULATION`/`LIVE` mode badge, search input with instant matching and dynamic results counter (`Found N actions`), category pills (`All`, `Active note`, `Folders`, `Vault`) with count badges, compact accessible action cards with semantic tone icons (`sync`, `pull`, `push`, `link`, `audit`, `history`) supporting click and keyboard (Enter/Space) activation, and an activity journal with count badge and display-clear button. `styles.css` adds scoped styles under `.tvs-sidebar*`. All 24 commands from the registry are preserved and verified by an independent regression monitor agent and automated unit tests (`tests/sidebarView.test.ts`).
+
 ## [1.16.4] — 2026-09-16
 
 ### Added
