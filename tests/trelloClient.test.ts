@@ -68,12 +68,18 @@ describe("TrelloClient requests", () => {
 		});
 	});
 
-	test("requests the due field alongside the other card fields", async () => {
+	test("requests every card field, not a whitelist — Trello silently drops cover.scaled otherwise", async () => {
 		const { api, calls } = client([ok({ id: "c1", name: "A" })]);
 		await api.getCard("c1");
-		expect(calls[0]?.url).toContain(
-			"fields=name%2Cdesc%2Curl%2CdateLastActivity%2CidBoard%2CidList%2Cclosed%2Cdue%2Clabels",
-		);
+		expect(calls[0]?.url).toContain("fields=all");
+	});
+
+	test("getBoardCards and getListCards also request every card field", async () => {
+		const { api, calls } = client([ok([]), ok([])]);
+		await api.getBoardCards("b1");
+		await api.getListCards("l1");
+		expect(calls[0]?.url).toContain("fields=all");
+		expect(calls[1]?.url).toContain("fields=all");
 	});
 
 	test("sends a card update as a url-encoded PUT", async () => {
@@ -183,12 +189,6 @@ describe("TrelloClient embedded card details", () => {
 });
 
 describe("TrelloClient labels", () => {
-	test("requests the labels field alongside the other card fields", async () => {
-		const { api, calls } = client([ok({ id: "c1", name: "A" })]);
-		await api.getCard("c1");
-		expect(calls[0]?.url).toContain("labels");
-	});
-
 	test("parses a card's own labels, name and color", async () => {
 		const { api } = client([
 			ok({
