@@ -8,6 +8,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Plain**: A card's cover image was silently never reaching the note's frontmatter, no matter which sync settings you had on or off — this is now fixed, so the cover shows up as soon as "Sync card cover" is enabled.
+  **Technical**: Trello's API was silently dropping `cover.scaled` (the image renditions `coverImageUrl()` reads) whenever the card request's `fields` parameter named an explicit whitelist instead of `all` — confirmed against the live API, see `audits/AUDIT_cover-scaled-fields.md`. `CARD_FIELDS` (`src/trello/client.ts`) now requests `fields=all` on `getCard`/`getBoardCards`/`getListCards`. `trello_attachments` was independently confirmed to never leak when `syncAttachments` is off (`convergeAttachments` stays gated on it, `syncNote.ts`).
 - **Plain**: Fixed two more findings from the Obsidian community validator — a redundant type check and an unnecessary style override, neither changing how the plugin behaves.
   **Technical**: Removed the unnecessary `as unknown as Window` type assertion in the timer-host fallback (`asyncUtil.ts`, `client.ts`) — the receiver's declared type already accepts `global` directly. Removed the redundant `!important` on `.tvs-sidebar__search-clear.is-hidden` in `styles.css`, where the compound class selector already outranks the base rule's specificity in the same stylesheet.
 

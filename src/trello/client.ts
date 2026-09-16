@@ -166,10 +166,17 @@ export interface TrelloClientOptions {
 }
 
 const API_ROOT = "https://api.trello.com/1";
-const CARD_FIELDS = "name,desc,url,dateLastActivity,idBoard,idList,closed,due,labels,cover,idMembers";
+/**
+ * `fields: "all"` rather than a whitelist — confirmed by hand (2026-09-16) that Trello's API
+ * silently drops `cover.scaled` (the image renditions `coverImageUrl` needs) whenever `fields`
+ * names anything less than `all`, `cover_scaled=true` or not. A restricted `fields` list used to
+ * sit here; it shrank the payload but made every synced cover a dead url. See
+ * audits/AUDIT_cover-scaled-fields.md.
+ */
+const CARD_FIELDS = "all";
 /** Only the display name is used — id is always returned regardless of `fields`. */
 const MEMBER_FIELDS = "fullName,username";
-/** Without this, Trello's `cover` field omits `scaled` (the image renditions `coverImageUrl` needs) even when the cover is an attachment. */
+/** Belt-and-suspenders alongside `fields: "all"` above — costs nothing extra once `fields` already returns everything. */
 const CARD_COVER_PARAMS = { cover_scaled: "true" };
 /** Without this, `TrelloCard.customFieldItems` is always omitted — a card's custom-field values travel with the card only when explicitly requested. */
 const CARD_CUSTOM_FIELD_PARAMS = { customFieldItems: "true" };
