@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0] — 2026-09-17
+
+### Added
+
+- **Plain**: You can now read and search the full version history directly inside the plugin's settings via a brand new Changelog tab, with instant filtering between plain-English and technical descriptions, category badges, and a refresh button to pull the latest notes live from Git.
+  **Technical**: Ported the Keep-a-Changelog parsing and display engine modeled after `top-des-tops`. Added `src/core/changelog.ts` with line-anchored voice block isolation (`parseChangelogVoiceBlocks`), safe markdown-to-HTML parser preventing inline code underscore mangling (`renderChangelogMarkdown`), and multi-criteria reactive filtering (`filterAndGroupChangelog`). In `SettingsTab.ts`, added the "Changelog" tab with live GitHub fetching via `requestUrl`, bundled offline fallback (`src/core/bundledChangelog.ts` synced via `scripts/sync-changelog.mjs`), interactive category chips (`Added`, `Changed`, `Fixed`, `Removed`, `Security`), view mode segmented control (`All`, `Plain`, `Technical`), sort toggle, version range selectors, and styled timeline cards under `.tvs-cl-*` in `styles.css`.
+
 ## [1.16.8] — 2026-09-16
 
 ### Added

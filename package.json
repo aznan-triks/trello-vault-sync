@@ -1,18 +1,19 @@
 {
 	"name": "trello-vault-sync",
-	"version": "1.16.8",
+	"version": "1.17.0",
 	"description": "Two-way Trello sync and link auditing for Obsidian worldbuilding vaults.",
 	"main": "main.js",
 	"type": "module",
 	"private": true,
 	"scripts": {
+		"sync:changelog": "node scripts/sync-changelog.mjs",
 		"dev": "node esbuild.config.mjs",
-		"build": "tsc --noEmit && node esbuild.config.mjs production",
+		"build": "npm run sync:changelog && tsc --noEmit && node esbuild.config.mjs production",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"check:hardcode": "node scripts/check-hardcode.mjs",
-		"check": "npm run typecheck && npm run check:hardcode && npm run test && node esbuild.config.mjs production"
+		"check": "npm run sync:changelog && npm run typecheck && npm run check:hardcode && npm run test && node esbuild.config.mjs production"
 	},
 	"keywords": [
 		"obsidian",
