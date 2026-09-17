@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1] — 2026-09-17
+
+### Fixed
+
+- **Plain**: Fixed more findings from the Obsidian community validator on the new Changelog tab — a raw HTML heading is now a proper settings heading, and the changelog content is now built as real page elements instead of injected as a block of HTML text. Also patched a packaging gap where 1.17.0 was missing from the plugin's own version-compatibility table.
+  **Technical**: `renderChangelog`'s `h3` (`SettingsTab.ts`) replaced with `new Setting(info).setName(...).setHeading()`. Added `renderSafeHtml()` (parses the already-escaped, whitelisted-tag HTML from `changelog.ts` via `DOMParser` and appends the resulting nodes) and used it in place of the two direct `.innerHTML` assignments in `renderChangelogView`, satisfying `no-innerHTML`/`no-outerHTML` without changing what renders — `parseRawChangelogMarkdown`/`buildChangelogVersionCard` already escape all raw text before emitting their fixed tag set. Added the missing `"1.17.0"` entry to `versions.json` alongside `"1.17.1"`. Left the `global` timer-host fallback (`asyncUtil.ts`, `client.ts`) and `display()` deprecation as-is — both are documented, deliberate trade-offs (see 1.16.7 changelog and `minAppVersion: 1.7.2` support) rather than unaddressed findings.
+
 ## [1.17.0] — 2026-09-17
 
 ### Added
