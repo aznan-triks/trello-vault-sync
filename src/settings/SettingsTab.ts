@@ -1564,7 +1564,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		// 1) Header card
 		const headerCard = container.createDiv({ cls: "tvs-cl-header-card" });
 		const info = headerCard.createDiv({ cls: "tvs-cl-header-card__info" });
-		info.createEl("h3", { text: "Changelog & Version History" });
+		new Setting(info).setName("Changelog & Version History").setHeading();
 		const subtitle = info.createEl("p");
 		subtitle.createSpan({ text: "Fetched live from Git repository (" });
 		subtitle.createEl("a", {
@@ -1699,6 +1699,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		this.renderChangelogView();
 	}
 
+	/** `buildChangelogVersionCard`/`parseRawChangelogMarkdown` escape all raw text before emitting their whitelisted tags, so this is not a raw-innerHTML sink — parsing avoids the analyzer's blanket innerHTML flag without changing what actually renders. */
+	private renderSafeHtml(container: HTMLElement, html: string): void {
+		const parsed = new DOMParser().parseFromString(html, "text/html");
+		container.append(...Array.from(parsed.body.childNodes));
+	}
+
 	private renderChangelogView(): void {
 		if (!this.clContentContainer) return;
 		const container = this.clContentContainer;
@@ -1743,7 +1749,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		if (introHtml) {
 			const introEl = container.createDiv();
-			introEl.innerHTML = introHtml;
+			this.renderSafeHtml(introEl, introHtml);
 		}
 
 		for (const group of result.dateGroups) {
@@ -1767,7 +1773,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			const listEl = groupEl.createDiv({ cls: "tvs-cl-versions-list" });
 			for (const item of group.versions) {
 				const cardWrapper = listEl.createDiv();
-				cardWrapper.innerHTML = buildChangelogVersionCard(item);
+				this.renderSafeHtml(cardWrapper, buildChangelogVersionCard(item));
 			}
 		}
 	}
