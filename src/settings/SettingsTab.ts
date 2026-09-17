@@ -1,4 +1,4 @@
-import { Notice, PluginSettingTab, Setting, type App, type ButtonComponent } from "obsidian";
+import { Notice, PluginSettingTab, Setting, requestUrl, type App, type ButtonComponent } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
 import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
 import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_COVER_KEY, DEFAULT_LINKED_CARDS_KEY } from "../core/attachmentRef";
@@ -12,6 +12,14 @@ import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import type { LabelSyncMode } from "../core/labelMerge";
 import type { MappingOverride } from "../core/mappingOverride";
 import type { ConflictPolicy } from "../core/syncDecision";
+import {
+	buildChangelogVersionCard,
+	filterAndGroupChangelog,
+	parseRawChangelogMarkdown,
+	type ChangelogViewMode,
+	type RawChangelogItem,
+} from "../core/changelog";
+import { BUNDLED_CHANGELOG } from "../core/bundledChangelog";
 import { TrelloPickerSuggest, type IdName } from "../ui/TrelloPickerSuggest";
 import { VaultPathSuggest } from "../ui/VaultPathSuggest";
 import {
@@ -38,7 +46,10 @@ const LABELS_SYNC_MODE_LABELS: Record<LabelSyncMode, string> = {
 	overwrite: "Overwrite (same rule as arbitration above)",
 };
 
-type SettingsTabId = "general" | "sync-rules" | "mappings" | "automation" | "advanced";
+const CHANGELOG_RAW_URL = "https://raw.githubusercontent.com/aznan-triks/trello-vault-sync/master/CHANGELOG.md";
+const CHANGELOG_REPO_URL = "https://github.com/aznan-triks/trello-vault-sync/blob/master/CHANGELOG.md";
+
+type SettingsTabId = "general" | "sync-rules" | "mappings" | "automation" | "advanced" | "changelog";
 
 interface TabDefinition {
 	id: SettingsTabId;
@@ -51,6 +62,7 @@ const SETTINGS_TABS: TabDefinition[] = [
 	{ id: "mappings", label: "Mappings" },
 	{ id: "automation", label: "Automation & History" },
 	{ id: "advanced", label: "Advanced" },
+	{ id: "changelog", label: "Changelog" },
 ];
 
 export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
@@ -61,6 +73,22 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	private tokenRevealed = false;
 	private searchCountEl: HTMLElement | null = null;
 	private navEl: HTMLElement | null = null;
+
+	// Changelog viewer state
+	private changelogRawMarkdown: string = BUNDLED_CHANGELOG;
+	private changelogLoading = false;
+	private changelogFetchedAt: Date | null = null;
+	private clSearchQuery = "";
+	private clSortOrder: "desc" | "asc" = "desc";
+	private clViewMode: ChangelogViewMode = "plain";
+	private clActiveCats = new Set<string>(["Added", "Changed", "Fixed", "Removed", "Security"]);
+	private clVersionFrom = "all";
+	private clVersionTo = "all";
+	private clContentContainer: HTMLElement | null = null;
+	private clCounterEl: HTMLElement | null = null;
+	private clTimeEl: HTMLElement | null = null;
+	private clVersionFromSelect: HTMLSelectElement | null = null;
+	private clVersionToSelect: HTMLSelectElement | null = null;
 
 	constructor(
 		app: App,
@@ -200,6 +228,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			{ id: "ribbon", tab: "automation", render: (el) => this.renderRibbon(el) },
 			// Tab 5: Advanced
 			{ id: "advanced", tab: "advanced", render: (el) => this.renderAdvanced(el) },
+			// Tab 6: Changelog
+			{ id: "changelog", tab: "changelog", render: (el) => this.renderChangelog(el) },
 		];
 
 		for (const sec of sections) {
@@ -226,6 +256,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				});
 			} else {
 				let sectionHasMatch = false;
+				if (tab === "changelog" && "changelog".includes(this.searchQuery)) {
+					sectionHasMatch = true;
+					matchCount++;
+				}
 				const items = sectionEl.querySelectorAll<HTMLElement>(".setting-item");
 				items.forEach((item) => {
 					const text = (item.textContent || "").toLowerCase();
@@ -1523,4 +1557,291 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				}),
 			);
 	}
+
+	private renderChangelog(root: HTMLElement): void {
+		const container = root.createDiv({ cls: "tvs-cl" });
+
+		// 1) Header card
+		const headerCard = container.createDiv({ cls: "tvs-cl-header-card" });
+		const info = headerCard.createDiv({ cls: "tvs-cl-header-card__info" });
+		info.createEl("h3", { text: "Changelog & Version History" });
+		const subtitle = info.createEl("p");
+		subtitle.createSpan({ text: "Fetched live from Git repository (" });
+		subtitle.createEl("a", {
+			text: "aznan-triks/trello-vault-sync",
+			href: CHANGELOG_REPO_URL,
+			cls: "tvs-cl-repo-link",
+		});
+		subtitle.createSpan({ text: ")" });
+
+		const actions = headerCard.createDiv({ cls: "tvs-cl-header-card__actions" });
+		this.clTimeEl = actions.createSpan({
+			cls: "tvs-cl-time",
+			text: this.changelogFetchedAt
+				? `Last Git sync: ${this.changelogFetchedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+				: "Bundled release notes",
+		});
+
+		const refreshBtn = actions.createEl("button", {
+			cls: "mod-cta",
+			text: "🔄 Refresh",
+		});
+		refreshBtn.addEventListener("click", () => {
+			void this.loadChangelog(true);
+		});
+
+		// 2) Filter Card
+		const filterCard = container.createDiv({ cls: "tvs-cl-filter-card" });
+
+		// Row 1: Search, View Mode, Sort
+		const row1 = filterCard.createDiv({ cls: "tvs-cl-filter-row" });
+
+		const searchWrap = row1.createDiv({ cls: "tvs-cl-search-wrap" });
+		const searchInput = searchWrap.createEl("input", {
+			type: "text",
+			cls: "tvs-cl-search-input",
+			placeholder: "🔍 Search version, keyword, fix...",
+			value: this.clSearchQuery,
+		});
+		searchInput.addEventListener("input", (e) => {
+			const target = e.target as HTMLInputElement;
+			this.clSearchQuery = target.value.trim().toLowerCase();
+			this.renderChangelogView();
+		});
+
+		this.clCounterEl = searchWrap.createSpan({ cls: "tvs-cl-counter" });
+
+		const controlGroup = row1.createDiv({ cls: "tvs-cl-control-group" });
+
+		// Segmented View Mode
+		const segmented = controlGroup.createDiv({ cls: "tvs-cl-segmented" });
+		const viewModes: Array<{ mode: ChangelogViewMode; label: string }> = [
+			{ mode: "all", label: "👁️ All" },
+			{ mode: "plain", label: "👤 Plain" },
+			{ mode: "tech", label: "💻 Technical" },
+		];
+		for (const vm of viewModes) {
+			const btn = segmented.createEl("button", {
+				cls: `tvs-cl-view-btn ${this.clViewMode === vm.mode ? "is-active" : ""}`,
+				text: vm.label,
+			});
+			btn.addEventListener("click", () => {
+				segmented.querySelectorAll(".tvs-cl-view-btn").forEach((b) => b.removeClass("is-active"));
+				btn.addClass("is-active");
+				this.clViewMode = vm.mode;
+				this.renderChangelogView();
+			});
+		}
+
+		// Sort Order Select
+		const sortSelect = controlGroup.createEl("select", { cls: "tvs-cl-select" });
+		const optDesc = sortSelect.createEl("option", { value: "desc", text: "🔽 Newest first" });
+		const optAsc = sortSelect.createEl("option", { value: "asc", text: "🔼 Oldest first" });
+		if (this.clSortOrder === "asc") optAsc.selected = true;
+		else optDesc.selected = true;
+		sortSelect.addEventListener("change", (e) => {
+			this.clSortOrder = (e.target as HTMLSelectElement).value as "desc" | "asc";
+			this.renderChangelogView();
+		});
+
+		// Row 2: Categories & Version Range
+		const row2 = filterCard.createDiv({ cls: "tvs-cl-filter-row tvs-cl-filter-row--border" });
+
+		const catGroup = row2.createDiv({ cls: "tvs-cl-cat-group" });
+		catGroup.createSpan({ cls: "tvs-cl-cat-label", text: "Categories:" });
+		const categories = [
+			{ name: "Added", icon: "✨" },
+			{ name: "Changed", icon: "⚡" },
+			{ name: "Fixed", icon: "🐛" },
+			{ name: "Removed", icon: "🗑️" },
+			{ name: "Security", icon: "🛡️" },
+		];
+		for (const cat of categories) {
+			const chip = catGroup.createEl("button", {
+				cls: `tvs-cl-cat-chip ${this.clActiveCats.has(cat.name) ? "is-active" : ""}`,
+				text: `${cat.icon} ${cat.name}`,
+			});
+			chip.setAttribute("data-cat", cat.name);
+			chip.addEventListener("click", () => {
+				if (this.clActiveCats.has(cat.name)) {
+					if (this.clActiveCats.size > 1) {
+						this.clActiveCats.delete(cat.name);
+						chip.removeClass("is-active");
+					}
+				} else {
+					this.clActiveCats.add(cat.name);
+					chip.addClass("is-active");
+				}
+				this.renderChangelogView();
+			});
+		}
+
+		// Version Range
+		const rangeGroup = row2.createDiv({ cls: "tvs-cl-control-group" });
+		rangeGroup.createSpan({ cls: "tvs-cl-cat-label", text: "Range:" });
+
+		this.clVersionFromSelect = rangeGroup.createEl("select", { cls: "tvs-cl-select" });
+		rangeGroup.createSpan({ text: "to", cls: "tvs-cl-range-to" });
+		this.clVersionToSelect = rangeGroup.createEl("select", { cls: "tvs-cl-select" });
+
+		this.clVersionFromSelect.addEventListener("change", (e) => {
+			this.clVersionFrom = (e.target as HTMLSelectElement).value;
+			this.renderChangelogView();
+		});
+		this.clVersionToSelect.addEventListener("change", (e) => {
+			this.clVersionTo = (e.target as HTMLSelectElement).value;
+			this.renderChangelogView();
+		});
+
+		// 3) Content Container
+		this.clContentContainer = container.createDiv({ cls: "tvs-cl-content" });
+
+		this.renderChangelogView();
+	}
+
+	private renderChangelogView(): void {
+		if (!this.clContentContainer) return;
+		const container = this.clContentContainer;
+		container.empty();
+
+		const { introHtml, rawItems } = parseRawChangelogMarkdown(this.changelogRawMarkdown);
+
+		this.populateVersionSelects(rawItems);
+
+		const result = filterAndGroupChangelog(rawItems, {
+			searchQuery: this.clSearchQuery,
+			viewMode: this.clViewMode,
+			activeCats: this.clActiveCats,
+			sortOrder: this.clSortOrder,
+			versionFrom: this.clVersionFrom,
+			versionTo: this.clVersionTo,
+		});
+
+		if (this.clCounterEl) {
+			this.clCounterEl.setText(
+				`${result.processedItems.length} / ${rawItems.length} version${rawItems.length > 1 ? "s" : ""}`,
+			);
+		}
+
+		if (result.processedItems.length === 0) {
+			const empty = container.createDiv({ cls: "tvs-cl-empty" });
+			empty.createDiv({ cls: "tvs-cl-empty__icon", text: "🔍" });
+			empty.createDiv({ cls: "tvs-cl-empty__title", text: "No results found" });
+			empty.createDiv({
+				cls: "tvs-cl-empty__desc",
+				text: "No updates match your current filters.",
+			});
+			const resetBtn = empty.createEl("button", {
+				cls: "mod-cta",
+				text: "🔄 Reset filters",
+			});
+			resetBtn.addEventListener("click", () => {
+				this.resetChangelogFilters();
+			});
+			return;
+		}
+
+		if (introHtml) {
+			const introEl = container.createDiv();
+			introEl.innerHTML = introHtml;
+		}
+
+		for (const group of result.dateGroups) {
+			const isHistorical =
+				group.date.toLowerCase().includes("history") ||
+				group.date.toLowerCase().includes("historique");
+			const groupEl = container.createDiv({ cls: "tvs-cl-date-group" });
+
+			const headerEl = groupEl.createDiv({ cls: "tvs-cl-date-header" });
+			headerEl.createSpan({
+				cls: "tvs-cl-date-header__title",
+				text: isHistorical ? `📜 ${group.date}` : `📅 ${group.date}`,
+			});
+			if (!isHistorical) {
+				headerEl.createSpan({
+					cls: "tvs-cl-counter",
+					text: `${group.versions.length} version${group.versions.length > 1 ? "s" : ""}`,
+				});
+			}
+
+			const listEl = groupEl.createDiv({ cls: "tvs-cl-versions-list" });
+			for (const item of group.versions) {
+				const cardWrapper = listEl.createDiv();
+				cardWrapper.innerHTML = buildChangelogVersionCard(item);
+			}
+		}
+	}
+
+	private populateVersionSelects(rawItems: RawChangelogItem[]): void {
+		if (!this.clVersionFromSelect || !this.clVersionToSelect) return;
+		const uniqueVers = rawItems.map((i) => i.ver).filter((v, idx, a) => v && a.indexOf(v) === idx);
+		const currentFrom = this.clVersionFrom;
+		const currentTo = this.clVersionTo;
+
+		this.clVersionFromSelect.empty();
+		this.clVersionToSelect.empty();
+
+		this.clVersionFromSelect.createEl("option", { value: "all", text: "All versions" });
+		this.clVersionToSelect.createEl("option", { value: "all", text: "Latest version" });
+
+		for (const v of uniqueVers) {
+			this.clVersionFromSelect.createEl("option", { value: v, text: v });
+			this.clVersionToSelect.createEl("option", { value: v, text: v });
+		}
+
+		this.clVersionFromSelect.value = currentFrom;
+		this.clVersionToSelect.value = currentTo;
+	}
+
+	private resetChangelogFilters(): void {
+		this.clSearchQuery = "";
+		this.clSortOrder = "desc";
+		this.clViewMode = "plain";
+		this.clActiveCats = new Set(["Added", "Changed", "Fixed", "Removed", "Security"]);
+		this.clVersionFrom = "all";
+		this.clVersionTo = "all";
+		this.display();
+	}
+
+	private async loadChangelog(forceRefresh = false): Promise<void> {
+		if (this.changelogLoading) return;
+		this.changelogLoading = true;
+		if (this.clTimeEl) {
+			this.clTimeEl.setText("Fetching changelog from GitHub...");
+		}
+
+		try {
+			const headers = forceRefresh ? { "Cache-Control": "no-cache" } : undefined;
+			const res = await requestUrl({
+				url: CHANGELOG_RAW_URL,
+				method: "GET",
+				headers,
+				throw: false,
+			});
+			this.changelogLoading = false;
+			if (res.status >= 200 && res.status < 300 && res.text) {
+				this.changelogRawMarkdown = res.text;
+				this.changelogFetchedAt = new Date();
+				if (this.clTimeEl) {
+					this.clTimeEl.setText(
+						`Last Git sync: ${this.changelogFetchedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+					);
+				}
+				new Notice("Changelog updated from GitHub.");
+				this.renderChangelogView();
+			} else {
+				if (this.clTimeEl) {
+					this.clTimeEl.setText("Git sync failed (using bundled changelog)");
+				}
+				new Notice(`Could not fetch changelog from GitHub (HTTP ${res.status}).`);
+			}
+		} catch (err) {
+			this.changelogLoading = false;
+			if (this.clTimeEl) {
+				this.clTimeEl.setText("Git sync error (using bundled changelog)");
+			}
+			new Notice(`Could not fetch changelog from GitHub: ${errorMessage(err)}`);
+		}
+	}
 }
+
