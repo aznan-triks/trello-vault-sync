@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.2] — 2026-09-17
+
+### Fixed
+
+- **Plain**: Re-cut the release with the plugin files properly attached — the previous release page (1.17.1) went out without them due to a packaging slip, which the Obsidian community validator caught.
+  **Technical**: No source change from 1.17.1. Version-only bump so `manifest.json` matches a fresh GitHub release tag with `main.js`/`manifest.json`/`styles.css` attached via the same `gh release create` command (per `CONTEXT.md` §6.5) rather than a later `gh release upload`.
+
 ## [1.17.1] — 2026-09-17
 
 ### Fixed
