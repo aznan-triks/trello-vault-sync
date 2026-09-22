@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { DEFAULT_SETTINGS, normalizeSettings } from "../src/settings/types";
+import { DEFAULT_SETTINGS, normalizeSettings, type PhantomNoteScope } from "../src/settings/types";
 
 describe("normalizeSettings", () => {
 	test("keeps a well-formed payload as is", () => {
@@ -91,7 +91,7 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ excludedFolders: "Archive" as unknown as string[] }).excludedFolders).toEqual([]);
 	});
 
-	test("defaults ribbonCommandIds to the 4 built-in ribbon buttons", () => {
+	test("defaults ribbonCommandIds to the 5 built-in ribbon buttons", () => {
 		expect(normalizeSettings({}).ribbonCommandIds).toEqual(DEFAULT_SETTINGS.ribbonCommandIds);
 	});
 
@@ -115,6 +115,54 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ ribbonCommandIds: ["sync-vault", 42, null] as never }).ribbonCommandIds).toEqual([
 			"sync-vault",
 		]);
+	});
+
+	test("defaults ribbonIconColors to empty object", () => {
+		expect(normalizeSettings({}).ribbonIconColors).toEqual({});
+	});
+
+	test("normalizes ribbonIconColors and preserves valid hex colors", () => {
+		const raw = {
+			"sync-active-note": "#7c3aed",
+			"open-sidebar": "#ff0000",
+			"invalid-color": "not-a-color",
+			"non-hex": "red",
+		};
+		expect(normalizeSettings({ ribbonIconColors: raw }).ribbonIconColors).toEqual({
+			"sync-active-note": "#7c3aed",
+			"open-sidebar": "#ff0000",
+		});
+	});
+
+	test("falls back to empty object when ribbonIconColors is not an object", () => {
+		expect(normalizeSettings({ ribbonIconColors: "invalid" as never }).ribbonIconColors).toEqual({});
+		expect(normalizeSettings({ ribbonIconColors: [1, 2, 3] as never }).ribbonIconColors).toEqual({});
+		expect(normalizeSettings({ ribbonIconColors: null as never }).ribbonIconColors).toEqual({});
+	});
+
+	test("migrates legacy settings by prepending open-sidebar when upgrading from older version", () => {
+		// Older payload without ribbonIconColors and without open-sidebar in ribbonCommandIds
+		const legacy = {
+			ribbonCommandIds: ["sync-active-note", "sync-vault", "sync-all-mappings", "audit-links"],
+		};
+		const normalized = normalizeSettings(legacy);
+		expect(normalized.ribbonCommandIds).toEqual([
+			"open-sidebar",
+			"sync-active-note",
+			"sync-vault",
+			"sync-all-mappings",
+			"audit-links",
+		]);
+	});
+
+	test("preserves customized ribbonCommandIds without open-sidebar when ribbonIconColors is present", () => {
+		// New payload where user intentionally removed open-sidebar
+		const current = {
+			ribbonCommandIds: ["sync-active-note", "sync-vault"],
+			ribbonIconColors: {},
+		};
+		const normalized = normalizeSettings(current);
+		expect(normalized.ribbonCommandIds).toEqual(["sync-active-note", "sync-vault"]);
 	});
 
 	test("defaults labelsSyncMode to merge — the non-destructive choice", () => {
@@ -277,6 +325,23 @@ describe("normalizeSettings", () => {
 	test("defaults orphanCardFolder to empty and normalizes an explicit value", () => {
 		expect(normalizeSettings({}).orphanCardFolder).toBe("");
 		expect(normalizeSettings({ orphanCardFolder: "\\Projects\\" }).orphanCardFolder).toBe("Projects");
+	});
+
+	test("defaults phantomCardListId to empty and trims explicit value", () => {
+		expect(normalizeSettings({}).phantomCardListId).toBe("");
+		expect(normalizeSettings({ phantomCardListId: "  list-inbox  " }).phantomCardListId).toBe("list-inbox");
+	});
+
+	test("defaults phantomNotePreferFolderMapping to false and preserves explicit boolean", () => {
+		expect(normalizeSettings({}).phantomNotePreferFolderMapping).toBe(false);
+		expect(normalizeSettings({ phantomNotePreferFolderMapping: true }).phantomNotePreferFolderMapping).toBe(true);
+	});
+
+	test("defaults phantomNoteScope to all-unlinked and validates allowed values", () => {
+		expect(normalizeSettings({}).phantomNoteScope).toBe("all-unlinked");
+		expect(normalizeSettings({ phantomNoteScope: "phantom-only" }).phantomNoteScope).toBe("phantom-only");
+		expect(normalizeSettings({ phantomNoteScope: "mapped-folders-only" }).phantomNoteScope).toBe("mapped-folders-only");
+		expect(normalizeSettings({ phantomNoteScope: "invalid" as unknown as PhantomNoteScope }).phantomNoteScope).toBe("all-unlinked");
 	});
 
 	test("defaults every auto-sync setting", () => {

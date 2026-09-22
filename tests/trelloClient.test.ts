@@ -226,6 +226,37 @@ describe("TrelloClient labels", () => {
 		await api.updateCard("c1", { name: "Titre" });
 		expect(calls[0]?.body).not.toContain("idLabels");
 	});
+
+	test("creates a card on Trello via POST /cards and returns the created card", async () => {
+		const createdCard = {
+			id: "c-new",
+			idBoard: "b1",
+			idList: "l1",
+			name: "New Card",
+			desc: "Description here",
+			due: "2026-09-30T12:00:00.000Z",
+			url: "https://trello.com/c/new",
+			dateLastActivity: "2026-09-22T06:00:00.000Z",
+		};
+		const { api, calls } = client([ok(createdCard)]);
+		const result = await api.createCard({
+			idList: "l1",
+			name: "New Card",
+			desc: "Description here",
+			due: "2026-09-30T12:00:00.000Z",
+			idLabels: ["lbl1", "lbl2"],
+			pos: "bottom",
+		});
+		expect(calls[0]?.method).toBe("POST");
+		expect(calls[0]?.url).toContain("/cards?");
+		expect(calls[0]?.body).toContain("idList=l1");
+		expect(calls[0]?.body).toContain("name=New+Card");
+		expect(calls[0]?.body).toContain("desc=Description+here");
+		expect(calls[0]?.body).toContain("due=2026-09-30T12%3A00%3A00.000Z");
+		expect(calls[0]?.body).toContain("idLabels=lbl1%2Clbl2");
+		expect(calls[0]?.body).toContain("pos=bottom");
+		expect(result).toEqual(createdCard);
+	});
 });
 
 describe("TrelloClient attachments", () => {

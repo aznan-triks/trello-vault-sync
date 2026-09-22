@@ -1,5 +1,6 @@
 import * as auditCommands from "./auditCommands";
 import type { CommandContext } from "./context";
+import { createCardFromActiveNote, createCardsFromPhantomNotes } from "./createCardCommand";
 import { createNoteFromOrphanCard } from "./createNoteCommand";
 import * as forceSyncCommands from "./forceSyncCommands";
 import * as historyCommands from "./historyCommands";
@@ -85,6 +86,13 @@ export const COMMANDS: CommandDescriptor[] = [
 		run: (ctx) => noteCommands.resolveConflict(ctx),
 	},
 	{
+		id: "create-card-from-active-note",
+		name: "Create Trello card from active note",
+		icon: "plus-circle",
+		section: "Active note",
+		run: (ctx) => createCardFromActiveNote(ctx),
+	},
+	{
 		id: "sync-mapping",
 		name: "Sync a list with its folder",
 		icon: "folder-sync",
@@ -113,6 +121,13 @@ export const COMMANDS: CommandDescriptor[] = [
 		run: (ctx) => forceSyncCommands.forcePushFolder(ctx),
 	},
 	{
+		id: "open-sidebar",
+		name: "Open Trello Vault Sync",
+		icon: "panel-right",
+		section: "Vault",
+		run: (ctx) => ctx.activateSidebarView(),
+	},
+	{
 		id: "sync-vault",
 		name: "Sync all linked notes",
 		icon: "kanban-square",
@@ -139,6 +154,13 @@ export const COMMANDS: CommandDescriptor[] = [
 		icon: "file-plus",
 		section: "Vault",
 		run: (ctx) => createNoteFromOrphanCard(ctx),
+	},
+	{
+		id: "create-cards-from-phantom-notes",
+		name: "Create Trello cards from phantom notes",
+		icon: "file-plus-2",
+		section: "Vault",
+		run: (ctx) => createCardsFromPhantomNotes(ctx),
 	},
 	{
 		id: "audit-links",

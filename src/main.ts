@@ -1,7 +1,7 @@
 import { Notice, Plugin, TFile } from "obsidian";
 import type { CommandContext } from "./commands/context";
 import * as noteCommands from "./commands/noteCommands";
-import { COMMANDS } from "./commands/registry";
+import { COMMANDS, type CommandDescriptor } from "./commands/registry";
 import * as syncCommands from "./commands/syncCommands";
 import { decideAutoSync, type AutoSyncEvent } from "./core/autoSyncSchedule";
 import { errorMessage } from "./core/errorMessage";
@@ -33,17 +33,18 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private static readonly AUTO_SYNC_POLL_MS = 30_000;
 	/** The panel of the sync currently running, if any — torn down on unload. */
 	private activePanel: ProgressPanel | null = null;
-	/** Icons added from `settings.ribbonCommandIds` — tracked so `rebuildRibbon()` can remove them, unlike the fixed "Open Trello Vault Sync" icon. */
-	private configurableRibbonEls: HTMLElement[] = [];
+	/** Tracked ribbon icon elements (with their title, for proper native removal) — removed and rebuilt by `rebuildRibbon()` when settings change. */
+	private configurableRibbonEls: { el: HTMLElement; title: string }[] = [];
 
 	override async onload(): Promise<void> {
+		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
+
 		const { settingsRaw, journal, history } = normalizePersistedData(await this.loadData());
 		this.settings = normalizeSettings(settingsRaw);
 		this.journal = journal;
 		this.history = history;
 		this.vault = new ObsidianVault(this.app, () => this.settings.cardRefFrontmatterKey);
 		this.addSettingTab(new TrelloVaultSyncSettingsTab(this.app, this));
-		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
 		this.registerCommands();
 		this.registerRibbon();
 		this.registerAutoSync();
@@ -88,8 +89,27 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		}
 	}
 
+	/**
+	 * Ensures any sidebar leaf restored from workspace layout is fully loaded,
+	 * woken up if deferred, instantiated as SidebarView if needed, and rendered.
+	 */
+	async ensureSidebarViewsLoaded(): Promise<void> {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TVS_SIDEBAR)) {
+			const leafWithDeferred = leaf as unknown as { loadIfDeferred?: () => Promise<void> };
+			if (typeof leafWithDeferred.loadIfDeferred === "function") {
+				await leafWithDeferred.loadIfDeferred();
+			}
+			if (!(leaf.view instanceof SidebarView) && typeof leaf.getViewState === "function" && typeof leaf.setViewState === "function") {
+				await leaf.setViewState(leaf.getViewState());
+			}
+			if (leaf.view instanceof SidebarView) {
+				leaf.view.refresh();
+			}
+		}
+	}
+
 	/** Opens the sidebar view, or reveals it if already open — never a second instance. */
-	private async activateSidebarView(): Promise<void> {
+	async activateSidebarView(): Promise<void> {
 		const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_TVS_SIDEBAR);
 		if (existing.length > 0 && existing[0]) {
 			await this.app.workspace.revealLeaf(existing[0]);
@@ -363,7 +383,6 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	private registerRibbon(): void {
-		this.addRibbonIcon("panel-right", "Open Trello Vault Sync", () => void this.activateSidebarView());
 		this.rebuildRibbon();
 	}
 
@@ -376,11 +395,53 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	 * this one is user data, not a dev-time invariant.
 	 */
 	private rebuildRibbon(): void {
-		for (const el of this.configurableRibbonEls) el.remove();
+		for (const { el, title } of this.configurableRibbonEls) this.removeRibbonIconEl(el, title);
 		this.configurableRibbonEls = this.settings.ribbonCommandIds
 			.map((id) => COMMANDS.find((entry) => entry.id === id))
-			.filter((command) => command !== undefined)
-			.map((command) => this.addRibbonIcon(command.icon, command.name, () => command.run(this)));
+			.filter((command): command is CommandDescriptor => command !== undefined)
+			.map((command) => {
+				const el = this.addRibbonIcon(command.icon, command.name, () => command.run(this));
+				const customColor = this.settings.ribbonIconColors[command.id];
+				if (customColor) {
+					el.style.color = customColor;
+					el.style.setProperty("--icon-color", customColor);
+					el.style.setProperty("--ribbon-icon-color", customColor);
+					const svg = typeof el.querySelector === "function" ? el.querySelector<SVGElement>("svg") : null;
+					if (svg) {
+						svg.style.color = customColor;
+						if (typeof svg.style.setProperty === "function") {
+							svg.style.setProperty("stroke", customColor);
+						}
+					}
+				}
+				return { el, title: command.name };
+			});
+	}
+
+	/**
+	 * Detaches a ribbon icon and purges it from Obsidian's own ribbon registry.
+	 * `el.remove()` alone only hides the icon until the next workspace layout pass:
+	 * since some Obsidian version, `app.workspace.leftRibbon` keeps its own list of
+	 * every icon ever added (keyed `"pluginId:title"`, with a `hidden` flag — this is
+	 * what backs the built-in right-click "Hide icon" feature) and re-inserts any
+	 * entry that's still registered and not marked hidden, silently undoing a plain
+	 * `.remove()`. `removeRibbonAction` is how the icon actually gets forgotten.
+	 * It's not part of the public Plugin API, so this is wrapped defensively — if a
+	 * future Obsidian release changes its shape, this quietly no-ops and the icon
+	 * falls back to disappearing only after a restart, same as before this fix.
+	 */
+	private removeRibbonIconEl(el: HTMLElement, title: string): void {
+		el.remove();
+		try {
+			const leftRibbon = (
+				this.app.workspace as unknown as {
+					leftRibbon?: { removeRibbonAction?: (id: string) => void };
+				}
+			).leftRibbon;
+			leftRibbon?.removeRibbonAction?.(`${this.manifest.id}:${title}`);
+		} catch {
+			// Best-effort only — see doc comment above.
+		}
 	}
 
 	/**
@@ -399,7 +460,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		// Layout-ready, not onload() itself: the workspace (active file, panes)
 		// isn't settled yet inside onload(), and a sync that fires before it is
 		// would race Obsidian's own startup.
-		this.app.workspace.onLayoutReady(() => void this.checkAutoSync("startup"));
+		this.app.workspace.onLayoutReady(() => {
+			void this.ensureSidebarViewsLoaded();
+			void this.checkAutoSync("startup");
+		});
 	}
 
 	/** Whether `event` is one of the triggers the user turned on — a plain lookup, not a fixed enum, so a 4th trigger kind is just one more setting and one more branch here. */

@@ -45,5 +45,6 @@ export interface CommandContext {
 	noteOptions(force?: "pull" | "push"): NoteSyncOptions;
 	folderOptions(force?: "pull" | "push"): FolderSyncOptions;
 	auditOptions(kind?: "links" | "locations" | "changes"): AuditOptions;
+	activateSidebarView(): Promise<void>;
 	saveSettings(): Promise<void>;
 }

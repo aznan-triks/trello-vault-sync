@@ -18,10 +18,11 @@ import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, type LabelSyncMode } from "../core/labelMerge";
 import { safeOverrideMode } from "../core/mappingOverride";
+import type { PhantomNoteScope } from "../core/phantomCardDestination";
 import type { ConflictPolicy } from "../core/syncDecision";
 import type { FolderMapping } from "../features/syncFolder";
 
-export type { CoverLocalFormat };
+export type { CoverLocalFormat, PhantomNoteScope };
 
 export interface TrelloVaultSyncSettings {
 	/** The single Trello credential pair used by every command. */
@@ -85,6 +86,8 @@ export interface TrelloVaultSyncSettings {
 
 	/** Ids (from `commands/registry.ts`) of the commands shown as ribbon icons, in registry order. */
 	ribbonCommandIds: string[];
+	/** Custom hex colors for ribbon icons, keyed by command id. Missing or empty means default theme color. */
+	ribbonIconColors: Record<string, string>;
 
 	/** "Audit changes" cursor: id of the last processed Trello action, "" before a first run. No settings-tab field — internal bookkeeping. */
 	auditChangesCursor: string;
@@ -145,6 +148,12 @@ export interface TrelloVaultSyncSettings {
 	orphanCardFolder: string;
 	/** Fallback note template used when creating a new note if the mapping doesn't specify one. */
 	defaultTemplateName: string;
+	/** Destination Trello list id where cards created from phantom/unlinked notes should go. Empty means the user is prompted each time. */
+	phantomCardListId: string;
+	/** When true, notes located in a mapped folder are created in that folder's mapped list rather than phantomCardListId. Default is false. */
+	phantomNotePreferFolderMapping: boolean;
+	/** Scope of notes to consider when creating cards from phantom notes. Default is "all-unlinked". */
+	phantomNoteScope: PhantomNoteScope;
 
 	/** Off by default — an unsolicited sync writes to the vault. */
 	autoSyncEnabled: boolean;
@@ -199,7 +208,8 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	mappings: [],
 	showPanel: true,
 	panelAutoCloseSeconds: 8,
-	ribbonCommandIds: ["sync-active-note", "sync-vault", "sync-all-mappings", "audit-links"],
+	ribbonCommandIds: ["open-sidebar", "sync-active-note", "sync-vault", "sync-all-mappings", "audit-links"],
+	ribbonIconColors: {},
 	auditChangesCursor: "",
 	cardRefFrontmatterKey: DEFAULT_CARD_REF_KEY,
 	dueFrontmatterKey: DEFAULT_DUE_KEY,
@@ -226,6 +236,9 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	confirmForceSync: true,
 	orphanCardFolder: "",
 	defaultTemplateName: "",
+	phantomCardListId: "",
+	phantomNotePreferFolderMapping: false,
+	phantomNoteScope: "all-unlinked",
 	autoSyncEnabled: false,
 	autoSyncOnInterval: true,
 	autoSyncOnFocus: false,
@@ -308,6 +321,19 @@ export function normalizeVaultPath(value: string): string {
 		.replace(/\/+$/, "");
 }
 
+export function normalizeRibbonIconColors(raw: unknown): Record<string, string> {
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+		return {};
+	}
+	const result: Record<string, string> = {};
+	for (const [key, val] of Object.entries(raw)) {
+		if (typeof key === "string" && typeof val === "string" && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(val.trim())) {
+			result[key] = val.trim();
+		}
+	}
+	return result;
+}
+
 /** Settings merged over the defaults, tolerating a partial or legacy payload. */
 export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 	const input = (raw ?? {}) as Partial<TrelloVaultSyncSettings>;
@@ -373,8 +399,22 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			DEFAULT_SETTINGS.historyMaxRuns,
 			HISTORY_MAX_RUNS_CEILING,
 		),
-		ribbonCommandIds: (Array.isArray(input.ribbonCommandIds) ? input.ribbonCommandIds : DEFAULT_SETTINGS.ribbonCommandIds)
-			.filter((id): id is string => typeof id === "string"),
+		ribbonCommandIds: (() => {
+			const rawIds = (Array.isArray(input.ribbonCommandIds) ? input.ribbonCommandIds : DEFAULT_SETTINGS.ribbonCommandIds)
+				.filter((id): id is string => typeof id === "string");
+			// Migration from pre-1.18 versions where "open-sidebar" was permanently hardcoded in the ribbon:
+			// If settings have the exact 4 default ribbon commands from older versions and ribbonIconColors was
+			// undefined (never saved on 1.18+), upgrade to the new 5-command default including "open-sidebar".
+			const OLD_DEFAULT_RIBBON_IDS = ["sync-active-note", "sync-vault", "sync-all-mappings", "audit-links"];
+			const isOldDefault =
+				rawIds.length === OLD_DEFAULT_RIBBON_IDS.length &&
+				rawIds.every((id, idx) => id === OLD_DEFAULT_RIBBON_IDS[idx]);
+			if (input.ribbonIconColors === undefined && isOldDefault) {
+				return DEFAULT_SETTINGS.ribbonCommandIds;
+			}
+			return rawIds;
+		})(),
+		ribbonIconColors: normalizeRibbonIconColors(input.ribbonIconColors),
 		mappings: mappings.map((mapping) => ({
 			listId: safeString(mapping?.listId),
 			folder: normalizeVaultPath(safeString(mapping?.folder)),
@@ -402,6 +442,12 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		attachmentsFolder: normalizeVaultPath(safeString(input.attachmentsFolder, DEFAULT_SETTINGS.attachmentsFolder)),
 		orphanCardFolder: normalizeVaultPath(safeString(input.orphanCardFolder, DEFAULT_SETTINGS.orphanCardFolder)),
 		defaultTemplateName: safeString(input.defaultTemplateName, DEFAULT_SETTINGS.defaultTemplateName).trim(),
+		phantomCardListId: safeString(input.phantomCardListId, DEFAULT_SETTINGS.phantomCardListId).trim(),
+		phantomNotePreferFolderMapping: input.phantomNotePreferFolderMapping === true,
+		phantomNoteScope:
+			input.phantomNoteScope === "phantom-only" || input.phantomNoteScope === "mapped-folders-only"
+				? input.phantomNoteScope
+				: "all-unlinked",
 		autoSyncIntervalMinutes: safeNonNegativeNumber(
 			input.autoSyncIntervalMinutes,
 			DEFAULT_SETTINGS.autoSyncIntervalMinutes,
