@@ -33,6 +33,7 @@ import {
 	normalizeVaultPath,
 	safeFrontmatterKey,
 	safeNonNegativeNumber,
+	type PhantomNoteScope,
 } from "./types";
 
 const POLICY_LABELS: Record<ConflictPolicy, string> = {
@@ -211,6 +212,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			// Tab 1: General & Scope
 			{ id: "credentials", tab: "general", render: (el) => this.renderCredentials(el) },
 			{ id: "scope", tab: "general", render: (el) => this.renderScope(el) },
+			{ id: "ribbon", tab: "general", render: (el) => this.renderRibbon(el) },
 			{ id: "audit-output", tab: "general", render: (el) => this.renderAuditOutput(el) },
 			// Tab 2: Sync Rules
 			{ id: "arbitration", tab: "sync-rules", render: (el) => this.renderArbitration(el) },
@@ -225,7 +227,6 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			{ id: "orphan-cards", tab: "mappings", render: (el) => this.renderOrphanCards(el) },
 			// Tab 4: Automation
 			{ id: "auto-sync", tab: "automation", render: (el) => this.renderAutoSync(el) },
-			{ id: "ribbon", tab: "automation", render: (el) => this.renderRibbon(el) },
 			// Tab 5: Advanced
 			{ id: "advanced", tab: "advanced", render: (el) => this.renderAdvanced(el) },
 			// Tab 6: Changelog
@@ -1069,6 +1070,77 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.app.vault.getMarkdownFiles().map((file) => file.basename),
 				);
 			});
+
+		new Setting(root).setName("Card creation from phantom notes").setHeading();
+		root.createEl("p", {
+			cls: "setting-item-description",
+			text: "Destination list and options when creating Trello cards from phantom or unlinked notes.",
+		});
+
+		const phantomListName = this.listNames.get(this.plugin.settings.phantomCardListId);
+		new Setting(root)
+			.setName("Phantom notes destination list")
+			.setDesc(
+				phantomListName
+					? `→ ${phantomListName}`
+					: 'Default Trello list where phantom and unlinked notes are created as cards (e.g. "Inbox" or "Unorganized"). Leave empty to be prompted each time.',
+			)
+			.addText((text) => {
+				text
+					.setPlaceholder("idList")
+					.setValue(this.plugin.settings.phantomCardListId)
+					.onChange((value) => {
+						this.plugin.settings.phantomCardListId = value.trim();
+						void this.save();
+					});
+				new TrelloPickerSuggest(
+					this.app,
+					text.inputEl,
+					async () => {
+						if (this.plugin.settings.boardId.trim() === "") {
+							throw new Error("Set the board id above first.");
+						}
+						const lists = await this.plugin.client().getBoardLists(this.plugin.settings.boardId);
+						this.listNames = new Map(lists.map((list) => [list.id, list.name]));
+						return lists;
+					},
+					(list) => {
+						this.plugin.settings.phantomCardListId = list.id;
+						text.setValue(list.id);
+						void this.save();
+						this.display();
+					},
+				);
+			});
+
+		new Setting(root)
+			.setName("Prefer folder mapping")
+			.setDesc(
+				"When enabled, notes located in a mapped folder are created in that folder's mapped Trello list instead of the destination list above.",
+			)
+			.addToggle((toggle) => {
+				toggle
+					.setValue(this.plugin.settings.phantomNotePreferFolderMapping)
+					.onChange((value) => {
+						this.plugin.settings.phantomNotePreferFolderMapping = value;
+						void this.save();
+					});
+			});
+
+		new Setting(root)
+			.setName("Phantom notes detection scope")
+			.setDesc("Which notes are considered candidates when scanning for phantom notes.")
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("all-unlinked", "All unlinked & phantom notes in vault scope")
+					.addOption("mapped-folders-only", "Phantom notes + unlinked notes in mapped folders")
+					.addOption("phantom-only", "Only true phantom notes (broken card links)")
+					.setValue(this.plugin.settings.phantomNoteScope)
+					.onChange((value) => {
+						this.plugin.settings.phantomNoteScope = value as PhantomNoteScope;
+						void this.save();
+					});
+			});
 	}
 
 	private renderAutoSync(root: HTMLElement): void {
@@ -1367,11 +1439,56 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 	private renderRibbon(root: HTMLElement): void {
 		new Setting(root).setName("Ribbon icons").setHeading();
-		new Setting(root).setDesc("Choose which commands get a button in Obsidian's left ribbon.");
+		new Setting(root).setDesc(
+			"Choose which commands get a button in Obsidian's left ribbon, and optionally customize their colors individually.",
+		);
 
 		for (const section of ALL_SECTIONS) {
-			for (const command of COMMANDS.filter((c) => c.section === section)) {
-				new Setting(root).setName(command.name).addToggle((toggle) =>
+			const sectionCommands = COMMANDS.filter((c) => c.section === section);
+			if (sectionCommands.length === 0) continue;
+
+			new Setting(root).setName(section).setHeading();
+
+			for (const command of sectionCommands) {
+				const currentColor = this.plugin.settings.ribbonIconColors[command.id] || "";
+				const setting = new Setting(root).setName(command.name);
+				setting.setDesc(currentColor ? `Custom color: ${currentColor}` : "Default theme color");
+
+				let resetBtn: { setDisabled: (d: boolean) => void; setTooltip: (t: string) => void } | null = null;
+				let colorPicker: { setValue: (v: string) => void } | null = null;
+
+				setting.addColorPicker((picker) => {
+					colorPicker = picker;
+					if (currentColor) {
+						picker.setValue(currentColor);
+					}
+					picker.onChange((val) => {
+						this.plugin.settings.ribbonIconColors[command.id] = val;
+						setting.setDesc(`Custom color: ${val}`);
+						resetBtn?.setDisabled(false);
+						resetBtn?.setTooltip(`Reset color (${val}) to default`);
+						void this.save();
+					});
+				});
+
+				setting.addExtraButton((btn) => {
+					btn.setIcon("rotate-ccw")
+						.setTooltip(currentColor ? `Reset color (${currentColor}) to default` : "Reset to default color")
+						.setDisabled(!currentColor)
+						.onClick(() => {
+							if (this.plugin.settings.ribbonIconColors[command.id]) {
+								delete this.plugin.settings.ribbonIconColors[command.id];
+								colorPicker?.setValue("#000000");
+								setting.setDesc("Default theme color");
+								btn.setDisabled(true);
+								btn.setTooltip("Reset to default color");
+								void this.save();
+							}
+						});
+					resetBtn = btn;
+				});
+
+				setting.addToggle((toggle) =>
 					toggle
 						.setValue(this.plugin.settings.ribbonCommandIds.includes(command.id))
 						.onChange((value) => {

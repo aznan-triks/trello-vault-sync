@@ -67,6 +67,39 @@ export class SidebarView extends ItemView {
 
 	override async onOpen(): Promise<void> {
 		this.render();
+		const workspace = this.app?.workspace ?? this.ctx.app?.workspace;
+		if (workspace && typeof this.registerEvent === "function") {
+			this.registerEvent(
+				workspace.on("layout-change", () => {
+					if (!this.hasContent()) {
+						this.render();
+					}
+				}),
+			);
+			this.registerEvent(
+				workspace.on("active-leaf-change", (leaf) => {
+					if (leaf === this.leaf && !this.hasContent()) {
+						this.render();
+					}
+				}),
+			);
+		}
+	}
+
+	override onResize(): void {
+		if (typeof (super.onResize as unknown) === "function") {
+			super.onResize();
+		}
+		if (!this.hasContent()) {
+			this.render();
+		}
+	}
+
+	private hasContent(): boolean {
+		if (typeof this.contentEl?.hasChildNodes === "function") {
+			return this.contentEl.hasChildNodes();
+		}
+		return Boolean(this.contentEl?.children && this.contentEl.children.length > 0);
 	}
 
 	override async onClose(): Promise<void> {}

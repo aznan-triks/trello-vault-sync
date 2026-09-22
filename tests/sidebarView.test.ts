@@ -119,6 +119,8 @@ class FakeElement {
 vi.mock("obsidian", () => ({
 	ItemView: class ItemView {
 		contentEl = new FakeElement("div");
+		registerEvent = vi.fn();
+		onResize(): void {}
 		constructor(public leaf: unknown) {}
 	},
 	Setting: class Setting {
@@ -236,6 +238,7 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 			boardId: "board",
 		}),
 		auditOptions: () => ({ scope: "", boardId: "board", reportPath: "", timestamp: "t", excludedFolders: [] }),
+		activateSidebarView: vi.fn().mockResolvedValue(undefined),
 		saveSettings: vi.fn().mockResolvedValue(undefined),
 		...overrides,
 	};
@@ -350,5 +353,57 @@ describe("SidebarView", () => {
 
 		firstAction?.trigger("keydown", { key: "Enter", preventDefault: () => {} });
 		expect(spyRun).toHaveBeenCalledTimes(2);
+	});
+
+	test("re-renders on onResize when contentEl has been emptied or unrendered", async () => {
+		const ctx = fakeContext();
+		const view = new SidebarView({} as never, ctx);
+
+		await view.onOpen();
+		const content = (view as unknown as { contentEl: FakeElement }).contentEl;
+		expect(content.children.length).toBeGreaterThan(0);
+
+		// Simulate empty state (e.g. initial detached state before layout settled)
+		content.empty();
+		expect(content.children.length).toBe(0);
+
+		// onResize triggers auto-render
+		view.onResize();
+		expect(content.children.length).toBeGreaterThan(0);
+	});
+
+	test("open-sidebar command triggers activateSidebarView", async () => {
+		const ctx = fakeContext();
+		const openCmd = COMMANDS.find((c) => c.id === "open-sidebar");
+		expect(openCmd).toBeDefined();
+		expect(openCmd?.icon).toBe("panel-right");
+		expect(openCmd?.section).toBe("Vault");
+
+		await openCmd?.run(ctx);
+		expect(ctx.activateSidebarView).toHaveBeenCalledTimes(1);
+	});
+
+	test("registers layout-change and active-leaf-change events and re-renders if empty", async () => {
+		const listeners: Record<string, (arg?: unknown) => void> = {};
+		const mockWorkspace = {
+			on: vi.fn((event: string, cb: (arg?: unknown) => void) => {
+				listeners[event] = cb;
+				return {};
+			}),
+		};
+		const leaf = { id: "my-leaf" };
+		const ctx = fakeContext({ app: { workspace: mockWorkspace } as never });
+		const view = new SidebarView(leaf as never, ctx);
+
+		await view.onOpen();
+		expect(mockWorkspace.on).toHaveBeenCalledWith("layout-change", expect.any(Function));
+		expect(mockWorkspace.on).toHaveBeenCalledWith("active-leaf-change", expect.any(Function));
+
+		const content = (view as unknown as { contentEl: FakeElement }).contentEl;
+		content.empty();
+		expect(content.children.length).toBe(0);
+
+		listeners["active-leaf-change"]?.(leaf);
+		expect(content.children.length).toBeGreaterThan(0);
 	});
 });

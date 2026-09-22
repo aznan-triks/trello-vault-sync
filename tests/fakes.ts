@@ -1,4 +1,4 @@
-import { parseCardRef, formatCardRef, type CardRef } from "../src/core/cardRef";
+import { DEFAULT_CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../src/core/cardRef";
 import { excludeFolders } from "../src/core/fileName";
 import { splitFrontmatter } from "../src/core/noteBody";
 import type { CardRefStore, NoteHandle, Reporter, TemplateResolver, VaultGateway } from "../src/obsidian/gateway";
@@ -12,7 +12,10 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 	/** Binary files (attachments), tracked separately from notes — path -> byte size, matching what `binarySize` needs. */
 	private binaries = new Map<string, number>();
 
-	constructor(files: Record<string, { content: string; mtime?: number }> = {}) {
+	constructor(
+		files: Record<string, { content: string; mtime?: number }> = {},
+		private readonly cardRefKey: string = DEFAULT_CARD_REF_KEY,
+	) {
 		for (const [path, file] of Object.entries(files)) {
 			this.files.set(path, { content: file.content, mtime: file.mtime ?? 0 });
 		}
@@ -55,9 +58,8 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 	}
 
 	getCardRef(note: NoteHandle): CardRef | null {
-		const frontmatter = splitFrontmatter(this.contentOf(note.path)).frontmatter ?? "";
-		const match = frontmatter.match(/trello_board_card_id:\s*"?([^"\n]*)"?/);
-		return parseCardRef(match?.[1]);
+		const frontmatter = this.readFrontmatter(note);
+		return parseCardRef(frontmatter?.[this.cardRefKey]);
 	}
 
 	/** One frontmatter scalar, parsed from its raw (already-trimmed) text form. */
@@ -167,14 +169,9 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 	}
 
 	async setCardRef(note: NoteHandle, ref: CardRef): Promise<void> {
-		const content = this.contentOf(note.path);
-		const line = `trello_board_card_id: "${formatCardRef(ref.boardId, ref.cardId)}"`;
-		const { frontmatter, body } = splitFrontmatter(content);
-		const next =
-			frontmatter === null
-				? `---\n${line}\n---\n\n${content}`
-				: `${frontmatter.slice(0, -3)}${line}\n---${body}`;
-		await this.write(note, next);
+		await this.writeFrontmatter(note, (frontmatter) => {
+			frontmatter[this.cardRefKey] = formatCardRef(ref.boardId, ref.cardId);
+		});
 	}
 
 	async read(note: NoteHandle): Promise<string> {

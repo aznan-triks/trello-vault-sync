@@ -113,6 +113,7 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 			boardId: "board",
 		}),
 		auditOptions: () => ({ scope: "", boardId: "board", reportPath: "", timestamp: "t", excludedFolders: [] }),
+		activateSidebarView: async () => {},
 		saveSettings: async () => {},
 		...overrides,
 	};

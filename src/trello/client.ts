@@ -103,6 +103,15 @@ export interface TrelloCustomFieldItem {
 	value?: { text?: string; number?: string; checked?: string; date?: string };
 }
 
+export interface CreateCardFields {
+	idList: string;
+	name: string;
+	desc?: string;
+	due?: string | null;
+	idLabels?: string[];
+	pos?: "top" | "bottom" | number;
+}
+
 export interface TrelloCustomFieldOption {
 	id: string;
 	value: { text: string };
@@ -408,6 +417,34 @@ export class TrelloClient {
 			},
 			signal,
 		);
+	}
+
+	/**
+	 * Create a new card on Trello. Returns the newly created card.
+	 */
+	async createCard(fields: CreateCardFields, signal?: AbortSignal): Promise<TrelloCard> {
+		const body = new URLSearchParams();
+		body.append("idList", fields.idList);
+		body.append("name", fields.name);
+		if (fields.desc !== undefined) body.append("desc", fields.desc);
+		if (fields.due !== undefined && fields.due !== null) body.append("due", fields.due);
+		if (fields.idLabels !== undefined && fields.idLabels.length > 0) body.append("idLabels", fields.idLabels.join(","));
+		if (fields.pos !== undefined) body.append("pos", String(fields.pos));
+
+		const response = await this.send(
+			{
+				url: this.buildUrl("/cards", {}),
+				method: "POST",
+				body: body.toString(),
+				contentType: "application/x-www-form-urlencoded",
+			},
+			signal,
+		);
+		try {
+			return JSON.parse(response.text) as TrelloCard;
+		} catch {
+			throw new TrelloError("Unreadable Trello response (invalid JSON).", response.status, false);
+		}
 	}
 
 	/**
