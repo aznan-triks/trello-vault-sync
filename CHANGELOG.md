@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] — 2026-09-23
+
+### Added
+
+- **Plain**: You can now turn a note into a Trello card directly, without going through a folder mapping — either the note you're currently editing, or a whole batch of unlinked notes at once picked from a list, sent to a Trello list you choose.
+  **Technical**: New command `create-card-from-active-note` (`src/commands/createCardCommand.ts`, `src/features/createCardFromNote.ts`) creates a card from the active note and writes back its `trello_board_card_id`. New bulk command scans the vault for phantom/unlinked notes and opens `PhantomNotePickerModal` (pick one note or "Create for ALL"), then `ListPickerModal` to choose the destination list when none is configured. New settings: `phantomCardListId` (default destination list, `src/core/phantomCardDestination.ts` resolves it by id or by name against the board), `phantomNotePreferFolderMapping` (use a note's mapped folder list instead when it has one), and `phantomNoteScope` (which notes count as candidates). The checklist section is excluded from the card description the same way an existing synced note's is.
+
+### Changed
+
+- **Plain**: Ribbon icon settings have moved into General & Scope, grouped by section with headings, and each icon can now have its own color instead of all sharing the theme's default.
+  **Technical**: `renderRibbon` (`SettingsTab.ts`) groups `COMMANDS` by `section` under heading rows and adds a color picker + reset button per command, backed by the new `ribbonIconColors: Record<string, string>` setting. `open-sidebar` is no longer hardcoded into `main.ts`'s ribbon — it lives in `COMMANDS`/`ribbonCommandIds` like every other command, so unchecking it removes it like any other icon.
+- **Plain**: The plugin's side panel now shows up the moment Obsidian finishes loading, instead of staying blank until you switch to another tab and back.
+  **Technical**: `registerView` moved to the top of `onload()` (was previously registered later, after `data.json` had already loaded). `ensureSidebarViewsLoaded()` wakes any deferred sidebar leaf on `workspace.onLayoutReady`, and an `active-leaf-change` listener catches leaves that were still deferred at that point.
+
+### Fixed
+
+- **Plain**: Unchecking a ribbon icon in settings now makes it disappear immediately — previously it stayed visible and clickable until you fully restarted Obsidian, even though the setting itself had correctly saved.
+  **Technical**: `rebuildRibbon()` (`main.ts`) was only calling `el.remove()` on the DOM node returned by `addRibbonIcon`. Since a recent Obsidian version, `app.workspace.leftRibbon` keeps its own persistent registry of every ribbon item ever added (keyed `"pluginId:title"`, with a `hidden` flag — this is what backs the built-in right-click "hide icon" menu) and silently re-inserts an item that's still registered and not marked hidden on the next ribbon render pass, undoing the plain DOM removal. `rebuildRibbon()` now also calls the internal `leftRibbon.removeRibbonAction(...)` before rebuilding, wrapped in a defensive `try/catch` since it isn't part of the public Plugin API. See `CONTEXT.md` §8ter for the full investigation.
+
 ## [1.17.2] — 2026-09-17
 
 ### Fixed
