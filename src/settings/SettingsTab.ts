@@ -33,6 +33,7 @@ import {
 	normalizeVaultPath,
 	safeFrontmatterKey,
 	safeNonNegativeNumber,
+	type OrphanCardScope,
 	type PhantomNoteScope,
 } from "./types";
 
@@ -1069,6 +1070,32 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				new VaultPathSuggest(this.app, text.inputEl, () =>
 					this.app.vault.getMarkdownFiles().map((file) => file.basename),
 				);
+			});
+
+		new Setting(root)
+			.setName('Offer "create all" for orphan cards')
+			.setDesc("When multiple orphan cards are detected, show an option at the top of the picker to create notes for all of them at once.")
+			.addToggle((toggle) => {
+				toggle
+					.setValue(this.plugin.settings.orphanCardBatchCreate)
+					.onChange((value) => {
+						this.plugin.settings.orphanCardBatchCreate = value;
+						void this.save();
+					});
+			});
+
+		new Setting(root)
+			.setName("Orphan cards detection scope")
+			.setDesc("Which orphan cards are considered candidates when creating notes.")
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("all", "All unlinked cards on the board")
+					.addOption("mapped-lists-only", "Only cards in mapped Trello lists")
+					.setValue(this.plugin.settings.orphanCardScope)
+					.onChange((value) => {
+						this.plugin.settings.orphanCardScope = value as OrphanCardScope;
+						void this.save();
+					});
 			});
 
 		new Setting(root).setName("Card creation from phantom notes").setHeading();

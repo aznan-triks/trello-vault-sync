@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.1] — 2026-09-23
+
+### Added
+
+- **Plain**: You can now create notes for all unlinked Trello cards at once from the "Create note from a Trello card" picker, routing mapped cards to their configured folders and asking only once for any remaining cards.
+  **Technical**: New `batchCreateNotesFromCardsAction` (`src/commands/createNoteCommand.ts`) creates notes for all orphan cards in sequence with progress reporting, cancellation via `AbortSignal`, per-card error tolerance, template caching (missing link key warning logged at most once per template), and dry-run safety. Added `OrphanCardPickerModal` (`src/ui/OrphanCardPickerModal.ts`) offering an initial `ALL` action when `orphanCardBatchCreate` is enabled and candidate count > 1. Added `filterOrphanCardsByScope` (`src/core/orphanCardDestination.ts`) and two new settings: `orphanCardBatchCreate` (toggle "create all" proposal, default `true`) and `orphanCardScope` (`all` or `mapped-lists-only`, default `all`) under `SettingsTab.ts` ("Note creation from a card").
+
 ## [1.18.0] — 2026-09-23
 
 ### Added

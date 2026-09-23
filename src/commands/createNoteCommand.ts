@@ -1,11 +1,16 @@
 import type { CommandContext } from "./context";
-import { resolveOrphanCardDestination } from "../core/orphanCardDestination";
+import { errorMessage } from "../core/errorMessage";
+import {
+	filterOrphanCardsByScope,
+	isUsableDestinationFolder,
+	resolveOrphanCardDestination,
+} from "../core/orphanCardDestination";
 import { templateMissingCardRefKey } from "../core/template";
 import { buildCardIndex } from "../features/attachmentSync";
 import { createNoteFromCard, unlinkedCards } from "../features/createNoteFromCard";
 import type { TrelloCard } from "../trello/client";
-import { CardPickerModal } from "../ui/CardPickerModal";
 import { FolderPickerModal } from "../ui/FolderPickerModal";
+import { OrphanCardPickerModal } from "../ui/OrphanCardPickerModal";
 
 export async function createInFolder(ctx: CommandContext, card: TrelloCard, folder: string): Promise<void> {
 	await ctx.run(
@@ -26,6 +31,83 @@ export async function createInFolder(ctx: CommandContext, card: TrelloCard, fold
 		// One local vault write (template read + note creation): no network call, no loop — nothing to interrupt.
 		{ cancellable: false },
 	);
+}
+
+export async function batchCreateNotesFromCardsAction(
+	ctx: CommandContext,
+	cards: readonly TrelloCard[],
+	promptedFolder?: string,
+): Promise<void> {
+	await ctx.run("Create notes from orphan cards", async (reporter, signal) => {
+		reporter.setTotal(cards.length);
+		let created = 0;
+		let errors = 0;
+		const templateCache = new Map<string, string | null>();
+		const warnedTemplates = new Set<string>();
+
+		for (const card of cards) {
+			if (signal?.aborted) break;
+			reporter.step(card.name);
+
+			const dest = resolveOrphanCardDestination(card.idList, ctx.settings.mappings, ctx.settings.orphanCardFolder);
+			const targetFolder = !dest.needsPrompt ? dest.folder : (promptedFolder ?? "");
+
+			if (!isUsableDestinationFolder(targetFolder)) {
+				errors++;
+				reporter.log("error", `${card.name} — No destination folder configured.`);
+				continue;
+			}
+
+			const mapping = ctx.settings.mappings.find((candidate) => candidate.listId === card.idList);
+			const templateName = mapping?.templateName || ctx.settings.defaultTemplateName || "";
+			let template: string | null = null;
+			if (templateName) {
+				if (templateCache.has(templateName)) {
+					template = templateCache.get(templateName)!;
+				} else {
+					template = await ctx.vault.readTemplate(templateName);
+					templateCache.set(templateName, template);
+				}
+				if (template && templateMissingCardRefKey(template, ctx.settings.cardRefFrontmatterKey)) {
+					if (!warnedTemplates.has(templateName)) {
+						warnedTemplates.add(templateName);
+						reporter.log(
+							"warn",
+							`Template "${templateName}" has no ${ctx.settings.cardRefFrontmatterKey} key — new notes from it won't link back to their card.`,
+						);
+					}
+				}
+			}
+
+			try {
+				if (ctx.settings.dryRun) {
+					created++;
+					reporter.log("create", card.name);
+				} else {
+					const note = await createNoteFromCard(
+						ctx.vault,
+						card,
+						targetFolder,
+						template,
+						ctx.settings.cardRefFrontmatterKey,
+					);
+					created++;
+					reporter.log("create", note.basename);
+				}
+			} catch (error) {
+				if (signal?.aborted) break;
+				errors++;
+				reporter.log("error", `${card.name} — ${errorMessage(error)}`);
+			}
+		}
+
+		if (ctx.settings.dryRun) {
+			return errors > 0
+				? `[Dry-run] Would create ${created} note(s) (${errors} error(s)).`
+				: `[Dry-run] Would create ${created} note(s).`;
+		}
+		return `${created} created · ${errors} error(s)`;
+	});
 }
 
 function folderCandidates(ctx: CommandContext): string[] {
@@ -54,13 +136,40 @@ export async function createNoteFromOrphanCard(ctx: CommandContext): Promise<voi
 	await ctx.run("Load Trello cards", async (reporter, signal) => {
 		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId, undefined, signal);
 		const linkedCardIds = new Set(buildCardIndex(ctx.vault, ctx.vault.listNotes("")).keys());
-		const orphanCards = unlinkedCards(cards, linkedCardIds);
+		const allOrphans = unlinkedCards(cards, linkedCardIds);
+		const orphanCards = filterOrphanCardsByScope(allOrphans, ctx.settings.mappings, ctx.settings.orphanCardScope);
 
 		if (orphanCards.length === 0) {
-			return "Every card on the board is already linked to a note.";
+			return allOrphans.length === 0
+				? "Every card on the board is already linked to a note."
+				: "No orphan cards match the configured detection scope.";
 		}
 
-		new CardPickerModal(ctx.app, orphanCards, (card) => pickDestination(ctx, card)).open();
+		new OrphanCardPickerModal(
+			ctx.app,
+			orphanCards,
+			ctx.settings.orphanCardBatchCreate,
+			(choice) => {
+				if (choice.type === "all") {
+					const anyNeedsPrompt = orphanCards.some(
+						(card) =>
+							resolveOrphanCardDestination(card.idList, ctx.settings.mappings, ctx.settings.orphanCardFolder)
+								.needsPrompt,
+					);
+					if (!anyNeedsPrompt) {
+						void batchCreateNotesFromCardsAction(ctx, orphanCards);
+					} else {
+						new FolderPickerModal(ctx.app, () => folderCandidates(ctx), "", (folder) => {
+							void batchCreateNotesFromCardsAction(ctx, orphanCards, folder);
+						}).open();
+					}
+				} else {
+					pickDestination(ctx, choice.card);
+				}
+			},
+		).open();
+
 		return `${orphanCards.length} unlinked card(s) — pick one from the list.`;
 	});
 }
+
