@@ -18,11 +18,12 @@ import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, type LabelSyncMode } from "../core/labelMerge";
 import { safeOverrideMode } from "../core/mappingOverride";
+import type { OrphanCardScope } from "../core/orphanCardDestination";
 import type { PhantomNoteScope } from "../core/phantomCardDestination";
 import type { ConflictPolicy } from "../core/syncDecision";
 import type { FolderMapping } from "../features/syncFolder";
 
-export type { CoverLocalFormat, PhantomNoteScope };
+export type { CoverLocalFormat, OrphanCardScope, PhantomNoteScope };
 
 export interface TrelloVaultSyncSettings {
 	/** The single Trello credential pair used by every command. */
@@ -146,6 +147,10 @@ export interface TrelloVaultSyncSettings {
 
 	/** Fallback folder for "Create note from a Trello card" when the card's list isn't mapped to one. Empty means the user is prompted at creation time instead of a silent guess. */
 	orphanCardFolder: string;
+	/** When true, "Create note from a Trello card" offers a batch create option for all orphan cards. Default is true. */
+	orphanCardBatchCreate: boolean;
+	/** Scope of orphan cards to consider for note creation: "all" or "mapped-lists-only". Default is "all". */
+	orphanCardScope: OrphanCardScope;
 	/** Fallback note template used when creating a new note if the mapping doesn't specify one. */
 	defaultTemplateName: string;
 	/** Destination Trello list id where cards created from phantom/unlinked notes should go. Empty means the user is prompted each time. */
@@ -235,6 +240,8 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	attachmentsFolder: "",
 	confirmForceSync: true,
 	orphanCardFolder: "",
+	orphanCardBatchCreate: true,
+	orphanCardScope: "all",
 	defaultTemplateName: "",
 	phantomCardListId: "",
 	phantomNotePreferFolderMapping: false,
@@ -441,6 +448,8 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		attachmentsDownloadScope: input.attachmentsDownloadScope === "cover-only" ? "cover-only" : "all",
 		attachmentsFolder: normalizeVaultPath(safeString(input.attachmentsFolder, DEFAULT_SETTINGS.attachmentsFolder)),
 		orphanCardFolder: normalizeVaultPath(safeString(input.orphanCardFolder, DEFAULT_SETTINGS.orphanCardFolder)),
+		orphanCardBatchCreate: input.orphanCardBatchCreate !== false,
+		orphanCardScope: input.orphanCardScope === "mapped-lists-only" ? "mapped-lists-only" : "all",
 		defaultTemplateName: safeString(input.defaultTemplateName, DEFAULT_SETTINGS.defaultTemplateName).trim(),
 		phantomCardListId: safeString(input.phantomCardListId, DEFAULT_SETTINGS.phantomCardListId).trim(),
 		phantomNotePreferFolderMapping: input.phantomNotePreferFolderMapping === true,

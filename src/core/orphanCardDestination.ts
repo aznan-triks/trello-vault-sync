@@ -27,3 +27,25 @@ export function resolveOrphanCardDestination(
 export function isUsableDestinationFolder(folder: string): boolean {
 	return folder.trim() !== "";
 }
+
+export type OrphanCardScope = "all" | "mapped-lists-only";
+
+/**
+ * Filters orphan cards according to the configured detection scope:
+ * - "all": all orphan cards are candidates.
+ * - "mapped-lists-only": only cards located in a mapped list are candidates.
+ */
+export function filterOrphanCardsByScope<T extends { idList?: string }>(
+	cards: readonly T[],
+	mappings: readonly MappingLookup[],
+	scope: OrphanCardScope,
+): T[] {
+	if (scope === "all") {
+		return [...cards];
+	}
+	const mappedListIds = new Set(
+		mappings.map((m) => m.listId.trim()).filter((id) => id !== ""),
+	);
+	return cards.filter((card) => card.idList !== undefined && mappedListIds.has(card.idList.trim()));
+}
+

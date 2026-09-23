@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { isUsableDestinationFolder, resolveOrphanCardDestination } from "../src/core/orphanCardDestination";
+import {
+	filterOrphanCardsByScope,
+	isUsableDestinationFolder,
+	resolveOrphanCardDestination,
+} from "../src/core/orphanCardDestination";
 
 describe("resolveOrphanCardDestination", () => {
 	const mappings = [{ listId: "l1", folder: "WoT/85_Idées" }];
@@ -35,3 +39,41 @@ describe("isUsableDestinationFolder", () => {
 		expect(isUsableDestinationFolder("Projects")).toBe(true);
 	});
 });
+
+describe("filterOrphanCardsByScope", () => {
+	const mappings = [
+		{ listId: "l1", folder: "Folder1" },
+		{ listId: "l2", folder: "Folder2" },
+		{ listId: "   ", folder: "Folder3" },
+	];
+
+	const cards = [
+		{ id: "c1", idList: "l1", name: "Card 1" },
+		{ id: "c2", idList: "l2", name: "Card 2" },
+		{ id: "c3", idList: "l3", name: "Card 3 (unmapped list)" },
+		{ id: "c4", idList: undefined, name: "Card 4 (no list)" },
+	];
+
+	test("returns all cards when scope is 'all'", () => {
+		const filtered = filterOrphanCardsByScope(cards, mappings, "all");
+		expect(filtered).toEqual(cards);
+	});
+
+	test("returns only cards in mapped lists when scope is 'mapped-lists-only'", () => {
+		const filtered = filterOrphanCardsByScope(cards, mappings, "mapped-lists-only");
+		expect(filtered).toEqual([
+			{ id: "c1", idList: "l1", name: "Card 1" },
+			{ id: "c2", idList: "l2", name: "Card 2" },
+		]);
+	});
+
+	test("returns empty array if no cards match mapped lists", () => {
+		const unmappedCards = [
+			{ id: "c3", idList: "l3", name: "Card 3" },
+			{ id: "c4", idList: undefined, name: "Card 4" },
+		];
+		const filtered = filterOrphanCardsByScope(unmappedCards, mappings, "mapped-lists-only");
+		expect(filtered).toEqual([]);
+	});
+});
+

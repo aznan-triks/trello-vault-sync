@@ -518,5 +518,18 @@ describe("normalizeSettings", () => {
 			"vault-path",
 		);
 	});
+
+	test("defaults orphanCardBatchCreate to true and keeps explicit false", () => {
+		expect(normalizeSettings({}).orphanCardBatchCreate).toBe(true);
+		expect(normalizeSettings({ orphanCardBatchCreate: false }).orphanCardBatchCreate).toBe(false);
+		expect(normalizeSettings({ orphanCardBatchCreate: true }).orphanCardBatchCreate).toBe(true);
+	});
+
+	test("defaults orphanCardScope to 'all' and accepts 'mapped-lists-only', falling back defensively on unknown value", () => {
+		expect(normalizeSettings({}).orphanCardScope).toBe("all");
+		expect(normalizeSettings({ orphanCardScope: "mapped-lists-only" }).orphanCardScope).toBe("mapped-lists-only");
+		expect(normalizeSettings({ orphanCardScope: "invalid" as unknown as "all" }).orphanCardScope).toBe("all");
+	});
 });
+
 
