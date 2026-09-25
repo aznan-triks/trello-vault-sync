@@ -44,8 +44,13 @@ export async function batchCreateNotesFromCardsAction(
 	ctx: CommandContext,
 	cards: readonly TrelloCard[],
 	promptedFolder?: string,
-): Promise<void> {
+): Promise<boolean> {
+	// Captured so a caller chaining another batch (e.g. create-from-audit-report)
+	// can tell a cancelled or refused run from a finished one — `ctx.run` itself
+	// reports cancellation in the panel and resolves normally.
+	let runSignal: AbortSignal | undefined;
 	await ctx.run("Create notes from orphan cards", async (reporter, signal) => {
+		runSignal = signal;
 		// Wrapped so every note this batch creates lands in sync history — same
 		// mechanism `noteCommands.syncActive`/`syncCommands.*` already use, just
 		// never wired into this command before now. No `onTrelloWrite` needed
@@ -121,6 +126,7 @@ export async function batchCreateNotesFromCardsAction(
 			return `${created} created · ${errors} error(s)`;
 		});
 	});
+	return runSignal !== undefined && !runSignal.aborted;
 }
 
 /** Existing vault folders, offered by the fallback-folder prompt — shared with `auditReportCreateCommand.ts`. */

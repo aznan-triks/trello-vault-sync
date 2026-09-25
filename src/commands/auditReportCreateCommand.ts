@@ -99,7 +99,8 @@ async function createBoth(
 	listId: string,
 	listName: string | undefined,
 ): Promise<void> {
-	if (resolved.cards.length > 0) await batchCreateNotesFromCardsAction(ctx, resolved.cards, promptedFolder);
+	// A cancelled (or refused) notes batch stops here — Cancel means stop everything, not skip to the cards batch.
+	if (resolved.cards.length > 0 && !(await batchCreateNotesFromCardsAction(ctx, resolved.cards, promptedFolder))) return;
 	if (resolved.notes.length > 0) await batchCreateCardsFromNotesAction(ctx, resolved.notes, listId, listName);
 }
 
@@ -146,7 +147,7 @@ async function createFromSelection(
 ): Promise<void> {
 	const resolved = await resolveAgainstLiveData(ctx, groups, selection);
 	if (!resolved) return;
-	const { cards, notes, skipped } = resolved as ResolvedSelection;
+	const { cards, notes, skipped } = resolved;
 	const skippedText = skipped > 0 ? ` ${skipped} item(s) skipped (no longer orphan or unlinked).` : "";
 	if (cards.length === 0 && notes.length === 0) {
 		new Notice(`Nothing left to create from the audit report.${skippedText}`);
@@ -158,7 +159,7 @@ async function createFromSelection(
 		ctx.settings.confirmBatchCreate,
 		`${dryRun}Create ${cards.length} note(s) from orphan cards and ${notes.length} card(s) from unlinked notes?${skippedText}`,
 		"Create",
-		() => promptThenCreate(ctx, resolved as ResolvedSelection),
+		() => promptThenCreate(ctx, resolved),
 	);
 }
 
