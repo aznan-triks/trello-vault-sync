@@ -4,6 +4,45 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] — 2026-09-25
+
+### Added
+
+- **Plain**: A new "Create from audit report (unchecked items)" button turns what is still unchecked in the link report into notes (for unlinked Trello cards) and Trello cards (for unlinked notes), for the whole report or just one list or folder, after a confirmation showing the counts.
+  **Technical**: New command `create-from-audit-report` (`src/commands/auditReportCreateCommand.ts`, sidebar + palette) parses the report with the pure `src/core/auditReportSelection.ts`, re-checks every item against the live board and vault (stale items logged as `skip`), then chains `batchCreateNotesFromCardsAction` and `batchCreateCardsFromNotesAction`; a cancelled notes batch stops the chain. Broken-link notes are excluded. New settings (Creation tab): `auditReportCreateNotes`, `auditReportCreateCards`, `auditReportApplyCreationScopes` (all default `true`).
+- **Plain**: The note and card pickers now offer "Select several…" to create for a hand-picked subset, and "create for ALL" asks for confirmation first.
+  **Technical**: New generic `src/ui/MultiSelectPickerModal.ts` wired into `OrphanCardPickerModal`/`PhantomNotePickerModal`; confirmation gated by new setting `confirmBatchCreate` (default `true`).
+- **Plain**: Batch-created notes and cards now appear in sync history, so you can undo them like any other run.
+  **Technical**: Batch actions run inside `withHistoryRecording`; new `trello-card-create` sync-action kind, undone by archiving the card (never deleting it).
+- **Plain**: Every sidebar button now has a one-line tooltip explaining what it does, and the sidebar shows a badge with the number of conflicts from the last run.
+  **Technical**: `CommandDescriptor.description` and explicit `tone` in `src/commands/registry.ts` (replaces id-guessing `getActionTone`); conflict badge fed by `setLastRunConflicts` from `syncCommands.ts`, gated by new setting `showConflictIndicator` (default `true`, in-memory only).
+
+### Changed
+
+- **Plain**: Settings are easier to understand: orphan/phantom/unlinked are defined, the order in which a destination is chosen is spelled out, ranges and defaults are shown, empty fields say what they mean, and risky options point to sync history for undo.
+  **Technical**: Clarity pass on `src/settings/SettingsTab.ts`; card/note creation sections moved from "Mappings" to a new "Creation" tab; Attachments split into links / download / cover sub-headings with dependent settings hidden when their parent toggle is off; settings search also matches changelog content.
+- **Plain**: "Force pull" and "Force push" on the active note now really override a conflict instead of behaving like a normal pull/push.
+  **Technical**: New `bypassConflict` option on `NoteSyncOptions`, set only by `forceSyncCommands.ts`, still behind `confirmForceSync`.
+- **Plain**: The progress panel stays open when a run had errors, so you don't miss them.
+  **Technical**: Pure `src/core/panelAutoClose.ts::shouldAutoClosePanel`, gated by new setting `keepPanelOpenOnError` (default `true`).
+- **Plain**: Modals now start with a sensible button focused (Cancel on destructive confirmations).
+  **Technical**: `renderConfirmActions` accepts `focus: "primary" | "cancel"`, used by `ConfirmModal`, `SyncActionPickerModal`, `FolderPickerModal`, `ConflictModal`.
+
+### Fixed
+
+- **Plain**: Creating a single note from a Trello card now respects dry-run mode instead of creating the note anyway.
+  **Technical**: `createInFolder` (`src/commands/createNoteCommand.ts`) checks dry-run before writing.
+- **Plain**: In dry-run, every line of the log is now clearly marked "[dry-run]".
+  **Technical**: Single prefix point in `main.ts::withJournal` via `core/journal.ts::prefixDryRunMessage`.
+- **Plain**: "Clear display" in the sidebar journal now really clears it — entries no longer come back on the next refresh.
+  **Technical**: New `CommandContext.clearJournal()` empties and persists the journal.
+- **Plain**: Typing a folder that doesn't exist in the folder picker now shows an error instead of silently doing nothing.
+  **Technical**: Inline `.tvs-confirm__error` message in `src/ui/FolderPickerModal.ts`.
+- **Plain**: The "Create cards from phantom notes" sidebar button is no longer grey.
+  **Technical**: Explicit `tone` per registry entry.
+- **Plain**: The link report now lists the same cards and notes as the creation pickers, so the counts match.
+  **Technical**: Report applies `filterOrphanCardsByScope` / phantom scope when `auditReportApplyCreationScopes` is on.
+
 ## [1.18.1] — 2026-09-23
 
 ### Added
