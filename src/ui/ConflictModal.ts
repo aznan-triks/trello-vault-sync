@@ -43,6 +43,10 @@ export class ConflictModal extends Modal {
 			this.onResolve("pull");
 			this.close();
 		});
+
+		// Initial focus on the safe/default action (§C4 of AUDIT_2026-09-25_ux-settings-features.md),
+		// same "mod-cta = default choice" convention as the rest of the plugin's modals.
+		keepLocal.focus();
 	}
 
 	private renderColumn(parent: HTMLElement, title: string, body: string): void {

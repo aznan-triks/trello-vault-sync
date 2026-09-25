@@ -19,6 +19,21 @@ export interface CommandContext {
 	readonly settings: TrelloVaultSyncSettings;
 	/** In-memory log history, oldest first, capped — survives the floating panel closing. */
 	readonly journal: readonly JournalEntry[];
+	/**
+	 * Truly empties the persisted journal (not just its on-screen display) — optional so
+	 * existing `CommandContext` test fixtures that never exercise "Clear display" don't
+	 * need to implement it; `SidebarView` falls back to a display-only clear without it.
+	 */
+	clearJournal?(): Promise<void>;
+	/**
+	 * Conflicts counted in the most recent sync run's stats (`syncFolder`/`syncVault`),
+	 * or `null` before any run this session — in-memory only, not persisted across reload
+	 * (a conflict is a transient decision outcome, not a stored fact; see the plan's
+	 * `## Écarts`). Feeds the sidebar's conflict badge, gated by `settings.showConflictIndicator`.
+	 */
+	readonly lastRunConflicts?: number | null;
+	/** Records the last run's conflict count — optional, called from `syncCommands.ts` after each vault/mapping sync. */
+	setLastRunConflicts?(count: number): void;
 	/** Completed sync runs, oldest first, capped at `settings.historyMaxRuns` — feeds "Show sync history" / "Undo last sync run". */
 	readonly history: readonly SyncRun[];
 	/** Appends a completed run's actions to `history` (a no-op when `actions` is empty) — in memory; the enclosing `run()` persists once when it finishes. */
