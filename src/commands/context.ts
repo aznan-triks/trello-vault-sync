@@ -28,8 +28,8 @@ export interface CommandContext {
 	/**
 	 * Conflicts counted in the most recent sync run's stats (`syncFolder`/`syncVault`),
 	 * or `null` before any run this session — in-memory only, not persisted across reload
-	 * (a conflict is a transient decision outcome, not a stored fact; see the plan's
-	 * `## Écarts`). Feeds the sidebar's conflict badge, gated by `settings.showConflictIndicator`.
+	 * (a conflict is a transient decision outcome, not a stored fact).
+	 * Feeds the sidebar's conflict badge, gated by `settings.showConflictIndicator`.
 	 */
 	readonly lastRunConflicts?: number | null;
 	/** Records the last run's conflict count — optional, called from `syncCommands.ts` after each vault/mapping sync. */

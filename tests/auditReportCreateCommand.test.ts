@@ -177,6 +177,22 @@ describe("createFromAuditReport", () => {
 		expect(reporter.logs.some((l) => l.level === "skip" && l.message.includes("https://trello.com/c/c4"))).toBe(true);
 	});
 
+	test("cancelling the notes step does not start the cards step", async () => {
+		const captured = capturePicker();
+		const { ctx, cardPosts, reporter } = setup();
+		ctx.run = async (title, body) => {
+			const controller = new AbortController();
+			if (title.startsWith("Create notes")) controller.abort(); // user hits Cancel during the notes batch
+			await body(reporter, controller.signal).catch(() => undefined);
+		};
+		await createFromAuditReport(ctx);
+		pick(captured, "All groups");
+		await flush();
+		await flush();
+
+		expect(cardPosts()).toHaveLength(0);
+	});
+
 	test("one group: only that Trello list's unchecked cards", async () => {
 		const captured = capturePicker();
 		const { ctx, vault, cardPosts } = setup();
