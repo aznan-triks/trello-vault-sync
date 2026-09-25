@@ -330,6 +330,15 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ confirmBatchCreate: false }).confirmBatchCreate).toBe(false);
 	});
 
+	test.each(["auditReportCreateNotes", "auditReportCreateCards", "auditReportApplyCreationScopes"] as const)(
+		"defaults %s to on, keeps an explicit false, and treats garbage as on",
+		(key) => {
+			expect(normalizeSettings({})[key]).toBe(true);
+			expect(normalizeSettings({ [key]: false })[key]).toBe(false);
+			expect(normalizeSettings({ [key]: "nope" as unknown as boolean })[key]).toBe(true);
+		},
+	);
+
 	test("defaults keepPanelOpenOnError to on", () => {
 		expect(normalizeSettings({}).keepPanelOpenOnError).toBe(true);
 	});
