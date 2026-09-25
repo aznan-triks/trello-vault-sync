@@ -167,6 +167,13 @@ export interface TrelloVaultSyncSettings {
 	/** Scope of notes to consider when creating cards from phantom notes. Default is "all-unlinked". */
 	phantomNoteScope: PhantomNoteScope;
 
+	/** "Create from audit report (unchecked items)": unchecked orphan cards of the link report become notes. On by default. */
+	auditReportCreateNotes: boolean;
+	/** "Create from audit report (unchecked items)": unchecked unlinked notes of the link report become Trello cards. On by default. Both off = the command does nothing but say so. */
+	auditReportCreateCards: boolean;
+	/** On by default — the link audit report lists only the orphan cards / unlinked notes allowed by `orphanCardScope` / `phantomNoteScope`, so its counts match the creation pickers. */
+	auditReportApplyCreationScopes: boolean;
+
 	/** Off by default — an unsolicited sync writes to the vault. */
 	autoSyncEnabled: boolean;
 	/** Independent toggles (not an either/or) — any combination triggers an auto-sync check on that event. */
@@ -256,6 +263,9 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	phantomCardListId: "",
 	phantomNotePreferFolderMapping: false,
 	phantomNoteScope: "all-unlinked",
+	auditReportCreateNotes: true,
+	auditReportCreateCards: true,
+	auditReportApplyCreationScopes: true,
 	autoSyncEnabled: false,
 	autoSyncOnInterval: true,
 	autoSyncOnFocus: false,
@@ -470,6 +480,9 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			input.phantomNoteScope === "phantom-only" || input.phantomNoteScope === "mapped-folders-only"
 				? input.phantomNoteScope
 				: "all-unlinked",
+		auditReportCreateNotes: input.auditReportCreateNotes !== false,
+		auditReportCreateCards: input.auditReportCreateCards !== false,
+		auditReportApplyCreationScopes: input.auditReportApplyCreationScopes !== false,
 		autoSyncIntervalMinutes: safeNonNegativeNumber(
 			input.autoSyncIntervalMinutes,
 			DEFAULT_SETTINGS.autoSyncIntervalMinutes,

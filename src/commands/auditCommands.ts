@@ -8,7 +8,21 @@ export async function runLinkAudit(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 
 	await ctx.run("Link audit", async (reporter, signal) => {
-		const result = await auditLinks(ctx.vault, ctx.client(reporter), ctx.auditOptions("links"), reporter, signal);
+		const { settings } = ctx;
+		const creationScopes = settings.auditReportApplyCreationScopes
+			? {
+					mappings: settings.mappings,
+					orphanCardScope: settings.orphanCardScope,
+					phantomNoteScope: settings.phantomNoteScope,
+				}
+			: undefined;
+		const result = await auditLinks(
+			ctx.vault,
+			ctx.client(reporter),
+			{ ...ctx.auditOptions("links"), creationScopes },
+			reporter,
+			signal,
+		);
 		reporter.count("orphanCards", result.orphanCards);
 		reporter.count("phantoms", result.phantomNotes);
 		reporter.count("unlinkedNotes", result.unlinkedNotes);

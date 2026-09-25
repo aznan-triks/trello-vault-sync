@@ -15,19 +15,35 @@ export const LOCATION_REPORT_HEADING = "# 📍 Location Comparison";
 /** Stable heading used to locate and replace a previous change log report. */
 export const CHANGES_REPORT_HEADING = "# 🕘 Change Log";
 
+/** Group headings of the link report — shared with the parser in `auditReportSelection.ts`. */
+export const ORPHAN_CARD_GROUP_PREFIX = "### 📋 ";
+export const PHANTOM_NOTE_GROUP_PREFIX = "### 🏚️ ";
+export const UNLINKED_NOTE_GROUP_PREFIX = "### 📁 ";
+
 const CHECKED_LINE = /^[-*]\s\[x\]\s(.*)$/gim;
 const TRELLO_URL = /\((https:\/\/trello\.com\/[^)]+)\)/;
 const WIKILINK = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/;
+
+/**
+ * Keys an item line of a link report carries: the card url of an orphan card
+ * line, the note path of a note line. Shared by `extractCheckedKeys` and the
+ * report-selection parser (`auditReportSelection.ts`) so both read an item the
+ * same way.
+ */
+export function reportItemKeys(line: string): string[] {
+	const keys: string[] = [];
+	const url = line.match(TRELLO_URL);
+	if (url?.[1]) keys.push(url[1]);
+	const link = line.match(WIKILINK);
+	if (link?.[1]) keys.push(link[1]);
+	return keys;
+}
 
 /** Keys (card urls, note paths) the user had already ticked in a previous report. */
 export function extractCheckedKeys(markdown: string): Set<string> {
 	const keys = new Set<string>();
 	for (const match of markdown.matchAll(CHECKED_LINE)) {
-		const line = match[1] ?? "";
-		const url = line.match(TRELLO_URL);
-		if (url?.[1]) keys.add(url[1]);
-		const link = line.match(WIKILINK);
-		if (link?.[1]) keys.add(link[1]);
+		for (const key of reportItemKeys(match[1] ?? "")) keys.add(key);
 	}
 	return keys;
 }
@@ -55,6 +71,8 @@ export interface LinkReportInput {
 	phantomNotes: readonly ReportNote[];
 	unlinkedNotes: readonly ReportNote[];
 	checked: ReadonlySet<string>;
+	/** Adds a line saying orphan cards / unlinked notes were narrowed by the creation scopes, so the counts are explained. */
+	filteredByCreationScopes?: boolean;
 }
 
 /** Escape characters that would let an untrusted Trello card name break out of markdown link/table syntax. */
@@ -80,6 +98,9 @@ export function buildLinkReport(input: LinkReportInput): string {
 	const out: string[] = [
 		LINK_REPORT_HEADING,
 		`> ${input.timestamp} · Scope: ${scope}`,
+		...(input.filteredByCreationScopes
+			? ["> Orphan cards and unlinked notes are filtered by the detection scopes set in Settings → Creation."]
+			: []),
 		"",
 		`## 🚨 Orphan Trello cards (${input.orphanCards.length})`,
 		"",
@@ -89,7 +110,7 @@ export function buildLinkReport(input: LinkReportInput): string {
 		out.push("✅ No orphan card.", "");
 	} else {
 		for (const [listId, cards] of groupBy(input.orphanCards, (c) => c.idList)) {
-			out.push(`### 📋 ${input.listNames.get(listId) ?? "Unknown list"}`);
+			out.push(`${ORPHAN_CARD_GROUP_PREFIX}${input.listNames.get(listId) ?? "Unknown list"}`);
 			for (const card of cards) out.push(`- [${tick(card.url)}] [${escapeMarkdown(card.name)}](${card.url})`);
 			out.push("");
 		}
@@ -100,7 +121,7 @@ export function buildLinkReport(input: LinkReportInput): string {
 		out.push("✅ No broken link.", "");
 	} else {
 		for (const [folder, notes] of groupBy(input.phantomNotes, (n) => n.folder || "Root")) {
-			out.push(`### 🏚️ ${folder}`);
+			out.push(`${PHANTOM_NOTE_GROUP_PREFIX}${folder}`);
 			for (const note of notes) {
 				out.push(`- [${tick(note.path)}] [[${note.path}|${note.basename}]] — card \`${note.cardId}\` not found`);
 			}
@@ -113,7 +134,7 @@ export function buildLinkReport(input: LinkReportInput): string {
 		out.push("✅ Every note is linked.", "");
 	} else {
 		for (const [folder, notes] of groupBy(input.unlinkedNotes, (n) => n.folder || "Root")) {
-			out.push(`### 📁 ${folder}`);
+			out.push(`${UNLINKED_NOTE_GROUP_PREFIX}${folder}`);
 			for (const note of notes) out.push(`- [${tick(note.path)}] [[${note.path}|${note.basename}]]`);
 			out.push("");
 		}

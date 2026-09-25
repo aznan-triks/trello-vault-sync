@@ -7,10 +7,26 @@ import {
 	type ReportCard,
 	type ReportNote,
 } from "../core/auditReport";
+import { filterOrphanCardsByScope, type MappingLookup, type OrphanCardScope } from "../core/orphanCardDestination";
+import { isUnlinkedNoteInScope, type PhantomNoteScope } from "../core/phantomCardDestination";
 import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { requireReportNote, type AuditOptions } from "./auditShared";
 import { fetchBoardIndex } from "./boardIndex";
+
+export interface LinkAuditOptions extends AuditOptions {
+	/**
+	 * When set, the report lists only the orphan cards and unlinked notes the
+	 * creation pickers would offer ("Create note from a Trello card" /
+	 * "Create Trello cards from phantom notes"), so its counts match theirs.
+	 * Omitted = every orphan card and unlinked note (the historical behavior).
+	 */
+	creationScopes?: {
+		mappings: readonly MappingLookup[];
+		orphanCardScope: OrphanCardScope;
+		phantomNoteScope: PhantomNoteScope;
+	};
+}
 
 export interface LinkAuditResult {
 	orphanCards: number;
@@ -23,7 +39,7 @@ export interface LinkAuditResult {
 export async function auditLinks(
 	vault: VaultGateway & CardRefStore,
 	client: TrelloClient,
-	options: AuditOptions,
+	options: LinkAuditOptions,
 	reporter: Reporter = silentReporter,
 	signal?: AbortSignal,
 ): Promise<LinkAuditResult> {
@@ -55,14 +71,21 @@ export async function auditLinks(
 		await yieldPeriodically(i);
 	}
 
-	const orphanCards: ReportCard[] = cards
-		.filter((card) => !linkedCardIds.has(card.id) && !card.closed)
-		.map((card) => ({
-			id: card.id,
-			name: card.name,
-			url: card.url,
-			idList: card.idList ?? "",
-		}));
+	const scopes = options.creationScopes;
+	const allOrphans = cards.filter((card) => !linkedCardIds.has(card.id) && !card.closed);
+	const orphanCards: ReportCard[] = (
+		scopes ? filterOrphanCardsByScope(allOrphans, scopes.mappings, scopes.orphanCardScope) : allOrphans
+	).map((card) => ({
+		id: card.id,
+		name: card.name,
+		url: card.url,
+		idList: card.idList ?? "",
+	}));
+
+	const mappedFolders = new Set(scopes?.mappings.map((mapping) => mapping.folder));
+	const reportedUnlinked = scopes
+		? unlinkedNotes.filter((note) => isUnlinkedNoteInScope(note.folder, scopes.phantomNoteScope, mappedFolders))
+		: unlinkedNotes;
 
 	const existing = await vault.read(reportNote);
 	const markdown = buildLinkReport({
@@ -71,15 +94,16 @@ export async function auditLinks(
 		listNames,
 		orphanCards,
 		phantomNotes,
-		unlinkedNotes,
+		unlinkedNotes: reportedUnlinked,
 		checked: extractCheckedKeys(existing),
+		filteredByCreationScopes: scopes !== undefined,
 	});
 	await vault.write(reportNote, mergeReport(existing, markdown, LINK_REPORT_HEADING));
 
 	return {
 		orphanCards: orphanCards.length,
 		phantomNotes: phantomNotes.length,
-		unlinkedNotes: unlinkedNotes.length,
+		unlinkedNotes: reportedUnlinked.length,
 		markdown,
 	};
 }
