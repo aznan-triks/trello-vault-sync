@@ -1541,6 +1541,18 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			"Choose which commands get a button in Obsidian's left ribbon, and optionally customize their colors individually.",
 		);
 
+		new Setting(root)
+			.setName("Sidebar conflict indicator")
+			.setDesc(
+				"Show a badge in the sidebar with the unresolved-conflict count from the last sync run. Resets when Obsidian reloads.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.showConflictIndicator).onChange((value) => {
+					this.plugin.settings.showConflictIndicator = value;
+					void this.save();
+				}),
+			);
+
 		for (const section of ALL_SECTIONS) {
 			const sectionCommands = COMMANDS.filter((c) => c.section === section);
 			if (sectionCommands.length === 0) continue;

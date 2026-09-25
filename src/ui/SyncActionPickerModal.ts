@@ -51,6 +51,8 @@ export class SyncActionPickerModal extends Modal {
 				},
 			},
 			() => this.close(),
+			// Destructive action (reverts writes) — Cancel gets initial focus (§C4).
+			"cancel",
 		);
 	}
 

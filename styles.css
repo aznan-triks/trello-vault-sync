@@ -1139,6 +1139,11 @@
 	margin-top: 12px;
 }
 
+.tvs-confirm__error {
+	margin: 8px 0 0;
+	color: var(--color-red, #ff4757);
+}
+
 /* Sync action picker modal (undo a run, pick which actions) */
 
 .tvs-action-picker__hint {

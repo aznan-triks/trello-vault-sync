@@ -12,12 +12,25 @@ export type CommandSection = "Active note" | "Folders" | "Vault";
 /** Display order shared by every UI that groups commands by section (sidebar, settings). */
 export const ALL_SECTIONS: CommandSection[] = ["Active note", "Folders", "Vault"];
 
+/**
+ * Visual color category for a sidebar action button — explicit per command
+ * (below), not guessed from `id` (the old `getActionTone` in `SidebarView.ts`
+ * matched `startsWith`/`includes` patterns that missed ids like
+ * "create-cards-from-phantom-notes", which fell back to grey; see
+ * `AUDIT_2026-09-25_ux-settings-features.md` §C).
+ */
+export type CommandTone = "sync" | "pull" | "push" | "link" | "audit" | "history" | "default";
+
 export interface CommandDescriptor {
 	id: string;
 	name: string;
 	/** Lucide icon name — shown on the sidebar button next to `name`. */
 	icon: string;
 	section: CommandSection;
+	/** One sentence, shown as the sidebar button's tooltip (aria-label/title). */
+	description: string;
+	/** Sidebar button color category — every entry must set one explicitly (tested in `tests/registry.test.ts`). */
+	tone: CommandTone;
 	run: (ctx: CommandContext) => void | Promise<void>;
 }
 
@@ -34,6 +47,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Sync active note",
 		icon: "refresh-cw",
 		section: "Active note",
+		description: "Reconcile the open note with its linked Trello card, in whichever direction the newest change points.",
+		tone: "sync",
 		run: (ctx) => noteCommands.syncActive(ctx),
 	},
 	{
@@ -41,6 +56,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Pull from Trello (active note)",
 		icon: "download",
 		section: "Active note",
+		description: "Overwrite the open note with the linked card's current content.",
+		tone: "pull",
 		run: (ctx) => noteCommands.syncActive(ctx, "pull"),
 	},
 	{
@@ -48,6 +65,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Push to Trello (active note)",
 		icon: "upload",
 		section: "Active note",
+		description: "Overwrite the linked Trello card with the open note's current content.",
+		tone: "push",
 		run: (ctx) => noteCommands.syncActive(ctx, "push"),
 	},
 	{
@@ -55,6 +74,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Force pull (active note)",
 		icon: "download",
 		section: "Active note",
+		description: "Pull from the linked card regardless of which side changed more recently.",
+		tone: "pull",
 		run: (ctx) => forceSyncCommands.forcePullActiveNote(ctx),
 	},
 	{
@@ -62,6 +83,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Force push (active note)",
 		icon: "upload",
 		section: "Active note",
+		description: "Push to the linked card regardless of which side changed more recently.",
+		tone: "push",
 		run: (ctx) => forceSyncCommands.forcePushActiveNote(ctx),
 	},
 	{
@@ -69,6 +92,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Link active note to a card",
 		icon: "link",
 		section: "Active note",
+		description: "Find the best-matching Trello card by title and link it to the open note.",
+		tone: "link",
 		run: (ctx) => noteCommands.linkActive(ctx),
 	},
 	{
@@ -76,6 +101,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Link active note to a card (pick manually)",
 		icon: "link-2",
 		section: "Active note",
+		description: "Search Trello cards by name and link the one you pick to the open note.",
+		tone: "link",
 		run: (ctx) => noteCommands.linkActivePick(ctx),
 	},
 	{
@@ -83,6 +110,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Resolve conflict (active note), side by side",
 		icon: "git-compare",
 		section: "Active note",
+		description: "Show the note and its card side by side when both changed, and choose which one wins.",
+		tone: "history",
 		run: (ctx) => noteCommands.resolveConflict(ctx),
 	},
 	{
@@ -90,6 +119,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Create Trello card from active note",
 		icon: "plus-circle",
 		section: "Active note",
+		description: "Create a new Trello card from the open note and link it back.",
+		tone: "link",
 		run: (ctx) => createCardFromActiveNote(ctx),
 	},
 	{
@@ -97,6 +128,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Sync a list with its folder",
 		icon: "folder-sync",
 		section: "Folders",
+		description: "Pick one list ↔ folder mapping and reconcile just that pair.",
+		tone: "sync",
 		run: (ctx) => syncCommands.syncOneMapping(ctx),
 	},
 	{
@@ -104,6 +137,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Sync every list with its folder",
 		icon: "folder-kanban",
 		section: "Folders",
+		description: "Reconcile every configured list ↔ folder mapping in one pass.",
+		tone: "sync",
 		run: (ctx) => syncCommands.syncAllMappings(ctx),
 	},
 	{
@@ -111,6 +146,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Force pull (mapped folder)",
 		icon: "folder-down",
 		section: "Folders",
+		description: "Pull every mapped folder from Trello regardless of which side changed more recently.",
+		tone: "pull",
 		run: (ctx) => forceSyncCommands.forcePullFolder(ctx),
 	},
 	{
@@ -118,6 +155,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Force push (mapped folder)",
 		icon: "folder-up",
 		section: "Folders",
+		description: "Push every mapped folder to Trello regardless of which side changed more recently.",
+		tone: "push",
 		run: (ctx) => forceSyncCommands.forcePushFolder(ctx),
 	},
 	{
@@ -125,6 +164,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Open Trello Vault Sync",
 		icon: "panel-right",
 		section: "Vault",
+		description: "Open this panel — mostly useful from the command palette when the panel is closed.",
+		tone: "default",
 		run: (ctx) => ctx.activateSidebarView(),
 	},
 	{
@@ -132,6 +173,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Sync all linked notes",
 		icon: "kanban-square",
 		section: "Vault",
+		description: "Reconcile every note in the vault that's already linked to a Trello card.",
+		tone: "sync",
 		run: (ctx) => syncCommands.syncAllLinked(ctx),
 	},
 	{
@@ -139,6 +182,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Force pull (vault)",
 		icon: "download",
 		section: "Vault",
+		description: "Pull every linked note in the vault from Trello regardless of which side changed more recently.",
+		tone: "pull",
 		run: (ctx) => forceSyncCommands.forcePullVault(ctx),
 	},
 	{
@@ -146,6 +191,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Force push (vault)",
 		icon: "upload",
 		section: "Vault",
+		description: "Push every linked note in the vault to Trello regardless of which side changed more recently.",
+		tone: "push",
 		run: (ctx) => forceSyncCommands.forcePushVault(ctx),
 	},
 	{
@@ -153,6 +200,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Create note from a Trello card",
 		icon: "file-plus",
 		section: "Vault",
+		description: "Pick a Trello card with no linked note yet and create one for it.",
+		tone: "link",
 		run: (ctx) => createNoteFromOrphanCard(ctx),
 	},
 	{
@@ -160,6 +209,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Create Trello cards from phantom notes",
 		icon: "file-plus-2",
 		section: "Vault",
+		description: "Pick a note with no linked Trello card yet and create one for it.",
+		tone: "link",
 		run: (ctx) => createCardsFromPhantomNotes(ctx),
 	},
 	{
@@ -167,6 +218,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Audit links (orphan cards and notes)",
 		icon: "search",
 		section: "Vault",
+		description: "Report Trello cards with no linked note, and notes with no linked card.",
+		tone: "audit",
 		run: (ctx) => auditCommands.runLinkAudit(ctx),
 	},
 	{
@@ -174,6 +227,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Compare locations against Trello lists",
 		icon: "map-pin",
 		section: "Vault",
+		description: "Report notes whose folder doesn't match their card's current Trello list.",
+		tone: "audit",
 		run: (ctx) => auditCommands.runLocationAudit(ctx),
 	},
 	{
@@ -181,6 +236,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Audit changes (Trello change log)",
 		icon: "history",
 		section: "Vault",
+		description: "Report what changed on Trello since the last time this audit ran.",
+		tone: "audit",
 		run: (ctx) => auditCommands.runChangesAudit(ctx),
 	},
 	{
@@ -188,6 +245,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Export change log as HTML",
 		icon: "file-code",
 		section: "Vault",
+		description: "Write the Trello change log to a standalone HTML page in the vault.",
+		tone: "audit",
 		run: (ctx) => auditCommands.runChangesHtmlExport(ctx),
 	},
 	{
@@ -195,6 +254,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Show sync history",
 		icon: "history",
 		section: "Vault",
+		description: "List past sync runs and what each one wrote.",
+		tone: "history",
 		run: (ctx) => historyCommands.showSyncHistory(ctx),
 	},
 	{
@@ -202,6 +263,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Undo last sync run",
 		icon: "undo-2",
 		section: "Vault",
+		description: "Revert every write made by the most recent sync run.",
+		tone: "history",
 		run: (ctx) => historyCommands.undoLastSyncRun(ctx),
 	},
 	{
@@ -209,6 +272,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Undo a sync run (pick what to undo)",
 		icon: "list-checks",
 		section: "Vault",
+		description: "Pick a past sync run and choose which of its writes to revert.",
+		tone: "history",
 		run: (ctx) => historyCommands.undoSyncRunPicked(ctx),
 	},
 	{
@@ -216,6 +281,8 @@ export const COMMANDS: CommandDescriptor[] = [
 		name: "Undo last sync for the active note",
 		icon: "undo",
 		section: "Active note",
+		description: "Revert the most recent sync write made to the open note.",
+		tone: "history",
 		run: (ctx) => historyCommands.undoLastSyncForActiveNote(ctx),
 	},
 ];

@@ -25,6 +25,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	vault!: ObsidianVault;
 	journal: JournalEntry[] = [];
 	history: SyncRun[] = [];
+	/** Conflicts counted in the most recent sync run — in-memory only, see `CommandContext.lastRunConflicts`. */
+	lastRunConflicts: number | null = null;
 	/** Guards every command in `run()` — two commands writing to the vault at once can race. */
 	private syncing = false;
 	/** Epoch ms of the last auto-sync attempt this session — in-memory only, reset on reload (see `decideAutoSync`). */
@@ -80,6 +82,17 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	async setHistory(next: readonly SyncRun[]): Promise<void> {
 		this.history = [...next];
 		await this.persist();
+	}
+
+	/** Truly empties the journal (not just the sidebar's display) and persists it — see `CommandContext.clearJournal`. */
+	async clearJournal(): Promise<void> {
+		this.journal = [];
+		await this.persist();
+	}
+
+	setLastRunConflicts(count: number): void {
+		this.lastRunConflicts = count;
+		this.refreshSidebarViews();
 	}
 
 	/** Reflects a settings change (settings tab, or the palette's dry-run toggle) in any open sidebar. */

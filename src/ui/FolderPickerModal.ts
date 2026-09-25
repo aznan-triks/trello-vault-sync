@@ -12,6 +12,7 @@ import { VaultPathSuggest } from "./VaultPathSuggest";
  */
 export class FolderPickerModal extends Modal {
 	private value: string;
+	private errorEl: HTMLElement | null = null;
 
 	constructor(
 		app: App,
@@ -32,6 +33,10 @@ export class FolderPickerModal extends Modal {
 		new Setting(contentEl).setName("Folder").addText((text) => {
 			text.setValue(this.value).onChange((value) => {
 				this.value = value;
+				if (this.errorEl) {
+					this.errorEl.remove();
+					this.errorEl = null;
+				}
 			});
 			new VaultPathSuggest(this.app, text.inputEl, this.folderCandidates);
 		});
@@ -43,13 +48,24 @@ export class FolderPickerModal extends Modal {
 				cls: "mod-cta",
 				onClick: () => {
 					const folder = this.value.trim();
-					if (!isUsableDestinationFolder(folder)) return;
+					if (!isUsableDestinationFolder(folder)) {
+						this.showError(
+							folder === "" ? "Enter a folder — it can't be empty." : `"${folder}" isn't a usable folder path.`,
+						);
+						return;
+					}
 					this.onPick(folder);
 					this.close();
 				},
 			},
 			() => this.close(),
 		);
+	}
+
+	/** Inline error, not a silent no-op — §C3 of `AUDIT_2026-09-25_ux-settings-features.md` (an invalid folder used to just leave the modal open with no feedback). */
+	private showError(message: string): void {
+		this.errorEl?.remove();
+		this.errorEl = this.contentEl.createEl("p", { cls: "tvs-confirm__error", text: message });
 	}
 
 	override onClose(): void {

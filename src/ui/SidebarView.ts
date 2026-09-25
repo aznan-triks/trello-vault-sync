@@ -1,4 +1,4 @@
-import { ItemView, Setting, setIcon, type App, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Setting, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import type { CommandContext } from "../commands/context";
 import { ALL_SECTIONS, COMMANDS, type CommandDescriptor, type CommandSection } from "../commands/registry";
 import type { LogLevel } from "../core/journal";
@@ -19,18 +19,6 @@ interface AppWithSettingDialog extends App {
 export const VIEW_TYPE_TVS_SIDEBAR = "trello-vault-sync-sidebar";
 
 type NavSection = "All" | CommandSection;
-
-type ActionTone = "sync" | "pull" | "push" | "link" | "audit" | "history" | "default";
-
-function getActionTone(id: string): ActionTone {
-	if (id.startsWith("sync-")) return "sync";
-	if (id.includes("pull")) return "pull";
-	if (id.includes("push")) return "push";
-	if (id.startsWith("link-") || id === "create-note-from-card") return "link";
-	if (id.startsWith("audit-") || id === "export-changes-html") return "audit";
-	if (id.includes("undo") || id === "show-sync-history" || id === "resolve-conflict") return "history";
-	return "default";
-}
 
 /**
  * Persistent sidebar counterpart to the command palette: compact action cards
@@ -130,6 +118,26 @@ export class SidebarView extends ItemView {
 		this.journalCountBadgeEl.setText(String(count));
 	}
 
+	/**
+	 * Clears the activity log for real, not just its on-screen display — a plain
+	 * `journalEl.empty()` looked like it worked but `ctx.journal` (persisted in
+	 * `data.json`) stayed untouched, so the entries came back on the next
+	 * `refresh()`/`appendJournalEntry()` (§C5 of `AUDIT_2026-09-25_ux-settings-features.md`).
+	 * `ctx.clearJournal` is optional so test fixtures without it don't break —
+	 * falls back to a display-only clear in that case.
+	 */
+	private async clearJournal(): Promise<void> {
+		if (this.ctx.clearJournal) await this.ctx.clearJournal();
+		if (this.journalEl) {
+			this.journalEl.empty();
+			this.journalEmptyEl = this.journalEl.createDiv({
+				cls: "tvs-sidebar__journal-empty",
+				text: "No recent activity.",
+			});
+			this.updateJournalBadge();
+		}
+	}
+
 	private openSettingsTab(): void {
 		const app = this.ctx.app as AppWithSettingDialog;
 		app.setting.open();
@@ -196,6 +204,16 @@ export class SidebarView extends ItemView {
 		const mappingsCount = this.ctx.settings.mappings.length;
 		const mappingsBadge = badgesRow.createSpan({ cls: "tvs-badge tvs-badge--accent" });
 		mappingsBadge.setText(`${mappingsCount} mapping${mappingsCount === 1 ? "" : "s"}`);
+
+		const conflictsCount = this.ctx.lastRunConflicts ?? 0;
+		if (this.ctx.settings.showConflictIndicator && conflictsCount > 0) {
+			const conflictsBadge = badgesRow.createSpan({
+				cls: "tvs-badge tvs-badge--warn",
+				attr: { "aria-label": `${conflictsCount} unresolved conflict${conflictsCount === 1 ? "" : "s"} from the last sync run` },
+			});
+			setTooltip(conflictsBadge, "Unresolved conflicts from the last sync run — use \"Resolve conflict\" on the affected note(s).");
+			conflictsBadge.setText(`⚠ ${conflictsCount} conflict${conflictsCount === 1 ? "" : "s"}`);
+		}
 
 		const dryRunRow = card.createDiv({ cls: "tvs-sidebar__dryrun-row" });
 		const labelGroup = dryRunRow.createDiv({ cls: "tvs-sidebar__dryrun-label-group" });
@@ -360,11 +378,12 @@ export class SidebarView extends ItemView {
 			attr: {
 				role: "button",
 				tabindex: "0",
-				"aria-label": `${cmd.name} (${cmd.section})`,
+				"aria-label": `${cmd.name} — ${cmd.description}`,
 			},
 		});
+		setTooltip(actionEl, cmd.description);
 
-		const tone = getActionTone(cmd.id);
+		const tone = cmd.tone;
 		const iconHolder = actionEl.createSpan({
 			cls: `tvs-sidebar__action-icon tvs-sidebar__action-icon--${tone}`,
 			attr: { tabindex: "-1" },
@@ -413,15 +432,9 @@ export class SidebarView extends ItemView {
 			attr: { "aria-label": "Clear activity view", title: "Clear display" },
 		});
 		setIcon(clearBtn, "trash-2");
+		setTooltip(clearBtn, "Permanently clear the activity log — entries won't come back on refresh.");
 		clearBtn.addEventListener("click", () => {
-			if (this.journalEl) {
-				this.journalEl.empty();
-				this.journalEmptyEl = this.journalEl.createDiv({
-					cls: "tvs-sidebar__journal-empty",
-					text: "No recent activity.",
-				});
-				this.updateJournalBadge();
-			}
+			void this.clearJournal();
 		});
 
 		this.journalEl = activity.createDiv({ cls: "tvs-sidebar__journal" });
