@@ -45,13 +45,13 @@ const POLICY_LABELS: Record<ConflictPolicy, string> = {
 
 const LABELS_SYNC_MODE_LABELS: Record<LabelSyncMode, string> = {
 	merge: "Merge (never lose a label)",
-	overwrite: "Overwrite (same rule as arbitration above)",
+	overwrite: "Overwrite (the losing side's labels are dropped, decided by \"Arbitration\" above)",
 };
 
 const CHANGELOG_RAW_URL = "https://raw.githubusercontent.com/aznan-triks/trello-vault-sync/master/CHANGELOG.md";
 const CHANGELOG_REPO_URL = "https://github.com/aznan-triks/trello-vault-sync/blob/master/CHANGELOG.md";
 
-type SettingsTabId = "general" | "sync-rules" | "mappings" | "automation" | "advanced" | "changelog";
+type SettingsTabId = "general" | "sync-rules" | "mappings" | "creation" | "automation" | "advanced" | "changelog";
 
 interface TabDefinition {
 	id: SettingsTabId;
@@ -62,6 +62,7 @@ const SETTINGS_TABS: TabDefinition[] = [
 	{ id: "general", label: "General & Scope" },
 	{ id: "sync-rules", label: "Sync Rules" },
 	{ id: "mappings", label: "Mappings" },
+	{ id: "creation", label: "Creation" },
 	{ id: "automation", label: "Automation & History" },
 	{ id: "advanced", label: "Advanced" },
 	{ id: "changelog", label: "Changelog" },
@@ -225,12 +226,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			{ id: "sync-history", tab: "sync-rules", render: (el) => this.renderSyncHistory(el) },
 			// Tab 3: Mappings
 			{ id: "mappings", tab: "mappings", render: (el) => this.renderMappings(el) },
-			{ id: "orphan-cards", tab: "mappings", render: (el) => this.renderOrphanCards(el) },
-			// Tab 4: Automation
+			// Tab 4: Creation (note-from-card, card-from-note)
+			{ id: "orphan-cards", tab: "creation", render: (el) => this.renderOrphanCards(el) },
+			// Tab 5: Automation
 			{ id: "auto-sync", tab: "automation", render: (el) => this.renderAutoSync(el) },
-			// Tab 5: Advanced
+			// Tab 6: Advanced
 			{ id: "advanced", tab: "advanced", render: (el) => this.renderAdvanced(el) },
-			// Tab 6: Changelog
+			// Tab 7: Changelog
 			{ id: "changelog", tab: "changelog", render: (el) => this.renderChangelog(el) },
 		];
 
@@ -258,7 +260,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				});
 			} else {
 				let sectionHasMatch = false;
-				if (tab === "changelog" && "changelog".includes(this.searchQuery)) {
+				if (
+					tab === "changelog" &&
+					("changelog".includes(this.searchQuery) ||
+						this.changelogRawMarkdown.toLowerCase().includes(this.searchQuery))
+				) {
 					sectionHasMatch = true;
 					matchCount++;
 				}
@@ -668,7 +674,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.setName("Delete phantom notes")
 			.setDesc(
 				"⚠️ Destructive: trashes the note whose card left the list. Off by default — " +
-					"such notes are simply reported.",
+					"such notes are simply reported. If Sync history (below) is on, a run that deletes notes can be " +
+					"undone from \"Undo last sync run\".",
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.allowDelete).onChange((value) => {
@@ -738,6 +745,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Whether a card's attachments show up as frontmatter links, whether the files themselves get downloaded into the vault, and whether the card's cover becomes the note's banner image.",
 		});
 
+		// Topic 1: attachments as frontmatter links (no download).
+		new Setting(root).setName("As frontmatter links").setHeading();
+
 		new Setting(root)
 			.setName("Sync attachments")
 			.setDesc(
@@ -749,74 +759,93 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.syncAttachments).onChange((value) => {
 					this.plugin.settings.syncAttachments = value;
 					void this.save();
+					this.display();
 				}),
 			);
 
-		new Setting(root)
-			.setName("Sync linked cards")
-			.setDesc(
-				"Only matters when \"Sync attachments\" (above) is on. Resolves a card-link attachment to a " +
-					"wikilink in the Linked cards key (below). Off writes plain attachment urls as usual but " +
-					"leaves this key untouched — no extra Trello request either way, it rides the same attachment list.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.syncLinkedCards).onChange((value) => {
-					this.plugin.settings.syncLinkedCards = value;
-					void this.save();
-				}),
-			);
+		if (this.plugin.settings.syncAttachments) {
+			new Setting(root)
+				.setName("Sync linked cards")
+				.setDesc(
+					"Resolves a card-link attachment to a wikilink in the Linked cards key (below). Off writes " +
+						"plain attachment urls as usual but leaves this key untouched — no extra Trello request " +
+						"either way, it rides the same attachment list.",
+				)
+				.addToggle((toggle) =>
+					toggle.setValue(this.plugin.settings.syncLinkedCards).onChange((value) => {
+						this.plugin.settings.syncLinkedCards = value;
+						void this.save();
+					}),
+				);
+		}
+
+		// Topic 2: downloading the files themselves into the vault.
+		new Setting(root).setName("Download to vault").setHeading();
 
 		new Setting(root)
 			.setName("Download attachments")
 			.setDesc(
 				"⚠️ Writes binary files into the vault: downloads each uploaded (non-link) attachment to the " +
 					"chosen destination below. Off by default. An attachment already present under the same name " +
-					"and byte size is never re-downloaded.",
+					"and byte size is never re-downloaded. If Sync history (Sync history section) is on, a run " +
+					"that downloads files can be undone from \"Undo last sync run\".",
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.downloadAttachments).onChange((value) => {
 					this.plugin.settings.downloadAttachments = value;
 					void this.save();
+					this.display();
 				}),
 			);
 
-		new Setting(root)
-			.setName("Attachment download scope")
-			.setDesc('What "Download attachments" (above) actually fetches — every uploaded attachment, or just the one set as the card\'s cover.')
-			.addDropdown((dropdown) => {
-				dropdown.addOption("all", "All attachments");
-				dropdown.addOption("cover-only", "Cover image only");
-				dropdown.setValue(this.plugin.settings.attachmentsDownloadScope).onChange((value) => {
-					this.plugin.settings.attachmentsDownloadScope = value === "cover-only" ? "cover-only" : "all";
-					void this.save();
-				});
-			});
-
-		new Setting(root)
-			.setName("Attachment download destination")
-			.setDesc("Where a downloaded attachment is written.")
-			.addDropdown((dropdown) => {
-				dropdown.addOption("note-folder", "Same folder as the note");
-				dropdown.addOption("global-folder", "One shared folder (below)");
-				dropdown.setValue(this.plugin.settings.attachmentsDestination).onChange((value) => {
-					this.plugin.settings.attachmentsDestination = value === "global-folder" ? "global-folder" : "note-folder";
-					void this.save();
-				});
-			});
-
-		new Setting(root)
-			.setName("Attachment download folder")
-			.setDesc('Used only when the destination above is "One shared folder". Required in that mode.')
-			.addText((text) => {
-				text
-					.setPlaceholder("Attachments")
-					.setValue(this.plugin.settings.attachmentsFolder)
-					.onChange((value) => {
-						this.plugin.settings.attachmentsFolder = normalizeVaultPath(value.trim());
+		if (this.plugin.settings.downloadAttachments) {
+			new Setting(root)
+				.setName("Attachment download scope")
+				.setDesc('What "Download attachments" (above) actually fetches — every uploaded attachment, or just the one set as the card\'s cover.')
+				.addDropdown((dropdown) => {
+					dropdown.addOption("all", "All attachments");
+					dropdown.addOption("cover-only", "Cover image only");
+					dropdown.setValue(this.plugin.settings.attachmentsDownloadScope).onChange((value) => {
+						this.plugin.settings.attachmentsDownloadScope = value === "cover-only" ? "cover-only" : "all";
 						void this.save();
 					});
-				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
-			});
+				});
+
+			new Setting(root)
+				.setName("Attachment download destination")
+				.setDesc("Where a downloaded attachment is written.")
+				.addDropdown((dropdown) => {
+					dropdown.addOption("note-folder", "Same folder as the note");
+					dropdown.addOption("global-folder", "One shared folder (below)");
+					dropdown.setValue(this.plugin.settings.attachmentsDestination).onChange((value) => {
+						this.plugin.settings.attachmentsDestination = value === "global-folder" ? "global-folder" : "note-folder";
+						void this.save();
+						this.display();
+					});
+				});
+
+			if (this.plugin.settings.attachmentsDestination === "global-folder") {
+				new Setting(root)
+					.setName("Attachment download folder")
+					.setDesc(
+						"Required in this mode — left empty, every download is skipped and reported as an " +
+							"error instead of failing silently.",
+					)
+					.addText((text) => {
+						text
+							.setPlaceholder("Attachments")
+							.setValue(this.plugin.settings.attachmentsFolder)
+							.onChange((value) => {
+								this.plugin.settings.attachmentsFolder = normalizeVaultPath(value.trim());
+								void this.save();
+							});
+						new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+					});
+			}
+		}
+
+		// Topic 3: the card's cover as the note's banner image.
+		new Setting(root).setName("Cover image").setHeading();
 
 		new Setting(root)
 			.setName("Sync card cover")
@@ -828,43 +857,53 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.syncCardCover).onChange((value) => {
 					this.plugin.settings.syncCardCover = value;
 					void this.save();
+					this.display();
 				}),
 			);
 
-		new Setting(root)
-			.setName("Cover key")
-			.setDesc('The frontmatter key holding the cover image url — "banner" is what Pixelbanner itself reads.')
-			.addText((text) =>
-				text.setValue(this.plugin.settings.coverFrontmatterKey).onChange((value) => {
-					this.plugin.settings.coverFrontmatterKey = safeFrontmatterKey(value, DEFAULT_COVER_KEY);
-					void this.save();
-				}),
-			);
+		if (this.plugin.settings.syncCardCover) {
+			new Setting(root)
+				.setName("Cover key")
+				.setDesc(
+					'The frontmatter key holding the cover image url — "banner" is what Pixelbanner itself reads. ' +
+						"Empty resets it to the default key.",
+				)
+				.addText((text) =>
+					text.setValue(this.plugin.settings.coverFrontmatterKey).onChange((value) => {
+						this.plugin.settings.coverFrontmatterKey = safeFrontmatterKey(value, DEFAULT_COVER_KEY);
+						void this.save();
+					}),
+				);
 
-		new Setting(root)
-			.setName("Prefer local cover")
-			.setDesc(
-				"When a downloaded cover image exists in the vault, write its local link into the cover " +
-					"frontmatter key instead of the remote Trello url. Falls back to the remote url if not downloaded.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.preferLocalCover).onChange((value) => {
-					this.plugin.settings.preferLocalCover = value;
-					void this.save();
-				}),
-			);
+			new Setting(root)
+				.setName("Prefer local cover")
+				.setDesc(
+					"When a downloaded cover image exists in the vault (needs \"Download attachments\" above), " +
+						"write its local link into the cover frontmatter key instead of the remote Trello url. " +
+						"Falls back to the remote url if not downloaded.",
+				)
+				.addToggle((toggle) =>
+					toggle.setValue(this.plugin.settings.preferLocalCover).onChange((value) => {
+						this.plugin.settings.preferLocalCover = value;
+						void this.save();
+						this.display();
+					}),
+				);
 
-		new Setting(root)
-			.setName("Local cover format")
-			.setDesc("Link format written into the frontmatter when using a local cover.")
-			.addDropdown((dropdown) => {
-				dropdown.addOption("vault-path", "Vault path (e.g. Attachments/cover.jpg)");
-				dropdown.addOption("wikilink", "Wikilink (e.g. [[Attachments/cover.jpg]])");
-				dropdown.setValue(this.plugin.settings.coverLocalFormat).onChange((value) => {
-					this.plugin.settings.coverLocalFormat = value === "wikilink" ? "wikilink" : "vault-path";
-					void this.save();
-				});
-			});
+			if (this.plugin.settings.preferLocalCover) {
+				new Setting(root)
+					.setName("Local cover format")
+					.setDesc("Link format written into the frontmatter when using a local cover.")
+					.addDropdown((dropdown) => {
+						dropdown.addOption("vault-path", "Vault path (e.g. Attachments/cover.jpg)");
+						dropdown.addOption("wikilink", "Wikilink (e.g. [[Attachments/cover.jpg]])");
+						dropdown.setValue(this.plugin.settings.coverLocalFormat).onChange((value) => {
+							this.plugin.settings.coverLocalFormat = value === "wikilink" ? "wikilink" : "vault-path";
+							void this.save();
+						});
+					});
+			}
+		}
 	}
 
 	private renderChecklists(root: HTMLElement): void {
@@ -895,7 +934,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.setDesc(
 				"The exact line marking where the checklist section starts in a note's body — must be the last " +
 					"thing in the body. ⚠️ The section under this heading is rebuilt from Trello on every sync; " +
-					"changing this key doesn't move an existing section written under the old heading.",
+					"changing this key doesn't move an existing section written under the old heading. Empty " +
+					"resets it to the default heading.",
 			)
 			.addText((text) =>
 				text.setValue(this.plugin.settings.checklistHeading).onChange((value) => {
@@ -928,7 +968,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Members key")
-			.setDesc("The frontmatter key holding the card's assigned members.")
+			.setDesc("The frontmatter key holding the card's assigned members. Empty resets it to the default key.")
 			.addText((text) =>
 				text.setValue(this.plugin.settings.membersFrontmatterKey).onChange((value) => {
 					this.plugin.settings.membersFrontmatterKey = safeFrontmatterKey(value, DEFAULT_MEMBERS_KEY);
@@ -960,7 +1000,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Custom fields key")
-			.setDesc("The frontmatter key holding the card's custom fields, grouped under one object.")
+			.setDesc(
+				"The frontmatter key holding the card's custom fields, grouped under one object. Empty resets " +
+					"it to the default key.",
+			)
 			.addText((text) =>
 				text.setValue(this.plugin.settings.customFieldsFrontmatterKey).onChange((value) => {
 					this.plugin.settings.customFieldsFrontmatterKey = safeFrontmatterKey(value, DEFAULT_CUSTOM_FIELDS_KEY);
@@ -1022,7 +1065,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Sync history — runs kept")
-			.setDesc("Oldest run is dropped once this many are recorded.")
+			.setDesc(
+				"Oldest run is dropped once this many are recorded. Range 0-200, default 20. 0 keeps no history " +
+					"at all — every run is dropped right after it completes, and undo has nothing to work with.",
+			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.historyMaxRuns)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
@@ -1033,6 +1079,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	private renderOrphanCards(root: HTMLElement): void {
+		root.createEl("p", {
+			cls: "setting-item-description",
+			text:
+				"Three terms used throughout this tab and in audit reports — an orphan card is a Trello card " +
+				"(not archived) that no note links to; a phantom note is a note whose card link points to a card " +
+				"that no longer exists (deleted or archived); an unlinked note is a note with no card link at all.",
+		});
+
 		new Setting(root).setName("Note creation from a card").setHeading();
 		root.createEl("p", {
 			cls: "setting-item-description",
@@ -1042,8 +1096,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Orphan card fallback folder")
 			.setDesc(
-				'Destination for "Create note from a Trello card" when the card\'s list isn\'t mapped to a folder — ' +
-					"used directly, no prompt. Leave empty to be asked for a folder each time instead.",
+				'Destination for "Create note from a Trello card" — checked in this order: (1) the folder mapped ' +
+					"to the card's list, if any (Mappings tab), (2) this fallback folder, used directly with no " +
+					"prompt, (3) if this is left empty, you're asked for a folder each time instead.",
 			)
 			.addText((text) => {
 				text
@@ -1058,7 +1113,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Default note template")
-			.setDesc("Fallback note template when creating a note from a card whose list has no mapping template.")
+			.setDesc(
+				"Fallback note template when creating a note from a card whose list has no mapping template. " +
+					"Empty creates a bare note with only the card-link frontmatter, no template content.",
+			)
 			.addText((text) => {
 				text
 					.setPlaceholder("Trello Card")
@@ -1108,9 +1166,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Phantom notes destination list")
 			.setDesc(
-				phantomListName
-					? `→ ${phantomListName}`
-					: 'Default Trello list where phantom and unlinked notes are created as cards (e.g. "Inbox" or "Unorganized"). Leave empty to be prompted each time.',
+				(phantomListName ? `→ ${phantomListName}. ` : "") +
+					'Default Trello list where phantom and unlinked notes are created as cards (e.g. "Inbox" or ' +
+					'"Unorganized"). Order of priority: see "Prefer folder mapping" below for how this list and a ' +
+					"folder's mapped list are chosen between. Leave empty to be prompted each time, unless a " +
+					"folder mapping applies.",
 			)
 			.addText((text) => {
 				text
@@ -1143,7 +1203,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Prefer folder mapping")
 			.setDesc(
-				"When enabled, notes located in a mapped folder are created in that folder's mapped Trello list instead of the destination list above.",
+				'Decides the order of priority for the destination list above. On: (1) the note\'s folder mapped ' +
+					"list, if any, (2) the destination list above, (3) ask. Off (default): (1) the destination " +
+					"list above, if set, (2) the note's folder mapped list, if any, (3) ask.",
 			)
 			.addToggle((toggle) => {
 				toggle
@@ -1156,12 +1218,15 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Phantom notes detection scope")
-			.setDesc("Which notes are considered candidates when scanning for phantom notes.")
+			.setDesc(
+				"Which notes are considered candidates when scanning for phantom and unlinked notes " +
+					"(see the definitions above).",
+			)
 			.addDropdown((dropdown) => {
 				dropdown
 					.addOption("all-unlinked", "All unlinked & phantom notes in vault scope")
 					.addOption("mapped-folders-only", "Phantom notes + unlinked notes in mapped folders")
-					.addOption("phantom-only", "Only true phantom notes (broken card links)")
+					.addOption("phantom-only", "Only phantom notes (broken card links)")
 					.setValue(this.plugin.settings.phantomNoteScope)
 					.onChange((value) => {
 						this.plugin.settings.phantomNoteScope = value as PhantomNoteScope;
@@ -1222,7 +1287,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Interval (minutes)")
-			.setDesc('How often "On a timer" checks whether it\'s time to sync.')
+			.setDesc(
+				'Minimum wait before "On a timer" is allowed to sync again (it checks every 30 seconds, but ' +
+					"only actually syncs once this many minutes have passed). Range 0-1440 (24h), default 15. 0 " +
+					"removes this wait — every 30-second check can sync, still subject to the minimum gap below.",
+			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.autoSyncIntervalMinutes)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
@@ -1258,7 +1327,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Minimum gap between auto-syncs (seconds)")
 			.setDesc(
-				"However it was triggered, an auto-sync never starts less than this long after the previous one.",
+				"However it was triggered, an auto-sync never starts less than this long after the previous " +
+					"one. Range 0-3600 (1h), default 60. 0 removes this floor — a focus/startup trigger can fire " +
+					"right after the previous run.",
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.autoSyncMinIdleSeconds)).onChange((value) => {
@@ -1641,7 +1712,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root).setName("Frontmatter keys").setHeading();
 		root.createEl("p", {
 			cls: "setting-item-description",
-			text: "The property name each synced value is written under. Change one only if it collides with something else already in your notes — the note that already exists under the old key needs updating by hand, this plugin never renames it for you.",
+			text: "The property name each synced value is written under. Change one only if it collides with something else already in your notes — the note that already exists under the old key needs updating by hand, this plugin never renames it for you. Leaving any of these fields empty resets it to its built-in default name on save.",
 		});
 
 		new Setting(root)
