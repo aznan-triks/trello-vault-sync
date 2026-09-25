@@ -322,6 +322,22 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ confirmForceSync: false }).confirmForceSync).toBe(false);
 	});
 
+	test("defaults confirmBatchCreate to on", () => {
+		expect(normalizeSettings({}).confirmBatchCreate).toBe(true);
+	});
+
+	test("keeps an explicit confirmBatchCreate: false", () => {
+		expect(normalizeSettings({ confirmBatchCreate: false }).confirmBatchCreate).toBe(false);
+	});
+
+	test("defaults keepPanelOpenOnError to on", () => {
+		expect(normalizeSettings({}).keepPanelOpenOnError).toBe(true);
+	});
+
+	test("keeps an explicit keepPanelOpenOnError: false", () => {
+		expect(normalizeSettings({ keepPanelOpenOnError: false }).keepPanelOpenOnError).toBe(false);
+	});
+
 	test("defaults orphanCardFolder to empty and normalizes an explicit value", () => {
 		expect(normalizeSettings({}).orphanCardFolder).toBe("");
 		expect(normalizeSettings({ orphanCardFolder: "\\Projects\\" }).orphanCardFolder).toBe("Projects");

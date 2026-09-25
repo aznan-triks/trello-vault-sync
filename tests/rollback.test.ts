@@ -413,6 +413,76 @@ describe("undoRun — Trello side", () => {
 	});
 });
 
+describe("undoRun — trello-card-create (archives, never deletes)", () => {
+	test("archives a card created by the run when it is still open", async () => {
+		const vault = new FakeVault({ "a.md": { content: "note" } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1": card({ id: "c1", name: "New card", desc: "", due: null, labels: [], closed: false }),
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const run: SyncRun = {
+			timestamp: "t",
+			scope: "",
+			actions: [{ kind: "trello-card-create", path: "a.md", cardId: "c1" }],
+		};
+		const { stats } = await undoRun(vault, run, () => {}, undefined, client);
+
+		expect(stats).toEqual({ reverted: 0, revertedRemote: 1, skipped: 0 });
+		const put = requests.find((r) => r.method === "PUT" && r.url.includes("/cards/c1"));
+		expect(put).toBeDefined();
+		expect(put?.body).toContain("closed=true");
+		// Never a delete: `TrelloClient` has no delete-card method at all (§9,
+		// "always recoverable") — archiving via PUT is the only undo a card
+		// creation can ever get.
+	});
+
+	test("skips as a no-op when the card is already archived", async () => {
+		const vault = new FakeVault({ "a.md": { content: "note" } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1": card({ id: "c1", name: "New card", desc: "", due: null, labels: [], closed: true }),
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const run: SyncRun = {
+			timestamp: "t",
+			scope: "",
+			actions: [{ kind: "trello-card-create", path: "a.md", cardId: "c1" }],
+		};
+		const { stats } = await undoRun(vault, run, () => {}, undefined, client);
+
+		expect(stats).toEqual({ reverted: 0, revertedRemote: 0, skipped: 1 });
+		expect(requests.some((r) => r.method === "PUT")).toBe(false);
+	});
+
+	test("skips when the card no longer exists", async () => {
+		const vault = new FakeVault({ "a.md": { content: "note" } });
+		const { transport } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const run: SyncRun = {
+			timestamp: "t",
+			scope: "",
+			actions: [{ kind: "trello-card-create", path: "a.md", cardId: "c-gone" }],
+		};
+		const { stats } = await undoRun(vault, run, () => {}, undefined, client);
+
+		expect(stats).toEqual({ reverted: 0, revertedRemote: 0, skipped: 1 });
+	});
+
+	test("skips (not attempted) without a client, same as trello-card/trello-checkitem", async () => {
+		const vault = new FakeVault({ "a.md": { content: "note" } });
+		const run: SyncRun = {
+			timestamp: "t",
+			scope: "",
+			actions: [{ kind: "trello-card-create", path: "a.md", cardId: "c1" }],
+		};
+		const { stats } = await undoRun(vault, run);
+
+		expect(stats).toEqual({ reverted: 0, revertedRemote: 0, skipped: 1 });
+	});
+});
+
 describe("undoSelectedActions", () => {
 	test("undoes only the actions at the selected indices, leaving the others in the run untouched and in place", async () => {
 		const vault = new FakeVault({

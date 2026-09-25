@@ -1143,6 +1143,20 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(root)
+			.setName('Confirm "create all"')
+			.setDesc(
+				'On by default — shows a confirmation dialog with the count before "Create for ALL" runs, in both the orphan-card and phantom-note pickers. Off skips straight to creating.',
+			)
+			.addToggle((toggle) => {
+				toggle
+					.setValue(this.plugin.settings.confirmBatchCreate)
+					.onChange((value) => {
+						this.plugin.settings.confirmBatchCreate = value;
+						void this.save();
+					});
+			});
+
+		new Setting(root)
 			.setName("Orphan cards detection scope")
 			.setDesc("Which orphan cards are considered candidates when creating notes.")
 			.addDropdown((dropdown) => {
@@ -1719,6 +1733,16 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 						void this.save();
 					}),
+			);
+
+		new Setting(root)
+			.setName("Keep panel open on error")
+			.setDesc("A run that logged at least one error never auto-closes, even when auto-close above is > 0. Off: auto-close always applies, errors included.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.keepPanelOpenOnError).onChange((value) => {
+					this.plugin.settings.keepPanelOpenOnError = value;
+					void this.save();
+				}),
 			);
 
 		new Setting(root).setName("Frontmatter keys").setHeading();

@@ -10,7 +10,10 @@ vi.mock("obsidian", () => ({
 		constructor(_message?: string) {}
 	},
 	Modal: class Modal {
+		contentEl = { empty: () => {}, addClass: () => {}, createEl: () => ({}), createDiv: () => ({}) };
 		constructor(_app: unknown) {}
+		open(): void {}
+		close(): void {}
 	},
 	FuzzySuggestModal: class FuzzySuggestModal {
 		constructor(_app: unknown) {}
@@ -26,7 +29,10 @@ import { createInFolder, createNoteFromOrphanCard } from "../src/commands/create
 import type { CommandContext } from "../src/commands/context";
 import { card, FakeVault, recordingReporter, routedTransport } from "./fakes";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
-import { TrelloClient } from "../src/trello/client";
+import { TrelloClient, type TrelloCard } from "../src/trello/client";
+import { ConfirmModal } from "../src/ui/ConfirmModal";
+import { MultiSelectPickerModal } from "../src/ui/MultiSelectPickerModal";
+import type { OrphanCardChoice } from "../src/ui/OrphanCardPickerModal";
 
 function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 	const vault = new FakeVault();
@@ -111,6 +117,23 @@ describe("createInFolder", () => {
 
 		expect(reporter.logs.filter((entry) => entry.level === "warn")).toHaveLength(0);
 	});
+
+	test("honors dry-run: writes nothing to the vault and reports what it would create", async () => {
+		const vault = new FakeVault();
+		let summaryResult = "";
+		const ctx = fakeContext({
+			vault,
+			settings: { ...DEFAULT_SETTINGS, boardId: "board", dryRun: true },
+			run: async (_title, body) => {
+				summaryResult = await body(recordingReporter(), new AbortController().signal);
+			},
+		});
+
+		await createInFolder(ctx, card({ id: "c1", idList: "l1", name: "Sagondo" }), "Projects/Ideas");
+
+		expect(vault.paths()).toEqual([]);
+		expect(summaryResult).toContain("Sagondo");
+	});
 });
 
 import { OrphanCardPickerModal } from "../src/ui/OrphanCardPickerModal";
@@ -121,24 +144,27 @@ describe("OrphanCardPickerModal", () => {
 	const c2 = card({ id: "c2", name: "Card Beta" });
 	const c3 = card({ id: "c3", name: "Card Gamma" });
 
-	test("displays 'ALL' entry when cards > 1 and allowBatch is true", () => {
+	test("displays 'ALL' and 'select several' entries when cards > 1 and allowBatch is true", () => {
 		const modal = new OrphanCardPickerModal({} as never, [c1, c2, c3], true, () => {});
 		const items = modal.getItems();
-		expect(items).toHaveLength(4);
+		expect(items).toHaveLength(5);
 		expect(items[0]).toEqual({ type: "all", count: 3 });
 		expect(modal.getItemText(items[0]!)).toBe("→ ✨ Create notes for ALL 3 orphan cards");
-		expect(items[1]).toEqual({ type: "single", card: c1 });
-		expect(modal.getItemText(items[1]!)).toBe("Card Alpha");
+		expect(items[1]).toEqual({ type: "select", count: 3 });
+		expect(modal.getItemText(items[1]!)).toBe("→ ☑ Select several…");
+		expect(items[2]).toEqual({ type: "single", card: c1 });
+		expect(modal.getItemText(items[2]!)).toBe("Card Alpha");
 	});
 
-	test("omits 'ALL' entry when allowBatch is false", () => {
+	test("omits 'ALL' entry but keeps 'select several' when allowBatch is false", () => {
 		const modal = new OrphanCardPickerModal({} as never, [c1, c2, c3], false, () => {});
 		const items = modal.getItems();
-		expect(items).toHaveLength(3);
-		expect(items.every((i) => i.type === "single")).toBe(true);
+		expect(items).toHaveLength(4);
+		expect(items[0]).toEqual({ type: "select", count: 3 });
+		expect(items.slice(1).every((i) => i.type === "single")).toBe(true);
 	});
 
-	test("omits 'ALL' entry when there is only 1 card, even if allowBatch is true", () => {
+	test("omits 'ALL' and 'select several' entries when there is only 1 card, even if allowBatch is true", () => {
 		const modal = new OrphanCardPickerModal({} as never, [c1], true, () => {});
 		const items = modal.getItems();
 		expect(items).toHaveLength(1);
@@ -183,6 +209,32 @@ describe("batchCreateNotesFromCardsAction", () => {
 		expect(vault.exists("Mapped/Folder2/Card 2.md")).toBe(true);
 		expect(vault.exists("Fallback/Inbox/Card 3.md")).toBe(true);
 		expect(summaryResult).toBe("3 created · 0 error(s)");
+	});
+
+	test("records every created note in sync history so the batch can be undone", async () => {
+		const vault = new FakeVault();
+		const recorded: { scope: string; actions: unknown[] }[] = [];
+		const ctx = fakeContext({
+			vault,
+			settings: {
+				...DEFAULT_SETTINGS,
+				boardId: "board",
+				mappings: [{ listId: "l1", folder: "Mapped/Folder1", templateName: "" }],
+			},
+			recordSyncRun: async (scope, actions) => {
+				recorded.push({ scope, actions });
+			},
+			run: async (_title, body) => {
+				await body(recordingReporter(), new AbortController().signal);
+			},
+		});
+
+		await batchCreateNotesFromCardsAction(ctx, [card({ id: "c1", idList: "l1", name: "Card 1" })]);
+
+		expect(recorded).toHaveLength(1);
+		expect(recorded[0]?.actions).toEqual([
+			expect.objectContaining({ kind: "create", path: "Mapped/Folder1/Card 1.md" }),
+		]);
 	});
 
 	test("applies promptedFolder only to cards without mapped list or fallback", async () => {
@@ -436,6 +488,136 @@ describe("createNoteFromOrphanCard", () => {
 			type: "single",
 			card: expect.objectContaining({ id: "c1", name: "Mapped Card" }),
 		});
+	});
+
+	test("'ALL' choice creates directly when confirmBatchCreate is off", async () => {
+		let capturedOnPick: ((choice: OrphanCardChoice) => void) | undefined;
+		vi.spyOn(OrphanCardPickerModal.prototype, "open").mockImplementation(function (this: OrphanCardPickerModal) {
+			capturedOnPick = (this as unknown as { onPick: (choice: OrphanCardChoice) => void }).onPick;
+		});
+
+		const vault = new FakeVault();
+		const ctx = fakeContext({
+			vault,
+			settings: {
+				...DEFAULT_SETTINGS,
+				boardId: "board",
+				mappings: [{ listId: "l1", folder: "Projects", templateName: "" }],
+				confirmBatchCreate: false,
+			},
+			client: () =>
+				new TrelloClient(
+					{ apiKey: "k", token: "t" },
+					routedTransport({
+						"/boards/board/cards": [
+							card({ id: "c1", idList: "l1", name: "Card One" }),
+							card({ id: "c2", idList: "l1", name: "Card Two" }),
+						],
+					}).transport,
+				),
+			run: async (_title, body) => {
+				await body(recordingReporter(), new AbortController().signal);
+			},
+		});
+
+		await createNoteFromOrphanCard(ctx);
+		expect(capturedOnPick).toBeDefined();
+		capturedOnPick!({ type: "all", count: 2 });
+		// batchCreateNotesFromCardsAction runs inside its own ctx.run — flush microtasks.
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(vault.exists("Projects/Card One.md")).toBe(true);
+		expect(vault.exists("Projects/Card Two.md")).toBe(true);
+	});
+
+	test("'ALL' choice waits for confirmation when confirmBatchCreate is on, and does nothing until confirmed", async () => {
+		let capturedOnPick: ((choice: OrphanCardChoice) => void) | undefined;
+		vi.spyOn(OrphanCardPickerModal.prototype, "open").mockImplementation(function (this: OrphanCardPickerModal) {
+			capturedOnPick = (this as unknown as { onPick: (choice: OrphanCardChoice) => void }).onPick;
+		});
+		let capturedConfirm: (() => void) | undefined;
+		vi.spyOn(ConfirmModal.prototype, "open").mockImplementation(function (this: ConfirmModal) {
+			capturedConfirm = (this as unknown as { onConfirm: () => void }).onConfirm;
+		});
+
+		const vault = new FakeVault();
+		const ctx = fakeContext({
+			vault,
+			settings: {
+				...DEFAULT_SETTINGS,
+				boardId: "board",
+				mappings: [{ listId: "l1", folder: "Projects", templateName: "" }],
+				confirmBatchCreate: true,
+			},
+			client: () =>
+				new TrelloClient(
+					{ apiKey: "k", token: "t" },
+					routedTransport({
+						"/boards/board/cards": [card({ id: "c1", idList: "l1", name: "Card One" })],
+					}).transport,
+				),
+			run: async (_title, body) => {
+				await body(recordingReporter(), new AbortController().signal);
+			},
+		});
+
+		await createNoteFromOrphanCard(ctx);
+		expect(capturedOnPick).toBeDefined();
+		capturedOnPick!({ type: "all", count: 1 });
+
+		expect(capturedConfirm).toBeDefined();
+		expect(vault.exists("Projects/Card One.md")).toBe(false);
+
+		capturedConfirm!();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(vault.exists("Projects/Card One.md")).toBe(true);
+	});
+
+	test("'select' choice opens a checkbox picker and creates only the chosen subset", async () => {
+		let capturedOnPick: ((choice: OrphanCardChoice) => void) | undefined;
+		vi.spyOn(OrphanCardPickerModal.prototype, "open").mockImplementation(function (this: OrphanCardPickerModal) {
+			capturedOnPick = (this as unknown as { onPick: (choice: OrphanCardChoice) => void }).onPick;
+		});
+		let capturedItems: TrelloCard[] = [];
+		let capturedOnConfirm: ((selected: TrelloCard[]) => void) | undefined;
+		vi.spyOn(MultiSelectPickerModal.prototype, "open").mockImplementation(function (this: MultiSelectPickerModal<TrelloCard>) {
+			const self = this as unknown as { items: readonly TrelloCard[]; onConfirm: (selected: TrelloCard[]) => void };
+			capturedItems = [...self.items];
+			capturedOnConfirm = self.onConfirm;
+		});
+
+		const vault = new FakeVault();
+		const ctx = fakeContext({
+			vault,
+			settings: {
+				...DEFAULT_SETTINGS,
+				boardId: "board",
+				mappings: [{ listId: "l1", folder: "Projects", templateName: "" }],
+			},
+			client: () =>
+				new TrelloClient(
+					{ apiKey: "k", token: "t" },
+					routedTransport({
+						"/boards/board/cards": [
+							card({ id: "c1", idList: "l1", name: "Card One" }),
+							card({ id: "c2", idList: "l1", name: "Card Two" }),
+						],
+					}).transport,
+				),
+			run: async (_title, body) => {
+				await body(recordingReporter(), new AbortController().signal);
+			},
+		});
+
+		await createNoteFromOrphanCard(ctx);
+		capturedOnPick!({ type: "select", count: 2 });
+		expect(capturedItems.map((c) => c.id)).toEqual(["c1", "c2"]);
+
+		capturedOnConfirm!([capturedItems[1]!]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(vault.exists("Projects/Card One.md")).toBe(false);
+		expect(vault.exists("Projects/Card Two.md")).toBe(true);
 	});
 });
 

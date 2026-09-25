@@ -1,5 +1,13 @@
 /** One reversible write a sync made, as recorded by `features/syncHistoryRecorder.ts`. */
-export type SyncActionKind = "body" | "frontmatter" | "create" | "rename" | "trash" | "trello-card" | "trello-checkitem";
+export type SyncActionKind =
+	| "body"
+	| "frontmatter"
+	| "create"
+	| "rename"
+	| "trash"
+	| "trello-card"
+	| "trello-checkitem"
+	| "trello-card-create";
 
 interface SyncActionBase {
 	kind: SyncActionKind;
@@ -38,6 +46,8 @@ export interface TrelloCardFields {
 	desc?: string;
 	due?: string | null;
 	idLabels?: string[];
+	/** Whether the card is archived — only ever read (never part of a "written"/"previous" diff, no sync feature writes it), used solely by `planTrelloUndo`'s "trello-card-create" branch to decide whether there is still something to archive. */
+	closed?: boolean;
 }
 
 /** Card fields as they were immediately before a push, and as the push left them. Only the fields the push actually wrote appear. */
@@ -59,13 +69,22 @@ export interface TrelloCheckItemAction {
 	writtenState: "complete" | "incomplete";
 }
 
+/** A brand-new card created on Trello (e.g. "Create cards from phantom notes"). Undo = archive it, never delete — same "always recoverable" rule as a trashed note (§9). */
+export interface TrelloCardCreateAction {
+	kind: "trello-card-create";
+	/** Path of the note the card was created from — lets per-note undo filter on it, exactly like the vault actions. */
+	path: string;
+	cardId: string;
+}
+
 export type SyncAction =
 	| BodyOrFrontmatterAction
 	| CreateAction
 	| RenameAction
 	| TrashAction
 	| TrelloCardUpdateAction
-	| TrelloCheckItemAction;
+	| TrelloCheckItemAction
+	| TrelloCardCreateAction;
 
 /** One completed sync, as an ordered, invertible list of the writes it made. */
 export interface SyncRun {
@@ -139,6 +158,8 @@ export function describeSyncAction(action: SyncAction): string {
 			return `Trello card update — ${action.path} (card ${action.cardId})`;
 		case "trello-checkitem":
 			return `Trello checklist item — ${action.path} (card ${action.cardId})`;
+		case "trello-card-create":
+			return `Created Trello card — ${action.path} (card ${action.cardId})`;
 		default: {
 			const exhaustive: never = action;
 			throw new Error(`Unhandled sync action kind: ${JSON.stringify(exhaustive)}`);
@@ -209,6 +230,7 @@ export type CurrentTrelloState =
 export type TrelloUndoPlan =
 	| { op: "update-card"; cardId: string; fields: TrelloCardFields }
 	| { op: "set-check-item"; cardId: string; checkItemId: string; state: "complete" | "incomplete" }
+	| { op: "archive-card"; cardId: string }
 	| { op: "skip"; reason: string };
 
 function idLabelsEqual(a: string[] | undefined, b: string[] | undefined): boolean {
@@ -230,7 +252,7 @@ function trelloFieldEquals<K extends keyof TrelloCardFields>(field: K, a: Trello
  * anything else is dropped from the revert rather than silently overwritten.
  */
 export function planTrelloUndo(
-	action: TrelloCardUpdateAction | TrelloCheckItemAction,
+	action: TrelloCardUpdateAction | TrelloCheckItemAction | TrelloCardCreateAction,
 	current: CurrentTrelloState,
 ): TrelloUndoPlan {
 	if (current === null) return { op: "skip", reason: "card no longer exists" };
@@ -259,6 +281,11 @@ export function planTrelloUndo(
 			if (current.state !== action.writtenState) return { op: "skip", reason: "changed since the run" };
 			if (action.previousState === action.writtenState) return { op: "skip", reason: "nothing to revert" };
 			return { op: "set-check-item", cardId: action.cardId, checkItemId: action.checkItemId, state: action.previousState };
+		}
+		case "trello-card-create": {
+			if (current.kind !== "card") return { op: "skip", reason: "unexpected remote state" };
+			if (current.fields.closed) return { op: "skip", reason: "already archived" };
+			return { op: "archive-card", cardId: action.cardId };
 		}
 	}
 }

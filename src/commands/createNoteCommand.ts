@@ -1,4 +1,6 @@
+import { confirmIfEnabled } from "./confirmAction";
 import type { CommandContext } from "./context";
+import { withHistoryRecording } from "./syncHistoryHelper";
 import { errorMessage } from "../core/errorMessage";
 import {
 	filterOrphanCardsByScope,
@@ -10,6 +12,7 @@ import { buildCardIndex } from "../features/attachmentSync";
 import { createNoteFromCard, unlinkedCards } from "../features/createNoteFromCard";
 import type { TrelloCard } from "../trello/client";
 import { FolderPickerModal } from "../ui/FolderPickerModal";
+import { MultiSelectPickerModal } from "../ui/MultiSelectPickerModal";
 import { OrphanCardPickerModal } from "../ui/OrphanCardPickerModal";
 
 export async function createInFolder(ctx: CommandContext, card: TrelloCard, folder: string): Promise<void> {
@@ -25,6 +28,10 @@ export async function createInFolder(ctx: CommandContext, card: TrelloCard, fold
 					`Template "${templateName}" has no ${ctx.settings.cardRefFrontmatterKey} key — new notes from it won't link back to their card.`,
 				);
 			}
+			if (ctx.settings.dryRun) {
+				reporter.log("create", card.name);
+				return `Would create a note for "${card.name}" in ${folder || "(vault root)"}.`;
+			}
 			const note = await createNoteFromCard(ctx.vault, card, folder, template, ctx.settings.cardRefFrontmatterKey);
 			return `Created "${note.basename}.md" in ${note.folder || "(vault root)"}, linked to "${card.name}".`;
 		},
@@ -39,74 +46,80 @@ export async function batchCreateNotesFromCardsAction(
 	promptedFolder?: string,
 ): Promise<void> {
 	await ctx.run("Create notes from orphan cards", async (reporter, signal) => {
-		reporter.setTotal(cards.length);
-		let created = 0;
-		let errors = 0;
-		const templateCache = new Map<string, string | null>();
-		const warnedTemplates = new Set<string>();
+		// Wrapped so every note this batch creates lands in sync history — same
+		// mechanism `noteCommands.syncActive`/`syncCommands.*` already use, just
+		// never wired into this command before now. No `onTrelloWrite` needed
+		// here (no Trello write happens), unlike the card-from-note batch below.
+		return withHistoryRecording(ctx, "", async (vault) => {
+			reporter.setTotal(cards.length);
+			let created = 0;
+			let errors = 0;
+			const templateCache = new Map<string, string | null>();
+			const warnedTemplates = new Set<string>();
 
-		for (const card of cards) {
-			if (signal?.aborted) break;
-			reporter.step(card.name);
+			for (const card of cards) {
+				if (signal?.aborted) break;
+				reporter.step(card.name);
 
-			const dest = resolveOrphanCardDestination(card.idList, ctx.settings.mappings, ctx.settings.orphanCardFolder);
-			const targetFolder = !dest.needsPrompt ? dest.folder : (promptedFolder ?? "");
+				const dest = resolveOrphanCardDestination(card.idList, ctx.settings.mappings, ctx.settings.orphanCardFolder);
+				const targetFolder = !dest.needsPrompt ? dest.folder : (promptedFolder ?? "");
 
-			if (!isUsableDestinationFolder(targetFolder)) {
-				errors++;
-				reporter.log("error", `${card.name} — No destination folder configured.`);
-				continue;
-			}
-
-			const mapping = ctx.settings.mappings.find((candidate) => candidate.listId === card.idList);
-			const templateName = mapping?.templateName || ctx.settings.defaultTemplateName || "";
-			let template: string | null = null;
-			if (templateName) {
-				if (templateCache.has(templateName)) {
-					template = templateCache.get(templateName)!;
-				} else {
-					template = await ctx.vault.readTemplate(templateName);
-					templateCache.set(templateName, template);
+				if (!isUsableDestinationFolder(targetFolder)) {
+					errors++;
+					reporter.log("error", `${card.name} — No destination folder configured.`);
+					continue;
 				}
-				if (template && templateMissingCardRefKey(template, ctx.settings.cardRefFrontmatterKey)) {
-					if (!warnedTemplates.has(templateName)) {
-						warnedTemplates.add(templateName);
-						reporter.log(
-							"warn",
-							`Template "${templateName}" has no ${ctx.settings.cardRefFrontmatterKey} key — new notes from it won't link back to their card.`,
-						);
+
+				const mapping = ctx.settings.mappings.find((candidate) => candidate.listId === card.idList);
+				const templateName = mapping?.templateName || ctx.settings.defaultTemplateName || "";
+				let template: string | null = null;
+				if (templateName) {
+					if (templateCache.has(templateName)) {
+						template = templateCache.get(templateName)!;
+					} else {
+						template = await vault.readTemplate(templateName);
+						templateCache.set(templateName, template);
+					}
+					if (template && templateMissingCardRefKey(template, ctx.settings.cardRefFrontmatterKey)) {
+						if (!warnedTemplates.has(templateName)) {
+							warnedTemplates.add(templateName);
+							reporter.log(
+								"warn",
+								`Template "${templateName}" has no ${ctx.settings.cardRefFrontmatterKey} key — new notes from it won't link back to their card.`,
+							);
+						}
 					}
 				}
-			}
 
-			try {
-				if (ctx.settings.dryRun) {
-					created++;
-					reporter.log("create", card.name);
-				} else {
-					const note = await createNoteFromCard(
-						ctx.vault,
-						card,
-						targetFolder,
-						template,
-						ctx.settings.cardRefFrontmatterKey,
-					);
-					created++;
-					reporter.log("create", note.basename);
+				try {
+					if (ctx.settings.dryRun) {
+						created++;
+						reporter.log("create", card.name);
+					} else {
+						const note = await createNoteFromCard(
+							vault,
+							card,
+							targetFolder,
+							template,
+							ctx.settings.cardRefFrontmatterKey,
+						);
+						created++;
+						reporter.log("create", note.basename);
+					}
+				} catch (error) {
+					if (signal?.aborted) break;
+					errors++;
+					reporter.log("error", `${card.name} — ${errorMessage(error)}`);
 				}
-			} catch (error) {
-				if (signal?.aborted) break;
-				errors++;
-				reporter.log("error", `${card.name} — ${errorMessage(error)}`);
 			}
-		}
 
-		if (ctx.settings.dryRun) {
-			return errors > 0
-				? `[Dry-run] Would create ${created} note(s) (${errors} error(s)).`
-				: `[Dry-run] Would create ${created} note(s).`;
-		}
-		return `${created} created · ${errors} error(s)`;
+			if (ctx.settings.dryRun) {
+				return errors > 0
+					? `[Dry-run] Would create ${created} note(s) (${errors} error(s)).`
+					: `[Dry-run] Would create ${created} note(s).`;
+			}
+			return `${created} created · ${errors} error(s)`;
+		});
 	});
 }
 
@@ -127,6 +140,20 @@ function pickDestination(ctx: CommandContext, card: TrelloCard): void {
 	new FolderPickerModal(ctx.app, () => folderCandidates(ctx), "", (folder) => {
 		void createInFolder(ctx, card, folder);
 	}).open();
+}
+
+/** Runs the batch note-creation for exactly `cards` — prompting for a fallback folder first when at least one of them needs it. Shared by "Create for ALL" and "Select several…", the only difference being which subset of orphan cards reaches here. */
+function runBatchCreateNotes(ctx: CommandContext, cards: readonly TrelloCard[]): void {
+	const anyNeedsPrompt = cards.some(
+		(card) => resolveOrphanCardDestination(card.idList, ctx.settings.mappings, ctx.settings.orphanCardFolder).needsPrompt,
+	);
+	if (!anyNeedsPrompt) {
+		void batchCreateNotesFromCardsAction(ctx, cards);
+	} else {
+		new FolderPickerModal(ctx.app, () => folderCandidates(ctx), "", (folder) => {
+			void batchCreateNotesFromCardsAction(ctx, cards, folder);
+		}).open();
+	}
 }
 
 /** "Create note from a Trello card": lets the user adopt a card with no note yet, the inverse of linking an existing note to a card. */
@@ -151,18 +178,24 @@ export async function createNoteFromOrphanCard(ctx: CommandContext): Promise<voi
 			ctx.settings.orphanCardBatchCreate,
 			(choice) => {
 				if (choice.type === "all") {
-					const anyNeedsPrompt = orphanCards.some(
-						(card) =>
-							resolveOrphanCardDestination(card.idList, ctx.settings.mappings, ctx.settings.orphanCardFolder)
-								.needsPrompt,
+					void confirmIfEnabled(
+						ctx,
+						ctx.settings.confirmBatchCreate,
+						`Create notes for ALL ${choice.count} orphan card(s)?`,
+						"Create all",
+						() => runBatchCreateNotes(ctx, orphanCards),
 					);
-					if (!anyNeedsPrompt) {
-						void batchCreateNotesFromCardsAction(ctx, orphanCards);
-					} else {
-						new FolderPickerModal(ctx.app, () => folderCandidates(ctx), "", (folder) => {
-							void batchCreateNotesFromCardsAction(ctx, orphanCards, folder);
-						}).open();
-					}
+				} else if (choice.type === "select") {
+					new MultiSelectPickerModal(
+						ctx.app,
+						"Create notes — select cards",
+						orphanCards,
+						(card) => card.name,
+						"Create selected",
+						(selected) => {
+							if (selected.length > 0) runBatchCreateNotes(ctx, selected);
+						},
+					).open();
 				} else {
 					pickDestination(ctx, choice.card);
 				}

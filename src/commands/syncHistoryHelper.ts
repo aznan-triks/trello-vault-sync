@@ -1,10 +1,15 @@
 import type { CommandContext } from "./context";
-import type { SyncAction, TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/syncHistory";
+import type { SyncAction, TrelloCardCreateAction, TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/syncHistory";
 import { wrapWithHistoryRecorder } from "../features/syncHistoryRecorder";
 import type { CardRefStore, TemplateResolver, VaultGateway } from "../obsidian/gateway";
 
-/** Callback shape `NoteSyncOptions.onTrelloWrite`/`FolderSyncOptions.onTrelloWrite` expect. */
-type OnTrelloWrite = (action: TrelloCardUpdateAction | TrelloCheckItemAction) => void;
+/**
+ * Callback shape `NoteSyncOptions.onTrelloWrite`/`FolderSyncOptions.onTrelloWrite`
+ * expect, extended with `TrelloCardCreateAction` — `CreateCardFromNoteOptions.onCardCreate`
+ * has the exact same shape, so the batch/single "create a card from a note"
+ * commands can pass this straight through instead of a dedicated callback type.
+ */
+type OnTrelloWrite = (action: TrelloCardUpdateAction | TrelloCheckItemAction | TrelloCardCreateAction) => void;
 
 /**
  * Wraps `ctx.vault` with history recording (when `historyEnabled`) for the

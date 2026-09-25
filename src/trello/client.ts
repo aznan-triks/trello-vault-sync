@@ -398,7 +398,7 @@ export class TrelloClient {
 	 */
 	async updateCard(
 		cardId: string,
-		fields: { name?: string; desc?: string; due?: string | null; idLabels?: string[] },
+		fields: { name?: string; desc?: string; due?: string | null; idLabels?: string[]; closed?: boolean },
 		signal?: AbortSignal,
 	): Promise<void> {
 		const body = new URLSearchParams();
@@ -406,6 +406,10 @@ export class TrelloClient {
 		if (fields.desc !== undefined) body.append("desc", fields.desc);
 		if (fields.due !== undefined) body.append("due", fields.due === null ? "null" : fields.due);
 		if (fields.idLabels !== undefined) body.append("idLabels", fields.idLabels.join(","));
+		// Archiving, not deleting — the "always recoverable" rule (§9): the only
+		// way `planTrelloUndo`'s "trello-card-create" branch inverts a card
+		// creation, never Trello's (irreversible) delete endpoint.
+		if (fields.closed !== undefined) body.append("closed", String(fields.closed));
 		if ([...body.keys()].length === 0) return;
 
 		await this.send(

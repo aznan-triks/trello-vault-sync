@@ -9,7 +9,10 @@ vi.mock("obsidian", () => ({
 		}
 	},
 	Modal: class Modal {
+		contentEl = { empty: () => {}, addClass: () => {}, createEl: () => ({}), createDiv: () => ({}) };
 		constructor(_app: unknown) {}
+		open(): void {}
+		close(): void {}
 	},
 	FuzzySuggestModal: class FuzzySuggestModal {
 		constructor(_app: unknown) {}
@@ -31,8 +34,10 @@ import {
 import type { CommandContext } from "../src/commands/context";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
 import { TrelloClient, type HttpRequest, type HttpResponse } from "../src/trello/client";
+import { ConfirmModal } from "../src/ui/ConfirmModal";
 import { ListPickerModal } from "../src/ui/ListPickerModal";
-import { PhantomNotePickerModal } from "../src/ui/PhantomNotePickerModal";
+import { MultiSelectPickerModal } from "../src/ui/MultiSelectPickerModal";
+import { PhantomNotePickerModal, type PhantomNoteChoice } from "../src/ui/PhantomNotePickerModal";
 import { card, FakeVault, recordingReporter } from "./fakes";
 
 function stubTransport(responses: HttpResponse[]) {
@@ -175,6 +180,34 @@ describe("batchCreateCardsFromNotesAction", () => {
 		expect(vault.getCardRef(n1)).toEqual({ boardId: "board-1", cardId: "c1" });
 		expect(vault.getCardRef(n2)).toEqual({ boardId: "board-1", cardId: "c2" });
 		expect(logs.filter((l) => l.level === "create")).toHaveLength(2);
+	});
+
+	test("records every created card in sync history so the batch can be undone (archived, not deleted)", async () => {
+		const vault = new FakeVault({ "note1.md": { content: "body1" } });
+		const n1 = vault.note("note1.md");
+		const recorded: { scope: string; actions: unknown[] }[] = [];
+
+		const { ctx } = fakeContext(
+			vault,
+			[
+				ok([]), // getBoardLabels
+				ok(card({ id: "c1", idBoard: "board-1", idList: "inbox-list", name: "note1" })),
+			],
+			{
+				settings: { ...DEFAULT_SETTINGS, boardId: "board-1", phantomCardListId: "inbox-list" },
+				recordSyncRun: async (scope, actions) => {
+					recorded.push({ scope, actions });
+				},
+			},
+		);
+
+		await batchCreateCardsFromNotesAction(ctx, [{ note: n1, kind: "unlinked" }], "inbox-list", "Inbox");
+
+		expect(recorded).toHaveLength(1);
+		// The card-create action, plus the frontmatter write that links the note (setCardRef).
+		expect(recorded[0]?.actions).toEqual(
+			expect.arrayContaining([expect.objectContaining({ kind: "trello-card-create", path: "note1.md", cardId: "c1" })]),
+		);
 	});
 });
 
@@ -378,6 +411,108 @@ describe("createCardsFromPhantomNotes", () => {
 
 		expect(vault.paths()).toEqual(["dead.md"]);
 	});
+
+	test("'ALL' choice creates directly when confirmBatchCreate is off", async () => {
+		let capturedOnPick: ((choice: PhantomNoteChoice) => void) | undefined;
+		vi.spyOn(PhantomNotePickerModal.prototype, "open").mockImplementation(function (this: PhantomNotePickerModal) {
+			capturedOnPick = (this as unknown as { onPick: (choice: PhantomNoteChoice) => void }).onPick;
+		});
+
+		const vault = new FakeVault({
+			"n1.md": { content: "body" },
+			"n2.md": { content: "body" },
+		});
+		const { ctx } = fakeContext(
+			vault,
+			[
+				ok([{ id: "inbox-list", name: "Inbox" }]), // getBoardLists
+				ok([]), // getBoardCards
+				ok([]), // getBoardLabels (batch)
+				ok(card({ id: "created-1", idList: "inbox-list", name: "n1" })), // createCard n1
+				ok(card({ id: "created-2", idList: "inbox-list", name: "n2" })), // createCard n2
+			],
+			{ settings: { ...DEFAULT_SETTINGS, boardId: "board-1", phantomCardListId: "inbox-list", confirmBatchCreate: false } },
+		);
+
+		await createCardsFromPhantomNotes(ctx);
+		expect(capturedOnPick).toBeDefined();
+		capturedOnPick!({ type: "all", count: 2 });
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(vault.contentOf("n1.md")).toContain("created-1");
+		expect(vault.contentOf("n2.md")).toContain("created-2");
+	});
+
+	test("'ALL' choice waits for confirmation when confirmBatchCreate is on", async () => {
+		let capturedOnPick: ((choice: PhantomNoteChoice) => void) | undefined;
+		vi.spyOn(PhantomNotePickerModal.prototype, "open").mockImplementation(function (this: PhantomNotePickerModal) {
+			capturedOnPick = (this as unknown as { onPick: (choice: PhantomNoteChoice) => void }).onPick;
+		});
+		let capturedConfirm: (() => void) | undefined;
+		vi.spyOn(ConfirmModal.prototype, "open").mockImplementation(function (this: ConfirmModal) {
+			capturedConfirm = (this as unknown as { onConfirm: () => void }).onConfirm;
+		});
+
+		const vault = new FakeVault({ "n1.md": { content: "body" } });
+		const { ctx } = fakeContext(
+			vault,
+			[
+				ok([{ id: "inbox-list", name: "Inbox" }]), // getBoardLists
+				ok([]), // getBoardCards
+				ok([]), // getBoardLabels (batch)
+				ok(card({ id: "created-1", idList: "inbox-list", name: "n1" })), // createCard n1
+			],
+			{ settings: { ...DEFAULT_SETTINGS, boardId: "board-1", phantomCardListId: "inbox-list", confirmBatchCreate: true } },
+		);
+
+		await createCardsFromPhantomNotes(ctx);
+		capturedOnPick!({ type: "all", count: 1 });
+
+		expect(capturedConfirm).toBeDefined();
+		expect(vault.contentOf("n1.md")).not.toContain("created-1");
+
+		capturedConfirm!();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(vault.contentOf("n1.md")).toContain("created-1");
+	});
+
+	test("'select' choice opens a checkbox picker and creates only the chosen subset", async () => {
+		let capturedOnPick: ((choice: PhantomNoteChoice) => void) | undefined;
+		vi.spyOn(PhantomNotePickerModal.prototype, "open").mockImplementation(function (this: PhantomNotePickerModal) {
+			capturedOnPick = (this as unknown as { onPick: (choice: PhantomNoteChoice) => void }).onPick;
+		});
+		let capturedOnConfirm: ((selected: unknown[]) => void) | undefined;
+		vi.spyOn(MultiSelectPickerModal.prototype, "open").mockImplementation(function (this: MultiSelectPickerModal<unknown>) {
+			const self = this as unknown as { items: readonly unknown[]; onConfirm: (selected: unknown[]) => void };
+			capturedOnConfirm = self.onConfirm;
+		});
+
+		const vault = new FakeVault({
+			"n1.md": { content: "body" },
+			"n2.md": { content: "body" },
+		});
+		const { ctx } = fakeContext(
+			vault,
+			[
+				ok([{ id: "inbox-list", name: "Inbox" }]), // getBoardLists
+				ok([]), // getBoardCards
+				ok([]), // getBoardLabels (batch, only for the selected subset)
+				ok(card({ id: "created-2", idList: "inbox-list", name: "n2" })), // createCard n2 only
+			],
+			{ settings: { ...DEFAULT_SETTINGS, boardId: "board-1", phantomCardListId: "inbox-list" } },
+		);
+
+		await createCardsFromPhantomNotes(ctx);
+		capturedOnPick!({ type: "select", count: 2 });
+		expect(capturedOnConfirm).toBeDefined();
+
+		const n2 = vault.note("n2.md");
+		capturedOnConfirm!([{ note: n2, kind: "unlinked" }]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(vault.contentOf("n1.md")).not.toContain("created");
+		expect(vault.contentOf("n2.md")).toContain("created-2");
+	});
 });
 
 describe("PhantomNotePickerModal and ListPickerModal", () => {
@@ -400,11 +535,13 @@ describe("PhantomNotePickerModal and ListPickerModal", () => {
 		});
 
 		const items = modal.getItems();
-		expect(items).toHaveLength(3); // "all" + 2 singles
+		expect(items).toHaveLength(4); // "all" + "select" + 2 singles
 		expect(items[0]?.type).toBe("all");
 		expect(modal.getItemText(items[0]!)).toContain("Create Trello cards for ALL 2 phantom notes");
-		expect(modal.getItemText(items[1]!)).toContain("n1 (root) [unlinked]");
-		expect(modal.getItemText(items[2]!)).toContain("n2 (Folder/) [phantom]");
+		expect(items[1]?.type).toBe("select");
+		expect(modal.getItemText(items[1]!)).toBe("→ ☑ Select several…");
+		expect(modal.getItemText(items[2]!)).toContain("n1 (root) [unlinked]");
+		expect(modal.getItemText(items[3]!)).toContain("n2 (Folder/) [phantom]");
 
 		modal.onChooseItem(items[0]!);
 		expect(picked).toEqual({ type: "all", count: 2 });

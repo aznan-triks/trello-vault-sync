@@ -109,6 +109,41 @@ describe("createCardFromNote", () => {
 		expect(result.card.idList).toBe("l-inbox");
 	});
 
+	test("calls onCardCreate with a trello-card-create action once the card is created", async () => {
+		const vault = new FakeVault({
+			"Notes/My Note.md": { content: "Body" },
+		});
+		const note = vault.note("Notes/My Note.md");
+
+		const { transport } = stubTransport([ok(createdCard)]);
+		const client = new TrelloClient(CREDENTIALS, transport);
+		const recorded: unknown[] = [];
+
+		await createCardFromNote(vault, client, note, "l-inbox", [], {
+			onCardCreate: (action) => recorded.push(action),
+		});
+
+		expect(recorded).toEqual([{ kind: "trello-card-create", path: "Notes/My Note.md", cardId: "c-new" }]);
+	});
+
+	test("never calls onCardCreate in dry-run", async () => {
+		const vault = new FakeVault({
+			"Notes/Draft.md": { content: "Unlinked content" },
+		});
+		const note = vault.note("Notes/Draft.md");
+
+		const { transport } = stubTransport([]);
+		const client = new TrelloClient(CREDENTIALS, transport);
+		const recorded: unknown[] = [];
+
+		await createCardFromNote(vault, client, note, "l-inbox", [], {
+			dryRun: true,
+			onCardCreate: (action) => recorded.push(action),
+		});
+
+		expect(recorded).toEqual([]);
+	});
+
 	test("strips checklist section from card desc even when syncChecklists is false", async () => {
 		const vault = new FakeVault({
 			"Notes/WithChecklist.md": {

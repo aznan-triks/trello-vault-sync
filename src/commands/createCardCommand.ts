@@ -1,5 +1,7 @@
 import { Notice } from "obsidian";
+import { confirmIfEnabled } from "./confirmAction";
 import type { CommandContext } from "./context";
+import { withHistoryRecording } from "./syncHistoryHelper";
 import { yieldPeriodically } from "../core/asyncUtil";
 import { errorMessage } from "../core/errorMessage";
 import {
@@ -12,6 +14,7 @@ import { createCardFromNote } from "../features/createCardFromNote";
 import type { NoteHandle } from "../obsidian/gateway";
 import { TrelloError, type TrelloLabel, type TrelloList } from "../trello/client";
 import { ListPickerModal } from "../ui/ListPickerModal";
+import { MultiSelectPickerModal } from "../ui/MultiSelectPickerModal";
 import { PhantomNotePickerModal } from "../ui/PhantomNotePickerModal";
 
 export async function createCardFromNoteAction(
@@ -59,61 +62,68 @@ export async function batchCreateCardsFromNotesAction(
 	listName?: string,
 ): Promise<void> {
 	await ctx.run("Create cards from phantom notes", async (reporter, signal) => {
-		reporter.setTotal(candidates.length);
-		const boardLabels: TrelloLabel[] = ctx.settings.syncLabels
-			? await ctx.client(reporter).getBoardLabels(ctx.settings.boardId, signal)
-			: [];
-		let created = 0;
-		let errors = 0;
+		// Wrapped so every card this batch creates on Trello — and the note-side
+		// link it writes — lands in sync history and can be undone (an undone
+		// card creation is archived, never deleted — see `core/syncHistory.ts`'s
+		// "trello-card-create" kind).
+		return withHistoryRecording(ctx, "", async (vault, onTrelloWrite) => {
+			reporter.setTotal(candidates.length);
+			const boardLabels: TrelloLabel[] = ctx.settings.syncLabels
+				? await ctx.client(reporter).getBoardLabels(ctx.settings.boardId, signal)
+				: [];
+			let created = 0;
+			let errors = 0;
 
-		for (const candidate of candidates) {
-			if (signal?.aborted) break;
-			reporter.step(candidate.note.basename);
-
-			const dest = resolvePhantomCardDestination(
-				candidate.note.folder,
-				ctx.settings.mappings,
-				fallbackListId,
-				ctx.settings.phantomNotePreferFolderMapping,
-			);
-			if (dest.needsPrompt || dest.listId.trim() === "") {
-				errors++;
-				reporter.log("error", `${candidate.note.basename} — No destination list configured.`);
-				continue;
-			}
-
-			try {
-				await createCardFromNote(
-					ctx.vault,
-					ctx.client(reporter),
-					candidate.note,
-					dest.listId,
-					boardLabels,
-					{
-						syncDue: ctx.settings.syncDue,
-						syncLabels: ctx.settings.syncLabels,
-						syncChecklists: ctx.settings.syncChecklists,
-						checklistHeading: ctx.settings.checklistHeading,
-						dueFrontmatterKey: ctx.settings.dueFrontmatterKey,
-						labelsFrontmatterKey: ctx.settings.labelsFrontmatterKey,
-						cardRefFrontmatterKey: ctx.settings.cardRefFrontmatterKey,
-						dryRun: ctx.settings.dryRun,
-					},
-					signal,
-				);
-				created++;
-				reporter.log("create", candidate.note.basename);
-			} catch (error) {
+			for (const candidate of candidates) {
 				if (signal?.aborted) break;
-				errors++;
-				reporter.log("error", `${candidate.note.basename} — ${errorMessage(error)}`);
-			}
-		}
+				reporter.step(candidate.note.basename);
 
-		const desc = listName ? ` in list "${listName}"` : "";
-		return ctx.settings.dryRun
-			? `[Dry-run] Would create ${created} card(s)${desc} (${errors} error(s)).`
-			: `Created ${created} card(s)${desc} on Trello (${errors} error(s)).`;
+				const dest = resolvePhantomCardDestination(
+					candidate.note.folder,
+					ctx.settings.mappings,
+					fallbackListId,
+					ctx.settings.phantomNotePreferFolderMapping,
+				);
+				if (dest.needsPrompt || dest.listId.trim() === "") {
+					errors++;
+					reporter.log("error", `${candidate.note.basename} — No destination list configured.`);
+					continue;
+				}
+
+				try {
+					await createCardFromNote(
+						vault,
+						ctx.client(reporter),
+						candidate.note,
+						dest.listId,
+						boardLabels,
+						{
+							syncDue: ctx.settings.syncDue,
+							syncLabels: ctx.settings.syncLabels,
+							syncChecklists: ctx.settings.syncChecklists,
+							checklistHeading: ctx.settings.checklistHeading,
+							dueFrontmatterKey: ctx.settings.dueFrontmatterKey,
+							labelsFrontmatterKey: ctx.settings.labelsFrontmatterKey,
+							cardRefFrontmatterKey: ctx.settings.cardRefFrontmatterKey,
+							dryRun: ctx.settings.dryRun,
+							onCardCreate: onTrelloWrite,
+						},
+						signal,
+					);
+					created++;
+					reporter.log("create", candidate.note.basename);
+				} catch (error) {
+					if (signal?.aborted) break;
+					errors++;
+					reporter.log("error", `${candidate.note.basename} — ${errorMessage(error)}`);
+				}
+			}
+
+			const desc = listName ? ` in list "${listName}"` : "";
+			return ctx.settings.dryRun
+				? `[Dry-run] Would create ${created} card(s)${desc} (${errors} error(s)).`
+				: `Created ${created} card(s)${desc} on Trello (${errors} error(s)).`;
+		});
 	});
 }
 
@@ -218,33 +228,55 @@ export async function createCardsFromPhantomNotes(ctx: CommandContext): Promise<
 
 		const lists = Array.from(listNames.entries()).map(([id, name]) => ({ id, name }));
 
+		/** Runs the batch card-creation for exactly `chosen` — prompting for a destination list first when at least one of them needs it. Shared by "Create for ALL" and "Select several…". */
+		const runBatchCreateCards = (chosen: readonly PhantomCandidate<NoteHandle>[]): void => {
+			const anyNeedsPrompt = chosen.some((c) =>
+				resolvePhantomCardDestination(
+					c.note.folder,
+					ctx.settings.mappings,
+					ctx.settings.phantomCardListId,
+					ctx.settings.phantomNotePreferFolderMapping,
+				).needsPrompt,
+			);
+
+			if (!anyNeedsPrompt) {
+				void batchCreateCardsFromNotesAction(
+					ctx,
+					chosen,
+					ctx.settings.phantomCardListId,
+					listNames.get(ctx.settings.phantomCardListId),
+				);
+			} else {
+				if (lists.length === 0) {
+					new Notice("No lists found on the Trello board.");
+					return;
+				}
+				new ListPickerModal(ctx.app, lists, (list) => {
+					void batchCreateCardsFromNotesAction(ctx, chosen, list.id, list.name);
+				}).open();
+			}
+		};
+
 		new PhantomNotePickerModal(ctx.app, candidateHandles, (choice) => {
 			if (choice.type === "all") {
-				const anyNeedsPrompt = candidateHandles.some((c) =>
-					resolvePhantomCardDestination(
-						c.note.folder,
-						ctx.settings.mappings,
-						ctx.settings.phantomCardListId,
-						ctx.settings.phantomNotePreferFolderMapping,
-					).needsPrompt,
+				void confirmIfEnabled(
+					ctx,
+					ctx.settings.confirmBatchCreate,
+					`Create Trello cards for ALL ${choice.count} phantom note(s)?`,
+					"Create all",
+					() => runBatchCreateCards(candidateHandles),
 				);
-
-				if (!anyNeedsPrompt) {
-					void batchCreateCardsFromNotesAction(
-						ctx,
-						candidateHandles,
-						ctx.settings.phantomCardListId,
-						listNames.get(ctx.settings.phantomCardListId),
-					);
-				} else {
-					if (lists.length === 0) {
-						new Notice("No lists found on the Trello board.");
-						return;
-					}
-					new ListPickerModal(ctx.app, lists, (list) => {
-						void batchCreateCardsFromNotesAction(ctx, candidateHandles, list.id, list.name);
-					}).open();
-				}
+			} else if (choice.type === "select") {
+				new MultiSelectPickerModal(
+					ctx.app,
+					"Create cards — select notes",
+					candidateHandles,
+					(c) => `${c.note.basename} (${c.note.folder || "root"}) [${c.kind}]`,
+					"Create selected",
+					(selected) => {
+						if (selected.length > 0) runBatchCreateCards(selected);
+					},
+				).open();
 			} else {
 				const single = choice.candidate;
 				const dest = resolvePhantomCardDestination(
