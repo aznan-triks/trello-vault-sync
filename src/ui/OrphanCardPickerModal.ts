@@ -3,11 +3,13 @@ import type { TrelloCard } from "../trello/client";
 
 export type OrphanCardChoice =
 	| { type: "all"; count: number }
+	| { type: "select"; count: number }
 	| { type: "single"; card: TrelloCard };
 
 /**
  * Picker modal that lets the user choose either to create notes for ALL detected
- * orphan cards, or pick a specific card from the list.
+ * orphan cards, pick a specific card from the list, or open a checkbox picker to
+ * create notes for a chosen subset ("Select several…").
  */
 export class OrphanCardPickerModal extends FuzzySuggestModal<OrphanCardChoice> {
 	constructor(
@@ -26,6 +28,9 @@ export class OrphanCardPickerModal extends FuzzySuggestModal<OrphanCardChoice> {
 		if (this.allowBatch && this.cards.length > 1) {
 			choices.push({ type: "all", count: this.cards.length });
 		}
+		if (this.cards.length > 1) {
+			choices.push({ type: "select", count: this.cards.length });
+		}
 		for (const card of this.cards) {
 			choices.push({ type: "single", card });
 		}
@@ -35,6 +40,9 @@ export class OrphanCardPickerModal extends FuzzySuggestModal<OrphanCardChoice> {
 	getItemText(item: OrphanCardChoice): string {
 		if (item.type === "all") {
 			return `→ ✨ Create notes for ALL ${item.count} orphan cards`;
+		}
+		if (item.type === "select") {
+			return "→ ☑ Select several…";
 		}
 		return item.card.name;
 	}

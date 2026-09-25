@@ -5,7 +5,7 @@ import { COMMANDS, type CommandDescriptor } from "./commands/registry";
 import * as syncCommands from "./commands/syncCommands";
 import { decideAutoSync, type AutoSyncEvent } from "./core/autoSyncSchedule";
 import { errorMessage } from "./core/errorMessage";
-import { appendJournalEntry, type JournalEntry, type LogLevel } from "./core/journal";
+import { appendJournalEntry, prefixDryRunMessage, type JournalEntry, type LogLevel } from "./core/journal";
 import { normalizePersistedData } from "./core/pluginData";
 import { appendSyncRun, type SyncAction, type SyncRun } from "./core/syncHistory";
 import type { AuditOptions } from "./features/auditShared";
@@ -165,7 +165,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		return { Authorization: `OAuth oauth_consumer_key="${this.settings.apiKey}", oauth_token="${this.settings.token}"` };
 	}
 
-	noteOptions(force?: "pull" | "push"): NoteSyncOptions {
+	noteOptions(force?: "pull" | "push", bypassConflict?: boolean): NoteSyncOptions {
 		return {
 			policy: this.settings.policy,
 			marginMs: this.settings.marginSeconds * 1000,
@@ -204,12 +204,13 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 					this.attachmentAuthHeaders(),
 				),
 			...(force ? { force } : {}),
+			...(bypassConflict ? { bypassConflict } : {}),
 		};
 	}
 
-	folderOptions(force?: "pull" | "push"): FolderSyncOptions {
+	folderOptions(force?: "pull" | "push", bypassConflict?: boolean): FolderSyncOptions {
 		return {
-			...this.noteOptions(force),
+			...this.noteOptions(force, bypassConflict),
 			allowCreate: this.settings.allowCreate,
 			allowDelete: this.settings.allowDelete,
 			protectMovedOrArchivedCards: this.settings.protectMovedOrArchivedCards,
@@ -249,6 +250,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			title: title + suffix,
 			autoCloseMs: this.settings.panelAutoCloseSeconds * 1000,
 			onCancel,
+			keepOpenOnError: this.settings.keepPanelOpenOnError,
 		});
 		// Tracked so onunload() can tear it down: without this, a panel left open
 		// (autoCloseMs: 0, or one still mid-sync) survives a plugin disable/reload
@@ -269,7 +271,11 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			setTotal: (total) => base.setTotal(total),
 			step: (label) => base.step(label),
 			count: (key, value) => base.count(key, value),
-			log: (level, message) => {
+			// Single point that sees every log() call plus `settings.dryRun` — the
+			// only place a "[Dry-run]" prefix is ever added (core/journal.ts::prefixDryRunMessage),
+			// so the panel, the in-memory journal and every sidebar copy stay in sync for free.
+			log: (level, rawMessage) => {
+				const message = prefixDryRunMessage(rawMessage, this.settings.dryRun);
 				base.log(level, message);
 				this.journal = appendJournalEntry(this.journal, { level, message }, MAX_LOG_ROWS);
 				this.appendJournalToSidebars(level, message);

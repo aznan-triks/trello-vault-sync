@@ -11,7 +11,18 @@ import { decideForCard, syncNote } from "../features/syncNote";
 import { CardPickerModal } from "../ui/CardPickerModal";
 import { ConflictModal } from "../ui/ConflictModal";
 
-export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): Promise<void> {
+/**
+ * `bypassConflict` is the one real difference between "Force pull/push
+ * (active note)" (`forceSyncCommands.ts`, passes `true`) and the plain
+ * "Pull/Push (active note)" commands (`registry.ts`, leave it `undefined` —
+ * `syncNote.ts` treats that as `false`): both pass the same `force` direction,
+ * but only the "Force" ones also overwrite a genuine conflict (both sides
+ * changed within the margin) instead of reporting it. "Resolve conflict"
+ * also passes `true` — the user already saw the conflict and picked a side,
+ * so re-running the same `decideSync` conflict check would just report the
+ * same conflict again instead of applying their choice.
+ */
+export async function syncActive(ctx: CommandContext, force?: "pull" | "push", bypassConflict?: boolean): Promise<void> {
 	const note = ctx.activeNote();
 	if (!ctx.ready() || !note) return;
 
@@ -19,7 +30,13 @@ export async function syncActive(ctx: CommandContext, force?: "pull" | "push"): 
 		reporter.setTotal(1);
 		reporter.step(note.basename);
 		return withHistoryRecording(ctx, note.path, async (vault, onTrelloWrite) => {
-			const result = await syncNote(vault, ctx.client(reporter), note, { ...ctx.noteOptions(force), onTrelloWrite }, signal);
+			const result = await syncNote(
+				vault,
+				ctx.client(reporter),
+				note,
+				{ ...ctx.noteOptions(force, bypassConflict), onTrelloWrite },
+				signal,
+			);
 			tallyNoteResult(
 				{ pulled: 0, pushed: 0, skipped: 0, renamed: 0, conflicts: 0 },
 				result,
@@ -104,7 +121,9 @@ export async function resolveConflict(ctx: CommandContext): Promise<void> {
 		new ConflictModal(
 			ctx.app,
 			{ noteTitle: note.basename, localBody, remoteBody: card.desc ?? "" },
-			(direction) => void syncActive(ctx, direction),
+			// The user just saw the conflict and picked a side — apply it, don't
+			// report the same conflict back.
+			(direction) => void syncActive(ctx, direction, true),
 		).open();
 		return "Conflict found — resolve it in the dialog.";
 	});
