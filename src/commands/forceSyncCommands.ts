@@ -13,13 +13,26 @@ function confirmIfNeeded(ctx: CommandContext, message: string, action: () => voi
 	void confirmIfEnabled(ctx, ctx.settings.confirmForceSync, message, "Force sync", action);
 }
 
-/** Note scope reuses `syncActive`'s existing imposed direction as-is — forcing a single note is already exactly what "Pull/Push (active note)" does, just under a more explicit id/label. */
+/**
+ * `bypassConflict: true` is what makes this genuinely different from
+ * "Pull/Push (active note)" (`registry.ts`'s `pull-active-note`/`push-active-note`,
+ * which call `syncActive(ctx, "pull"|"push")` with no third argument — the plain
+ * commands still impose a direction on any one-directional change, but they now
+ * report (rather than silently overwrite) a genuine conflict; only "Force"
+ * overwrites that too. Gated behind the same `confirmForceSync` modal as the
+ * folder/vault force commands below, since this can now discard a change the
+ * conflict would otherwise have surfaced.
+ */
 export async function forcePullActiveNote(ctx: CommandContext): Promise<void> {
-	await noteCommands.syncActive(ctx, "pull");
+	confirmIfNeeded(ctx, "Force pull will overwrite the active note with the card's content, even during a conflict. Continue?", () =>
+		void noteCommands.syncActive(ctx, "pull", true),
+	);
 }
 
 export async function forcePushActiveNote(ctx: CommandContext): Promise<void> {
-	await noteCommands.syncActive(ctx, "push");
+	confirmIfNeeded(ctx, "Force push will overwrite the card with the active note's content, even during a conflict. Continue?", () =>
+		void noteCommands.syncActive(ctx, "push", true),
+	);
 }
 
 async function runForcedFolder(ctx: CommandContext, mapping: FolderMapping, direction: "pull" | "push"): Promise<void> {
@@ -29,7 +42,7 @@ async function runForcedFolder(ctx: CommandContext, mapping: FolderMapping, dire
 				vault,
 				ctx.client(reporter),
 				mapping,
-				{ ...ctx.folderOptions(direction), onTrelloWrite },
+				{ ...ctx.folderOptions(direction, true), onTrelloWrite },
 				reporter,
 				undefined,
 				signal,
@@ -71,7 +84,7 @@ async function runForcedVault(ctx: CommandContext, direction: "pull" | "push"): 
 				vault,
 				ctx.client(reporter),
 				{ scope: ctx.settings.scope, boardId: ctx.settings.boardId, excludedFolders: ctx.settings.excludedFolders },
-				{ ...ctx.noteOptions(direction), onTrelloWrite },
+				{ ...ctx.noteOptions(direction, true), onTrelloWrite },
 				reporter,
 				signal,
 			);

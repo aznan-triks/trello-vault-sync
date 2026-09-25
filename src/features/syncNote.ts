@@ -72,6 +72,16 @@ export interface NoteSyncOptions {
 	dryRun: boolean;
 	/** Explicit user choice, bypassing timestamps entirely. */
 	force?: "pull" | "push";
+	/**
+	 * What genuinely distinguishes "Force pull/push (active note)" from the
+	 * plain "Pull/Push (active note)" commands — both pass `force`, but only
+	 * the "Force" ones also pass `bypassConflict: true`. Without it, `force`
+	 * still picks the direction whenever `decideSync` found a one-directional
+	 * change, but a genuine `"conflict"` (both sides changed within the margin)
+	 * is left as `"conflict"` rather than silently overwritten. `undefined`
+	 * behaves as `false`.
+	 */
+	bypassConflict?: boolean;
 	/** `undefined` behaves as `"merge"` — the non-destructive default. */
 	labelsSyncMode?: LabelSyncMode;
 	/** `undefined` behaves as `DEFAULT_DUE_KEY`. */
@@ -693,7 +703,16 @@ export async function syncNoteWithCard(
 	// `core/syncDecision.ts`) — even a forced pull/push must not overwrite
 	// either side, or bump a note's mtime, when there is genuinely nothing to
 	// change (the "identical = no-op" guarantee force pull/push relies on).
-	const direction = decision.direction === "skip" ? "skip" : (options.force ?? decision.direction);
+	// A genuine `"conflict"` (both sides changed within the margin) is only
+	// overridden by `force` when `bypassConflict` is also set — that's the one
+	// real difference between "Force pull/push (active note)" and the plain
+	// "Pull/Push (active note)" commands (both pass `force`).
+	const direction =
+		decision.direction === "skip"
+			? "skip"
+			: decision.direction === "conflict" && !options.bypassConflict
+				? "conflict"
+				: (options.force ?? decision.direction);
 
 	const syncDescription = options.syncDescription !== false;
 	const syncDue = options.syncDue !== false;

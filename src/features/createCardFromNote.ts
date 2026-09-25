@@ -2,6 +2,7 @@ import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY, parseDueRef } from "../core/dueRef";
 import { DEFAULT_LABELS_KEY, normalizeLabelName, parseLabelsRef } from "../core/labelRef";
 import { extractBody } from "../core/noteBody";
+import type { TrelloCardCreateAction } from "../core/syncHistory";
 import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient, TrelloLabel } from "../trello/client";
 
@@ -14,6 +15,8 @@ export interface CreateCardFromNoteOptions {
 	labelsFrontmatterKey?: string;
 	cardRefFrontmatterKey?: string;
 	dryRun?: boolean;
+	/** Called once, after the card is created and the note is linked — never in dry-run. Feeds "Create cards from phantom notes" into sync history so the creation can be undone (archived) later. */
+	onCardCreate?: (action: TrelloCardCreateAction) => void;
 }
 
 export interface CreateCardFromNoteResult {
@@ -77,5 +80,6 @@ export async function createCardFromNote(
 	);
 
 	await vault.setCardRef(note, { boardId: card.idBoard, cardId: card.id });
+	options.onCardCreate?.({ kind: "trello-card-create", path: note.path, cardId: card.id });
 	return { card, note };
 }

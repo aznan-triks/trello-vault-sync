@@ -42,8 +42,8 @@ export interface CommandContext {
 	/** Whether a sync (manual or auto) is already running — the single-sync-at-a-time lock `run()` enforces. */
 	isSyncing(): boolean;
 	ready(needsBoard?: boolean): boolean;
-	noteOptions(force?: "pull" | "push"): NoteSyncOptions;
-	folderOptions(force?: "pull" | "push"): FolderSyncOptions;
+	noteOptions(force?: "pull" | "push", bypassConflict?: boolean): NoteSyncOptions;
+	folderOptions(force?: "pull" | "push", bypassConflict?: boolean): FolderSyncOptions;
 	auditOptions(kind?: "links" | "locations" | "changes"): AuditOptions;
 	activateSidebarView(): Promise<void>;
 	saveSettings(): Promise<void>;

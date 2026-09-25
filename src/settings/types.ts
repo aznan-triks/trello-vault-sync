@@ -84,6 +84,8 @@ export interface TrelloVaultSyncSettings {
 
 	showPanel: boolean;
 	panelAutoCloseSeconds: number;
+	/** On by default — a run that logged ≥ 1 error never auto-closes the panel, even when `panelAutoCloseSeconds > 0`, so errors aren't missed by a panel that vanished on its own. */
+	keepPanelOpenOnError: boolean;
 
 	/** Ids (from `commands/registry.ts`) of the commands shown as ribbon icons, in registry order. */
 	ribbonCommandIds: string[];
@@ -144,6 +146,9 @@ export interface TrelloVaultSyncSettings {
 
 	/** On by default — shows a confirmation modal before a force pull/push at folder or vault scope (destructive by nature). Off disables the modal for repeated use. */
 	confirmForceSync: boolean;
+
+	/** On by default — shows a confirmation modal (with the count) before "Create for ALL" in the orphan-card / phantom-note pickers, so a single wrong click can't kick off a large batch. Off disables the modal for repeated use. */
+	confirmBatchCreate: boolean;
 
 	/** Fallback folder for "Create note from a Trello card" when the card's list isn't mapped to one. Empty means the user is prompted at creation time instead of a silent guess. */
 	orphanCardFolder: string;
@@ -213,6 +218,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	mappings: [],
 	showPanel: true,
 	panelAutoCloseSeconds: 8,
+	keepPanelOpenOnError: true,
 	ribbonCommandIds: ["open-sidebar", "sync-active-note", "sync-vault", "sync-all-mappings", "audit-links"],
 	ribbonIconColors: {},
 	auditChangesCursor: "",
@@ -239,6 +245,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	attachmentsDownloadScope: "all",
 	attachmentsFolder: "",
 	confirmForceSync: true,
+	confirmBatchCreate: true,
 	orphanCardFolder: "",
 	orphanCardBatchCreate: true,
 	orphanCardScope: "all",
@@ -396,6 +403,8 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			input.panelAutoCloseSeconds,
 			DEFAULT_SETTINGS.panelAutoCloseSeconds,
 		),
+		keepPanelOpenOnError: input.keepPanelOpenOnError !== false,
+		confirmBatchCreate: input.confirmBatchCreate !== false,
 		similarityThreshold: safeNonNegativeNumber(
 			input.similarityThreshold,
 			DEFAULT_SETTINGS.similarityThreshold,
