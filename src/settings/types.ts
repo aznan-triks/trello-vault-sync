@@ -84,6 +84,8 @@ export interface TrelloVaultSyncSettings {
 
 	showPanel: boolean;
 	panelAutoCloseSeconds: number;
+	/** Sidebar badge showing the last sync run's unresolved-conflict count — on by default, no stored history across reloads (§C6 of `AUDIT_2026-09-25_ux-settings-features.md`). */
+	showConflictIndicator: boolean;
 
 	/** Ids (from `commands/registry.ts`) of the commands shown as ribbon icons, in registry order. */
 	ribbonCommandIds: string[];
@@ -213,6 +215,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	mappings: [],
 	showPanel: true,
 	panelAutoCloseSeconds: 8,
+	showConflictIndicator: true,
 	ribbonCommandIds: ["open-sidebar", "sync-active-note", "sync-vault", "sync-all-mappings", "audit-links"],
 	ribbonIconColors: {},
 	auditChangesCursor: "",
@@ -372,6 +375,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		syncDescription: input.syncDescription !== false,
 		syncDue: input.syncDue !== false,
 		syncLabels: input.syncLabels !== false,
+		showConflictIndicator: input.showConflictIndicator !== false,
 		maxRetries: safeNonNegativeNumber(
 			input.maxRetries,
 			DEFAULT_SETTINGS.maxRetries,

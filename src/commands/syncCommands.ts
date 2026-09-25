@@ -20,6 +20,7 @@ export async function syncAllLinked(ctx: CommandContext): Promise<void> {
 				signal,
 			);
 			reportStats(reporter, stats);
+			ctx.setLastRunConflicts?.(stats.conflicts);
 			return `↓ ${stats.pulled} · ↑ ${stats.pushed} · = ${stats.skipped} · ⚠ ${stats.conflicts} · 👻 ${stats.phantoms} · ✕ ${stats.errors}`;
 		});
 	});
@@ -49,6 +50,7 @@ async function runMapping(ctx: CommandContext, mapping: FolderMapping): Promise<
 				signal,
 			);
 			reportStats(reporter, stats);
+			ctx.setLastRunConflicts?.(stats.conflicts);
 			return `+ ${stats.created} · 🔗 ${stats.adopted} · ↓ ${stats.pulled} · ↑ ${stats.pushed} · 🗑 ${stats.deleted} · ✕ ${stats.errors}`;
 		});
 	});
@@ -72,6 +74,7 @@ export async function syncAllMappings(ctx: CommandContext): Promise<void> {
 				signal,
 			);
 			reportStats(reporter, total);
+			ctx.setLastRunConflicts?.(total.conflicts);
 			return `${ctx.settings.mappings.length} folder(s) · + ${total.created} · ↓ ${total.pulled} · ↑ ${total.pushed} · ✕ ${total.errors}`;
 		});
 	});

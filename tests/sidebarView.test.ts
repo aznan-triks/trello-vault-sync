@@ -173,6 +173,7 @@ vi.mock("obsidian", () => ({
 		}
 	},
 	setIcon: (_el: FakeElement, _icon: string) => {},
+	setTooltip: (_el: FakeElement, _tooltip: string) => {},
 	Notice: class Notice {
 		constructor(_message?: string) {}
 	},
@@ -370,6 +371,82 @@ describe("SidebarView", () => {
 		// onResize triggers auto-render
 		view.onResize();
 		expect(content.children.length).toBeGreaterThan(0);
+	});
+
+	test("each action button carries its registry description as aria-label (§C1)", async () => {
+		const ctx = fakeContext();
+		const view = new SidebarView({} as never, ctx);
+		await view.onOpen();
+
+		const content = (view as unknown as { contentEl: FakeElement }).contentEl;
+		const firstAction = content.querySelector(".tvs-sidebar__action");
+		const firstCmd = COMMANDS[0];
+		expect(firstCmd).toBeDefined();
+		expect(firstAction?.getAttribute("aria-label")).toContain(firstCmd?.description);
+	});
+
+	test("clear-display button truly empties the journal, not just the DOM (§C5)", async () => {
+		const clearJournal = vi.fn().mockResolvedValue(undefined);
+		const ctx = fakeContext({
+			journal: [{ level: "info", message: "did a thing" }],
+			clearJournal,
+		});
+		const view = new SidebarView({} as never, ctx);
+		await view.onOpen();
+
+		const content = (view as unknown as { contentEl: FakeElement }).contentEl;
+		const clearBtn = content.querySelector(".tvs-sidebar__clear-btn");
+		clearBtn?.trigger("click");
+		await Promise.resolve();
+
+		expect(clearJournal).toHaveBeenCalledTimes(1);
+		expect(content.querySelector(".tvs-sidebar__journal-empty")).not.toBeNull();
+	});
+
+	test("falls back to a display-only clear when ctx.clearJournal is absent", async () => {
+		const ctx = fakeContext({ journal: [{ level: "info", message: "did a thing" }], clearJournal: undefined });
+		const view = new SidebarView({} as never, ctx);
+		await view.onOpen();
+
+		const content = (view as unknown as { contentEl: FakeElement }).contentEl;
+		const clearBtn = content.querySelector(".tvs-sidebar__clear-btn");
+		clearBtn?.trigger("click");
+		await Promise.resolve();
+
+		expect(content.querySelector(".tvs-sidebar__journal-empty")).not.toBeNull();
+	});
+
+	test("shows a conflict badge when the last run had conflicts and the setting is on (§C6)", async () => {
+		const ctx = fakeContext({ lastRunConflicts: 3 });
+		const view = new SidebarView({} as never, ctx);
+		await view.onOpen();
+
+		const content = (view as unknown as { contentEl: FakeElement }).contentEl;
+		const badges = content.querySelectorAll(".tvs-badge--warn");
+		expect(badges.some((b) => b.text.includes("3 conflict"))).toBe(true);
+	});
+
+	test("hides the conflict badge when showConflictIndicator is off", async () => {
+		const ctx = fakeContext({
+			lastRunConflicts: 3,
+			settings: { ...DEFAULT_SETTINGS, apiKey: "key", token: "token", boardId: "board", showConflictIndicator: false },
+		});
+		const view = new SidebarView({} as never, ctx);
+		await view.onOpen();
+
+		const content = (view as unknown as { contentEl: FakeElement }).contentEl;
+		const badges = content.querySelectorAll(".tvs-badge--warn");
+		expect(badges.some((b) => b.text.includes("conflict"))).toBe(false);
+	});
+
+	test("hides the conflict badge when there are no conflicts", async () => {
+		const ctx = fakeContext({ lastRunConflicts: 0 });
+		const view = new SidebarView({} as never, ctx);
+		await view.onOpen();
+
+		const content = (view as unknown as { contentEl: FakeElement }).contentEl;
+		const badges = content.querySelectorAll(".tvs-badge--warn");
+		expect(badges.some((b) => b.text.includes("conflict"))).toBe(false);
 	});
 
 	test("open-sidebar command triggers activateSidebarView", async () => {
