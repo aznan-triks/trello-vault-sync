@@ -28,6 +28,8 @@ export class ConfirmModal extends Modal {
 				},
 			},
 			() => this.close(),
+			// Destructive action (see class doc) — Cancel gets initial focus (§C4).
+			"cancel",
 		);
 	}
 

@@ -498,6 +498,11 @@ describe("normalizeSettings", () => {
 		expect(settings.syncLabels).toBe(false);
 	});
 
+	test("defaults showConflictIndicator to true, keeps explicit false", () => {
+		expect(normalizeSettings({}).showConflictIndicator).toBe(true);
+		expect(normalizeSettings({ showConflictIndicator: false }).showConflictIndicator).toBe(false);
+	});
+
 	test("defaults defaultTemplateName to empty and keeps a trimmed custom value", () => {
 		expect(normalizeSettings({}).defaultTemplateName).toBe("");
 		expect(normalizeSettings({ defaultTemplateName: "  Template Card  " }).defaultTemplateName).toBe(
