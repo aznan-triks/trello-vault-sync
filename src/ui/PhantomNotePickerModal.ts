@@ -4,11 +4,13 @@ import type { NoteHandle } from "../obsidian/gateway";
 
 export type PhantomNoteChoice =
 	| { type: "all"; count: number }
+	| { type: "select"; count: number }
 	| { type: "single"; candidate: PhantomCandidate<NoteHandle> };
 
 /**
  * Picker modal that lets the user choose either to create cards for ALL detected
- * phantom/unlinked notes, or pick a specific one from the list.
+ * phantom/unlinked notes, pick a specific one from the list, or open a checkbox
+ * picker to create cards for a chosen subset ("Select several…").
  */
 export class PhantomNotePickerModal extends FuzzySuggestModal<PhantomNoteChoice> {
 	constructor(
@@ -26,6 +28,9 @@ export class PhantomNotePickerModal extends FuzzySuggestModal<PhantomNoteChoice>
 		if (this.candidates.length > 1) {
 			choices.push({ type: "all", count: this.candidates.length });
 		}
+		if (this.candidates.length > 1) {
+			choices.push({ type: "select", count: this.candidates.length });
+		}
 		for (const candidate of this.candidates) {
 			choices.push({ type: "single", candidate });
 		}
@@ -35,6 +40,9 @@ export class PhantomNotePickerModal extends FuzzySuggestModal<PhantomNoteChoice>
 	getItemText(item: PhantomNoteChoice): string {
 		if (item.type === "all") {
 			return `→ ✨ Create Trello cards for ALL ${item.count} phantom notes`;
+		}
+		if (item.type === "select") {
+			return "→ ☑ Select several…";
 		}
 		const { note, kind } = item.candidate;
 		const location = note.folder ? `${note.folder}/` : "";

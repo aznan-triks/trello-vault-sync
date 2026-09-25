@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { appendJournalEntry, type JournalEntry } from "../src/core/journal";
+import { appendJournalEntry, prefixDryRunMessage, type JournalEntry } from "../src/core/journal";
 
 const entry = (message: string): JournalEntry => ({ level: "info", message });
 
@@ -27,5 +27,19 @@ describe("appendJournalEntry", () => {
 		for (let i = 0; i < 10; i++) entries = appendJournalEntry(entries, entry(String(i)), 3);
 		expect(entries).toHaveLength(3);
 		expect(entries).toEqual([entry("7"), entry("8"), entry("9")]);
+	});
+});
+
+describe("prefixDryRunMessage", () => {
+	test("returns the message unchanged when dryRun is false", () => {
+		expect(prefixDryRunMessage("Created note.md", false)).toBe("Created note.md");
+	});
+
+	test("prefixes the message with '[Dry-run]' when dryRun is true", () => {
+		expect(prefixDryRunMessage("Created note.md", true)).toBe("[Dry-run] Created note.md");
+	});
+
+	test("never double-prefixes a message that already starts with '[Dry-run]'", () => {
+		expect(prefixDryRunMessage("[Dry-run] Created note.md", true)).toBe("[Dry-run] Created note.md");
 	});
 });

@@ -187,6 +187,50 @@ describe("syncNoteWithCard", () => {
 		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "local");
 	});
 
+	test("a plain force ('pull-active-note') does NOT bypass a genuine conflict — reports conflict, writes nothing", async () => {
+		const { vault, client, requests } = setup("local", at("2026-01-01T00:00:00"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "remote", dateLastActivity: "2026-01-01T00:00:30" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			marginMs: 60_000,
+			force: "pull",
+		});
+
+		expect(result.direction).toBe("conflict");
+		expect(requests).toHaveLength(0);
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "local");
+	});
+
+	test("bypassConflict makes 'Force pull (active note)' genuinely different: overwrites even a real conflict", async () => {
+		const { vault, client } = setup("local", at("2026-01-01T00:00:00"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "remote", dateLastActivity: "2026-01-01T00:00:30" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			marginMs: 60_000,
+			force: "pull",
+			bypassConflict: true,
+		});
+
+		expect(result.direction).toBe("pull");
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "remote");
+	});
+
+	test("bypassConflict without force changes nothing — force still decides the direction", async () => {
+		const { vault, client, requests } = setup("local", at("2026-01-01T00:00:00"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "remote", dateLastActivity: "2026-01-01T00:00:30" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			marginMs: 60_000,
+			bypassConflict: true,
+		});
+
+		expect(result.direction).toBe("conflict");
+		expect(requests).toHaveLength(0);
+	});
+
 	test("fails loudly instead of guessing when the card has no readable timestamp", async () => {
 		const { vault, client } = setup("old", at("2026-01-01"));
 		const remote = card({ id: "c1", name: "Sagondo", desc: "new", dateLastActivity: "" });

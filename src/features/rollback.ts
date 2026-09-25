@@ -91,6 +91,7 @@ function currentCardFields(
 				desc: remoteCard.desc,
 				due: remoteCard.due,
 				idLabels: (remoteCard.labels ?? []).map((label) => label.id),
+				closed: remoteCard.closed ?? false,
 			};
 		},
 		log,
@@ -134,7 +135,7 @@ async function applyUndo(
 	signal?: AbortSignal,
 	trelloRevertDisabled = false,
 ): Promise<UndoOutcome> {
-	if (action.kind === "trello-card" || action.kind === "trello-checkitem") {
+	if (action.kind === "trello-card" || action.kind === "trello-checkitem" || action.kind === "trello-card-create") {
 		if (!client) {
 			const reason = trelloRevertDisabled ? "disabled in settings" : "needs a connection";
 			log("skip", `${action.path} — Trello revert ${reason}`);
@@ -145,13 +146,14 @@ async function applyUndo(
 			return "skipped";
 		}
 		let current: CurrentTrelloState = null;
-		if (action.kind === "trello-card") {
-			const fields = await currentCardFields(client, cache, action.cardId, signal, log);
-			if (fields) current = { kind: "card", fields };
-			else if (signal?.aborted) current = { kind: "cancelled" };
-		} else {
+		if (action.kind === "trello-checkitem") {
 			const state = await currentCheckItemState(client, cache, action.cardId, action.checkItemId, signal, log);
 			if (state) current = { kind: "checkitem", state };
+			else if (signal?.aborted) current = { kind: "cancelled" };
+		} else {
+			// "trello-card" and "trello-card-create" both compare against the card's current fields.
+			const fields = await currentCardFields(client, cache, action.cardId, signal, log);
+			if (fields) current = { kind: "card", fields };
 			else if (signal?.aborted) current = { kind: "cancelled" };
 		}
 		const plan = planTrelloUndo(action, current);
@@ -161,6 +163,8 @@ async function applyUndo(
 		}
 		if (plan.op === "update-card") {
 			await client.updateCard(plan.cardId, plan.fields, signal);
+		} else if (plan.op === "archive-card") {
+			await client.updateCard(plan.cardId, { closed: true }, signal);
 		} else {
 			await client.updateCheckItemState(plan.cardId, plan.checkItemId, plan.state, signal);
 		}

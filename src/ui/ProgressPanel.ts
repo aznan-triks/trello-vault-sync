@@ -1,5 +1,6 @@
 import { countSeverity } from "../core/countSeverity";
 import type { LogLevel } from "../core/journal";
+import { shouldAutoClosePanel } from "../core/panelAutoClose";
 import type { Reporter } from "../obsidian/gateway";
 
 const ICONS: Record<LogLevel, string> = {
@@ -57,6 +58,8 @@ export interface PanelOptions {
 	autoCloseMs: number;
 	/** Called once when the user asks to stop the sync this panel is tracking. */
 	onCancel?: () => void;
+	/** On by default — a run that logged ≥ 1 error never auto-closes, even when `autoCloseMs > 0`. See `core/panelAutoClose.ts::shouldAutoClosePanel`. */
+	keepOpenOnError?: boolean;
 }
 
 /**
@@ -81,6 +84,8 @@ export class ProgressPanel implements Reporter {
 	private timer: number | null = null;
 	private finished = false;
 	private cancelling = false;
+	/** Set by `count("errors", n > 0)` or any `log("error", …)` — read by `finish()` to decide whether to auto-close. */
+	private hasErrors = false;
 
 	constructor(private readonly options: PanelOptions) {
 		document.querySelectorAll(".tvs-panel").forEach((node) => node.remove());
@@ -131,6 +136,7 @@ export class ProgressPanel implements Reporter {
 	}
 
 	count(key: string, value: number): void {
+		if (key === "errors" && value > 0) this.hasErrors = true;
 		let cell = this.counters.get(key);
 		if (!cell) {
 			const box = this.countsEl.createDiv({ cls: "tvs-panel__count" });
@@ -145,6 +151,7 @@ export class ProgressPanel implements Reporter {
 	}
 
 	log(level: LogLevel, message: string): void {
+		if (level === "error") this.hasErrors = true;
 		renderLogRow(this.logEl, level, message, MAX_LOG_ROWS);
 	}
 
@@ -158,7 +165,14 @@ export class ProgressPanel implements Reporter {
 		this.currentEl.setText(summary);
 		this.closeEl.setAttr("aria-label", "Close");
 		this.closeEl.removeClass("tvs-panel__close--hidden");
-		if (outcome === "done" && this.options.autoCloseMs > 0) {
+		if (
+			shouldAutoClosePanel({
+				outcome,
+				autoCloseMs: this.options.autoCloseMs,
+				hasErrors: this.hasErrors,
+				keepOpenOnError: this.options.keepOpenOnError ?? true,
+			})
+		) {
 			this.timer = window.setTimeout(() => this.destroy(), this.options.autoCloseMs);
 		}
 	}

@@ -128,6 +128,12 @@ describe("describeSyncAction", () => {
 			}),
 		).toBe("Trello checklist item — a.md (card c1)");
 	});
+
+	test("trello-card-create: kind, path and card id", () => {
+		expect(describeSyncAction({ kind: "trello-card-create", path: "a.md", cardId: "c1" })).toBe(
+			"Created Trello card — a.md (card c1)",
+		);
+	});
 });
 
 describe("planActionUndo", () => {
@@ -331,6 +337,27 @@ describe("planTrelloUndo", () => {
 			},
 			null,
 		);
+		expect(plan).toEqual({ op: "skip", reason: "card no longer exists" });
+	});
+
+	test("trello-card-create: archives the card when it is still open", () => {
+		const plan = planTrelloUndo(
+			{ kind: "trello-card-create", path: "n.md", cardId: "c1" },
+			{ kind: "card", fields: { closed: false } },
+		);
+		expect(plan).toEqual({ op: "archive-card", cardId: "c1" });
+	});
+
+	test("trello-card-create: skips as a no-op when already archived", () => {
+		const plan = planTrelloUndo(
+			{ kind: "trello-card-create", path: "n.md", cardId: "c1" },
+			{ kind: "card", fields: { closed: true } },
+		);
+		expect(plan).toEqual({ op: "skip", reason: "already archived" });
+	});
+
+	test("trello-card-create: skips when the card no longer exists", () => {
+		const plan = planTrelloUndo({ kind: "trello-card-create", path: "n.md", cardId: "c1" }, null);
 		expect(plan).toEqual({ op: "skip", reason: "card no longer exists" });
 	});
 });

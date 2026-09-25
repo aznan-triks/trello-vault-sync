@@ -15,3 +15,17 @@ export function appendJournalEntry(entries: readonly JournalEntry[], entry: Jour
 	const next = [...entries, entry];
 	return next.length > maxEntries ? next.slice(next.length - maxEntries) : next;
 }
+
+const DRY_RUN_PREFIX = "[Dry-run] ";
+
+/**
+ * The single place that prefixes a log line with `[Dry-run]` — called once,
+ * from `main.ts::withJournal`, for every `Reporter.log()` call made while
+ * `settings.dryRun` is on, so the panel/journal/sidebar never need their own
+ * copy of this rule (DRY). Idempotent: a message a command already prefixed
+ * itself (e.g. a batch action's own summary text) is never double-prefixed.
+ */
+export function prefixDryRunMessage(message: string, dryRun: boolean): string {
+	if (!dryRun || message.startsWith(DRY_RUN_PREFIX)) return message;
+	return `${DRY_RUN_PREFIX}${message}`;
+}
