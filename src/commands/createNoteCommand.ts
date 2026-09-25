@@ -123,7 +123,8 @@ export async function batchCreateNotesFromCardsAction(
 	});
 }
 
-function folderCandidates(ctx: CommandContext): string[] {
+/** Existing vault folders, offered by the fallback-folder prompt — shared with `auditReportCreateCommand.ts`. */
+export function folderCandidates(ctx: CommandContext): string[] {
 	return ctx.vault.listNotes("").reduce<string[]>((folders, note) => {
 		if (note.folder !== "" && !folders.includes(note.folder)) folders.push(note.folder);
 		return folders;

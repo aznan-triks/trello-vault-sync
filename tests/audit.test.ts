@@ -129,6 +129,57 @@ describe("auditLinks", () => {
 
 		expect(vault.contentOf("WoT/00_Metatrois/New.md")).toContain("Trello Link Report");
 	});
+
+	describe("creation scopes", () => {
+		const setup = () => {
+			const vault = new FakeVault({
+				[REPORT]: { content: "" },
+				"WoT/Mapped/free.md": { content: "rien" },
+				"WoT/Other/free.md": { content: "rien" },
+				"WoT/Mapped/ghost.md": { content: linked("gone") },
+			});
+			const { client } = clientFor(
+				[card({ id: "c1", name: "In mapped", idList: "l1" }), card({ id: "c2", name: "Elsewhere", idList: "l2" })],
+				[
+					{ id: "l1", name: "Mapped" },
+					{ id: "l2", name: "Other" },
+				],
+			);
+			return { vault, client };
+		};
+		const options = { scope: "WoT", boardId: "board", reportPath: REPORT, timestamp: "t" };
+		const mappings = [{ listId: "l1", folder: "WoT/Mapped" }];
+
+		test("counts every orphan and unlinked note when no scope is passed", async () => {
+			const { vault, client } = setup();
+			const result = await auditLinks(vault, client, options);
+			expect([result.orphanCards, result.phantomNotes, result.unlinkedNotes]).toEqual([2, 1, 3]);
+			expect(result.markdown).not.toContain("filtered by the detection scopes");
+		});
+
+		test("applies the orphan card and phantom note scopes the pickers use", async () => {
+			const { vault, client } = setup();
+			const result = await auditLinks(vault, client, {
+				...options,
+				creationScopes: { mappings, orphanCardScope: "mapped-lists-only", phantomNoteScope: "mapped-folders-only" },
+			});
+			expect([result.orphanCards, result.phantomNotes, result.unlinkedNotes]).toEqual([1, 1, 1]);
+			expect(result.markdown).toContain("In mapped");
+			expect(result.markdown).not.toContain("Elsewhere");
+			expect(result.markdown).toContain("[[WoT/Mapped/free.md|free]]");
+			expect(result.markdown).not.toContain("[[WoT/Other/free.md|free]]");
+			expect(result.markdown).toContain("filtered by the detection scopes");
+		});
+
+		test("phantom-only scope empties the unlinked section but keeps broken links", async () => {
+			const { vault, client } = setup();
+			const result = await auditLinks(vault, client, {
+				...options,
+				creationScopes: { mappings, orphanCardScope: "all", phantomNoteScope: "phantom-only" },
+			});
+			expect([result.orphanCards, result.phantomNotes, result.unlinkedNotes]).toEqual([2, 1, 0]);
+		});
+	});
 });
 
 describe("auditLocations", () => {

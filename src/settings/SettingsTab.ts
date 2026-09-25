@@ -1247,6 +1247,51 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						void this.save();
 					});
 			});
+
+		new Setting(root).setName("Create from audit report").setHeading();
+		root.createEl("p", {
+			cls: "setting-item-description",
+			text:
+				'What "Create from audit report (unchecked items)" does with the link audit report: items you ticked are left ' +
+				"alone, unchecked ones are created (after a preview). Broken-link notes are never included — use " +
+				'"Create Trello cards from phantom notes" for those.',
+		});
+
+		new Setting(root)
+			.setName("Unchecked orphan cards → notes")
+			.setDesc("Create a note for each orphan card left unchecked in the report (same folder rules as above).")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.auditReportCreateNotes).onChange((value) => {
+					this.plugin.settings.auditReportCreateNotes = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Unchecked unlinked notes → cards")
+			.setDesc(
+				"Create a Trello card for each unlinked note left unchecked in the report (same list rules as above). " +
+					"With both toggles off, the command does nothing.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.auditReportCreateCards).onChange((value) => {
+					this.plugin.settings.auditReportCreateCards = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Apply creation scopes to the audit report")
+			.setDesc(
+				'On by default — the link audit report lists only the orphan cards and unlinked notes allowed by the two ' +
+					'"detection scope" settings above, so its counts match the creation pickers. Off lists every one.',
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.auditReportApplyCreationScopes).onChange((value) => {
+					this.plugin.settings.auditReportApplyCreationScopes = value;
+					void this.save();
+				}),
+			);
 	}
 
 	private renderAutoSync(root: HTMLElement): void {

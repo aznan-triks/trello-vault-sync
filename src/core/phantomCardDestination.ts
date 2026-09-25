@@ -39,6 +39,21 @@ export function resolvePhantomCardDestination(
 
 export type PhantomNoteScope = "all-unlinked" | "mapped-folders-only" | "phantom-only";
 
+/**
+ * Whether an unlinked note (no card id at all) in `folder` is a candidate under
+ * `scope` — shared by the phantom-note picker and the link audit report so both
+ * count the same notes. Phantom notes (broken card id) are always candidates.
+ */
+export function isUnlinkedNoteInScope(
+	folder: string,
+	scope: PhantomNoteScope,
+	mappedFolders?: ReadonlySet<string>,
+): boolean {
+	if (scope === "phantom-only") return false;
+	if (scope === "mapped-folders-only" && mappedFolders && !mappedFolders.has(folder)) return false;
+	return true;
+}
+
 export interface PhantomCandidate<T = PlannedNote> {
 	note: T;
 	kind: "phantom" | "unlinked";
@@ -58,10 +73,7 @@ export function findPhantomNoteCandidates<T extends { folder: string; cardId: st
 	const candidates: PhantomCandidate<T>[] = [];
 	for (const note of notes) {
 		if (note.cardId === null) {
-			if (scope === "phantom-only") continue;
-			if (scope === "mapped-folders-only" && mappedFolders && !mappedFolders.has(note.folder)) {
-				continue;
-			}
+			if (!isUnlinkedNoteInScope(note.folder, scope, mappedFolders)) continue;
 			candidates.push({ note, kind: "unlinked" });
 		} else if (!aliveCardIds.has(note.cardId)) {
 			candidates.push({ note, kind: "phantom" });
