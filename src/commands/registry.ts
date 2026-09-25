@@ -1,4 +1,5 @@
 import * as auditCommands from "./auditCommands";
+import { createFromAuditReport } from "./auditReportCreateCommand";
 import type { CommandContext } from "./context";
 import { createCardFromActiveNote, createCardsFromPhantomNotes } from "./createCardCommand";
 import { createNoteFromOrphanCard } from "./createNoteCommand";
@@ -221,6 +222,16 @@ export const COMMANDS: CommandDescriptor[] = [
 		description: "Report Trello cards with no linked note, and notes with no linked card.",
 		tone: "audit",
 		run: (ctx) => auditCommands.runLinkAudit(ctx),
+	},
+	{
+		id: "create-from-audit-report",
+		name: "Create from audit report (unchecked items)",
+		icon: "clipboard-check",
+		section: "Vault",
+		description:
+			"Create notes for the orphan cards and cards for the unlinked notes left unchecked in the link audit report — all of it, or one list or folder.",
+		tone: "link",
+		run: (ctx) => createFromAuditReport(ctx),
 	},
 	{
 		id: "audit-locations",
