@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] — 2026-09-28
+
+### Added
+
+- **Plain**: The audit report can now be used one direction at a time: "Create notes from audit report (unchecked cards)" and "Create Trello cards from audit report (unchecked notes)", next to the existing both-ways button.
+  **Technical**: `createFromAuditReport(ctx, direction)` with `AuditReportDirection = "both" | "notes" | "cards"`; new commands `create-notes-from-audit-report`, `create-cards-from-audit-report`. Existing settings `auditReportCreateNotes`/`auditReportCreateCards` still gate each side.
+- **Plain**: Plain (non-forced) Pull and Push now exist for a mapped folder and for the whole vault, not only for the active note — a real conflict is reported instead of overwritten.
+  **Technical**: `syncOneMapping(ctx, direction?)` / `syncAllLinked(ctx, direction?)` pass the direction to `folderOptions`/`noteOptions` without `bypassConflict`; new commands `pull-folder`, `push-folder`, `pull-vault`, `push-vault`.
+- **Plain**: New "Open link audit report" button opens the report note directly.
+  **Technical**: `openLinkReport` in `src/commands/auditCommands.ts`, command `open-link-audit-report`.
+- **Plain**: Searching the settings now shows which tab each result lives in, with a link that jumps straight to that tab.
+  **Technical**: `.tvs-settings__search-jump` button per section in `SettingsTab.renderAllSections`, visible only while searching; click clears the search, sets `activeTab`, re-renders and scrolls to the section.
+- **Plain**: Three limits that were fixed in the code are now settings: journal lines kept (Advanced, default 60), note name max length (Advanced, default 120), and the sync-history "runs kept" setting now accepts up to 1000 instead of 200.
+  **Technical**: New settings `logMaxRows` (10-2000) and `noteNameMaxLength` (20-200) replace `MAX_LOG_ROWS`/`MAX_BASENAME_LENGTH` at runtime; `maxNameLength` threaded through `NoteSyncOptions`, `decideSync`, `planFolderMatch`, `createNoteFromCard`; `HISTORY_MAX_RUNS_CEILING` 200 → 1000.
+
+### Changed
+
+- **Plain**: The sidebar's long "Vault" group is split into Vault, Create, Audit and History.
+  **Technical**: `CommandSection` gains `"Create" | "Audit" | "History"`; creation/audit/history commands reassigned in `registry.ts`.
+
 ## [1.19.0] — 2026-09-25
 
 ### Added
