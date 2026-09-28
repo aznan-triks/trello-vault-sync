@@ -175,8 +175,10 @@ describe("filterAndGroupChangelog", () => {
 		const { introHtml, rawItems } = parseRawChangelogMarkdown(rawMarkdown);
 		expect(introHtml).toContain("All notable changes");
 		expect(rawItems.length).toBeGreaterThanOrEqual(40);
-		expect(rawItems[0]?.ver).toMatch(/^\d+\.\d+\.\d+/);
-		expect(rawItems[0]?.date).toMatch(/^\d{4}-\d{2}-\d{2}/);
+		// An "[Unreleased]" block may sit on top between releases — check the first released entry.
+		const released = rawItems.find((item) => item.ver !== "Unreleased");
+		expect(released?.ver).toMatch(/^\d+\.\d+\.\d+/);
+		expect(released?.date).toMatch(/^\d{4}-\d{2}-\d{2}/);
 	});
 
 	test("filters by search query across version and content", () => {
@@ -260,7 +262,8 @@ describe("filterAndGroupChangelog", () => {
 		});
 
 		expect(result.dateGroups.length).toBeGreaterThan(0);
-		expect(result.dateGroups[0]?.date).toMatch(/^\d{4}-\d{2}-\d{2}/);
+		const dated = result.dateGroups.find((group) => group.date !== "Unreleased");
+		expect(dated?.date).toMatch(/^\d{4}-\d{2}-\d{2}/);
 		expect(result.dateGroups[0]?.versions.length).toBeGreaterThanOrEqual(1);
 	});
 });

@@ -35,6 +35,8 @@ export interface SyncInput {
 	syncDescription?: boolean;
 	/** Whether the note file name and the card title follow each other. Defaults to true. */
 	syncTitle?: boolean;
+	/** Longest note base name (`noteNameMaxLength`) — a title truncated to it is not a title change. */
+	maxNameLength?: number;
 	/** Whether the note frontmatter due date and the card due follow each other. Defaults to true. */
 	syncDue?: boolean;
 	/** Whether labels are synchronized. Defaults to true. */
@@ -71,7 +73,7 @@ export function decideSync(input: SyncInput): SyncDecision {
 	// title is always filesystem-sanitized, so comparing against the raw card
 	// title would flag every special-character title as "changed" forever and
 	// push the sanitized filename back to Trello as if it were a real rename.
-	const titleChanged = input.syncTitle !== false && input.localTitle.trim() !== sanitizeFileName(input.remoteTitle).trim();
+	const titleChanged = input.syncTitle !== false && input.localTitle.trim() !== sanitizeFileName(input.remoteTitle, input.maxNameLength).trim();
 	const dueChanged = input.syncDue !== false && normalizeDue(input.localDue) !== normalizeDue(input.remoteDue);
 	// A "merge" (or unset) mode never surfaces a label divergence as a reason to
 	// sync or conflict — the labels converge as a non-destructive side effect

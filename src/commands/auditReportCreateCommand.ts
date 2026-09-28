@@ -35,11 +35,20 @@ function groupLabel(group: ReportGroup): string {
 		: `📁 ${group.name} — ${group.unchecked.length} unchecked note(s)${checked}`;
 }
 
-function groupChoices(groups: readonly ReportGroup[]): AuditReportGroupChoice[] {
+/** Which side(s) of the link report a command acts on: both, only orphan cards → notes, or only unlinked notes → cards. */
+export type AuditReportDirection = "both" | "notes" | "cards";
+
+function allLabel(direction: AuditReportDirection, cardCount: number, noteCount: number): string {
+	if (direction === "notes") return `All lists — ${cardCount} card(s) → notes`;
+	if (direction === "cards") return `All folders — ${noteCount} note(s) → cards`;
+	return `All groups — ${cardCount} card(s) → notes · ${noteCount} note(s) → cards`;
+}
+
+function groupChoices(groups: readonly ReportGroup[], direction: AuditReportDirection): AuditReportGroupChoice[] {
 	const all = selectUncheckedKeys(groups, "all");
 	return [
 		{
-			label: `All groups — ${all.cardKeys.length} card(s) → notes · ${all.noteKeys.length} note(s) → cards`,
+			label: allLabel(direction, all.cardKeys.length, all.noteKeys.length),
 			selection: "all",
 		},
 		...groups.map((group) => ({ label: groupLabel(group), selection: { kind: group.kind, name: group.name } })),
@@ -169,12 +178,13 @@ async function createFromSelection(
  * become cards (each direction behind its own setting). Checked items are the
  * user's "leave this alone" triage and are never touched.
  */
-export async function createFromAuditReport(ctx: CommandContext): Promise<void> {
+export async function createFromAuditReport(ctx: CommandContext, direction: AuditReportDirection = "both"): Promise<void> {
 	if (!ctx.ready(true)) return;
-	const { auditReportCreateNotes, auditReportCreateCards } = ctx.settings;
-	if (!auditReportCreateNotes && !auditReportCreateCards) {
+	const createNotes = ctx.settings.auditReportCreateNotes && direction !== "cards";
+	const createCards = ctx.settings.auditReportCreateCards && direction !== "notes";
+	if (!createNotes && !createCards) {
 		new Notice(
-			"Creating from the audit report is disabled — turn on notes and/or cards under Settings → Creation → Create from audit report.",
+			`Creating ${direction === "notes" ? "notes" : direction === "cards" ? "cards" : "anything"} from the audit report is disabled — turn it on under Settings → Creation → Create from audit report.`,
 		);
 		return;
 	}
@@ -191,14 +201,14 @@ export async function createFromAuditReport(ctx: CommandContext): Promise<void> 
 
 	const usable = groups.filter(
 		(group) =>
-			group.unchecked.length > 0 && (group.kind === "orphan-cards" ? auditReportCreateNotes : auditReportCreateCards),
+			group.unchecked.length > 0 && (group.kind === "orphan-cards" ? createNotes : createCards),
 	);
 	if (usable.length === 0) {
 		new Notice("Nothing is left unchecked in the link report.");
 		return;
 	}
 
-	new AuditReportGroupPickerModal(ctx.app, groupChoices(usable), (choice) => {
+	new AuditReportGroupPickerModal(ctx.app, groupChoices(usable, direction), (choice) => {
 		void createFromSelection(ctx, usable, choice.selection);
 	}).open();
 }

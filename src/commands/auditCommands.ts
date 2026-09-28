@@ -1,3 +1,4 @@
+import { Notice } from "obsidian";
 import type { CommandContext } from "./context";
 import { auditChanges } from "../features/auditChanges";
 import { auditLinks } from "../features/auditLinks";
@@ -78,4 +79,14 @@ export async function runChangesHtmlExport(ctx: CommandContext): Promise<void> {
 		reporter.count("changes", result.entries);
 		return `${result.entries} change(s) exported to ${ctx.settings.changesHtmlPath}`;
 	});
+}
+
+/** Opens the link report note, so its checkboxes can be triaged without hunting for the file. */
+export async function openLinkReport(ctx: CommandContext): Promise<void> {
+	const reportPath = ctx.auditOptions("links").reportPath.trim();
+	if (reportPath === "" || !ctx.vault.noteAt(reportPath)) {
+		new Notice(`No link report found${reportPath ? ` in ${reportPath}` : ""}. Run "Audit links (orphan cards and notes)" first.`);
+		return;
+	}
+	await ctx.app.workspace.openLinkText(reportPath, "", false);
 }

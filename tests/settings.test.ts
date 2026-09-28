@@ -276,7 +276,16 @@ describe("normalizeSettings", () => {
 	});
 
 	test("clamps historyMaxRuns so a corrupted value cannot grow data.json without bound", () => {
-		expect(normalizeSettings({ historyMaxRuns: 999_999 }).historyMaxRuns).toBe(200);
+		expect(normalizeSettings({ historyMaxRuns: 999_999 }).historyMaxRuns).toBe(1000);
+	});
+
+	test("clamps noteNameMaxLength and logMaxRows into their ranges, with defaults when corrupted", () => {
+		expect(normalizeSettings({}).noteNameMaxLength).toBe(120);
+		expect(normalizeSettings({ noteNameMaxLength: 5 }).noteNameMaxLength).toBe(20);
+		expect(normalizeSettings({ noteNameMaxLength: 9999 }).noteNameMaxLength).toBe(200);
+		expect(normalizeSettings({}).logMaxRows).toBe(60);
+		expect(normalizeSettings({ logMaxRows: 1 }).logMaxRows).toBe(10);
+		expect(normalizeSettings({ logMaxRows: "x" as unknown as number }).logMaxRows).toBe(60);
 	});
 
 	test("falls back historyMaxRuns to the default when corrupted", () => {

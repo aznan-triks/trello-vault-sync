@@ -3,7 +3,7 @@ import type { CommandContext } from "../commands/context";
 import { ALL_SECTIONS, COMMANDS, type CommandDescriptor, type CommandSection } from "../commands/registry";
 import type { LogLevel } from "../core/journal";
 import { hasCredentials } from "../settings/types";
-import { MAX_LOG_ROWS, renderLogRow } from "./ProgressPanel";
+import { renderLogRow } from "./ProgressPanel";
 
 /**
  * `App.setting` opens/targets the settings dialog but isn't part of Obsidian's
@@ -108,13 +108,13 @@ export class SidebarView extends ItemView {
 			this.journalEmptyEl.remove();
 			this.journalEmptyEl = null;
 		}
-		renderLogRow(this.journalEl, level, message, MAX_LOG_ROWS);
+		renderLogRow(this.journalEl, level, message, this.ctx.settings.logMaxRows);
 		this.updateJournalBadge();
 	}
 
 	private updateJournalBadge(): void {
 		if (!this.journalCountBadgeEl) return;
-		const count = this.journalEl ? this.journalEl.querySelectorAll(".tvs-panel__row").length : Math.min(this.ctx.journal.length, MAX_LOG_ROWS);
+		const count = this.journalEl ? this.journalEl.querySelectorAll(".tvs-panel__row").length : Math.min(this.ctx.journal.length, this.ctx.settings.logMaxRows);
 		this.journalCountBadgeEl.setText(String(count));
 	}
 
@@ -424,7 +424,7 @@ export class SidebarView extends ItemView {
 
 		this.journalCountBadgeEl = titleGroup.createSpan({
 			cls: "tvs-sidebar__journal-count-badge",
-			text: String(Math.min(this.ctx.journal.length, MAX_LOG_ROWS)),
+			text: String(Math.min(this.ctx.journal.length, this.ctx.settings.logMaxRows)),
 		});
 
 		const clearBtn = header.createEl("button", {
@@ -447,7 +447,7 @@ export class SidebarView extends ItemView {
 		} else {
 			this.journalEmptyEl = null;
 			for (const entry of this.ctx.journal) {
-				renderLogRow(this.journalEl, entry.level, entry.message, MAX_LOG_ROWS);
+				renderLogRow(this.journalEl, entry.level, entry.message, this.ctx.settings.logMaxRows);
 			}
 		}
 	}

@@ -1,5 +1,15 @@
-import { describe, expect, test } from "vitest";
-import { runChangesHtmlExport } from "../src/commands/auditCommands";
+import { describe, expect, test, vi } from "vitest";
+
+const notices: string[] = [];
+vi.mock("obsidian", () => ({
+	Notice: class Notice {
+		constructor(message?: string) {
+			notices.push(message ?? "");
+		}
+	},
+}));
+
+import { openLinkReport, runChangesHtmlExport } from "../src/commands/auditCommands";
 import type { CommandContext } from "../src/commands/context";
 import { silentReporter } from "../src/obsidian/gateway";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
@@ -99,5 +109,30 @@ describe("audit commands routing to dedicated report notes", () => {
 		await runChangesAudit(ctx);
 
 		expect(requestedKind).toBe("changes");
+	});
+});
+
+describe("openLinkReport", () => {
+	function ctxWith(vault: FakeVault, reportPath: string, opened: string[]): CommandContext {
+		return {
+			vault,
+			app: { workspace: { openLinkText: async (path: string) => void opened.push(path) } },
+			auditOptions: () => ({ reportPath }),
+		} as unknown as CommandContext;
+	}
+
+	test("opens the report note when it exists", async () => {
+		const vault = new FakeVault({ "Audit/links.md": { content: "# report" } });
+		const opened: string[] = [];
+		await openLinkReport(ctxWith(vault, "Audit/links.md", opened));
+		expect(opened).toEqual(["Audit/links.md"]);
+	});
+
+	test("tells the user to run the audit first when the report is missing", async () => {
+		const opened: string[] = [];
+		notices.length = 0;
+		await openLinkReport(ctxWith(new FakeVault(), "Audit/links.md", opened));
+		expect(opened).toEqual([]);
+		expect(notices[0]).toContain("Run \"Audit links");
 	});
 });

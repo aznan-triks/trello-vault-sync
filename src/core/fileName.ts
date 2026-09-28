@@ -3,8 +3,8 @@ const FORBIDDEN = new RegExp(String.raw`[*"\\/<>:|?]`, "g");
 /** Windows device names — illegal as a full file base name regardless of case. */
 const RESERVED_WINDOWS_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
-/** Longest base name we will produce, leaving room for a folder prefix. */
-const MAX_BASENAME_LENGTH = 120;
+/** Default longest base name we will produce, leaving room for a folder prefix — user-adjustable via `noteNameMaxLength`. */
+export const DEFAULT_MAX_BASENAME_LENGTH = 120;
 
 /** Strips ASCII control characters by code point — a regex literal for this range trips control-character linting. */
 function stripControlChars(value: string): string {
@@ -26,10 +26,10 @@ function truncateCodePoints(value: string, maxLength: number): string {
 }
 
 /** Turn an arbitrary Trello card title into a legal note base name. */
-export function sanitizeFileName(name: string): string {
+export function sanitizeFileName(name: string, maxLength = DEFAULT_MAX_BASENAME_LENGTH): string {
 	const cleaned = truncateCodePoints(
 		stripControlChars(name).replace(FORBIDDEN, "-").replace(/\.+$/, "").trim(),
-		MAX_BASENAME_LENGTH,
+		maxLength,
 	).trim();
 	if (cleaned === "") return "Untitled";
 	return RESERVED_WINDOWS_NAME.test(cleaned) ? `_${cleaned}` : cleaned;

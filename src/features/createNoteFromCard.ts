@@ -37,8 +37,9 @@ export async function createNoteFromCard(
 	folder: string,
 	template: string | null,
 	cardRefKey: string,
+	maxNameLength?: number,
 ): Promise<NoteHandle> {
-	const safeName = sanitizeFileName(card.name);
+	const safeName = sanitizeFileName(card.name, maxNameLength);
 	const path = uniqueNotePath(folder, safeName, (p) => vault.exists(p));
 	return vault.create(path, newNoteContentFromCard(card, template, cardRefKey));
 }
