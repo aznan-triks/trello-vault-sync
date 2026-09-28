@@ -59,6 +59,8 @@ import type {
 } from "../trello/client";
 
 export interface NoteSyncOptions {
+	/** Longest note base name produced from a card title (setting `noteNameMaxLength`). */
+	maxNameLength?: number;
 	policy: ConflictPolicy;
 	marginMs: number;
 	/** Whether the note file name and the card title follow each other. */
@@ -189,7 +191,7 @@ export function decideForCard(
 	localBody: string,
 	options: Pick<
 		NoteSyncOptions,
-		"policy" | "marginMs" | "labelsSyncMode" | "syncTitle" | "syncDescription" | "syncDue" | "syncLabels"
+		"policy" | "marginMs" | "labelsSyncMode" | "syncTitle" | "maxNameLength" | "syncDescription" | "syncDue" | "syncLabels"
 	>,
 	localDue: string | null,
 	localLabels: string[] = [],
@@ -213,6 +215,7 @@ export function decideForCard(
 		remoteLabels: remoteLabelsOf(card),
 		labelsSyncMode: options.labelsSyncMode,
 		syncTitle: options.syncTitle,
+		maxNameLength: options.maxNameLength,
 		syncDescription: options.syncDescription,
 		syncDue: options.syncDue,
 		syncLabels: options.syncLabels,
@@ -862,10 +865,10 @@ export async function syncNoteWithCard(
 		}
 
 		let renamed = false;
-		if (options.syncTitle && sanitizeFileName(card.name) !== current.basename && !signal?.aborted) {
+		if (options.syncTitle && sanitizeFileName(card.name, options.maxNameLength) !== current.basename && !signal?.aborted) {
 			const target = uniqueNotePath(
 				current.folder,
-				sanitizeFileName(card.name),
+				sanitizeFileName(card.name, options.maxNameLength),
 				(path) => vault.exists(path),
 				current.path,
 			);

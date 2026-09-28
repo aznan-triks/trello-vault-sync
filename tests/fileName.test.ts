@@ -123,3 +123,10 @@ describe("excludeFolders", () => {
 		expect(excludeFolders(handles, ["Archive", "WoT/90_Fins"])).toEqual([handles[0]]);
 	});
 });
+
+describe("sanitizeFileName maxLength", () => {
+	test("cuts to the given length instead of the default", () => {
+		expect(sanitizeFileName("a".repeat(50), 20)).toBe("a".repeat(20));
+		expect(sanitizeFileName("a".repeat(150))).toHaveLength(120);
+	});
+});

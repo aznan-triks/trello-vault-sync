@@ -126,6 +126,10 @@ export interface TrelloVaultSyncSettings {
 	historyEnabled: boolean;
 	/** Oldest run is dropped once this many are recorded. */
 	historyMaxRuns: number;
+	/** Longest note file name (without ".md") created from a card title; longer titles are cut. */
+	noteNameMaxLength: number;
+	/** Lines kept in the progress panel and the sidebar journal before the oldest is dropped. */
+	logMaxRows: number;
 	/** On by default — an undo also reverts the Trello-side writes a run made. Off: only vault writes are reverted; Trello actions are skipped and reported as disabled in settings, not attempted. */
 	historyRevertTrelloWrites: boolean;
 	/** On by default — shows a confirmation modal before "Undo last sync run" / "Undo last sync for the active note" (the picker command already ends on its own explicit "Undo selected" button, so it never goes through this gate). Off disables the modal for repeated use. */
@@ -244,6 +248,8 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	checklistHeading: DEFAULT_CHECKLIST_HEADING,
 	historyEnabled: true,
 	historyMaxRuns: 20,
+	noteNameMaxLength: 120,
+	logMaxRows: 60,
 	historyRevertTrelloWrites: true,
 	confirmUndo: true,
 	syncCardCover: DEFAULT_SYNC_CARD_COVER,
@@ -286,7 +292,13 @@ export const AUTO_SYNC_INTERVAL_MINUTES_CEILING = 1440;
 export const AUTO_SYNC_MIN_IDLE_SECONDS_CEILING = 3600;
 
 /** Highest number of runs `historyMaxRuns` will accept before clamping — a corrupted setting must not turn into an unbounded `data.json`. */
-export const HISTORY_MAX_RUNS_CEILING = 200;
+export const HISTORY_MAX_RUNS_CEILING = 1000;
+/** Bounds for `noteNameMaxLength` — below the floor names become unreadable, above the ceiling Windows' 260-char path limit bites. */
+export const NOTE_NAME_MAX_LENGTH_FLOOR = 20;
+export const NOTE_NAME_MAX_LENGTH_CEILING = 200;
+/** Bounds for `logMaxRows` — the journal is persisted in data.json, so it must stay bounded. */
+export const LOG_MAX_ROWS_FLOOR = 10;
+export const LOG_MAX_ROWS_CEILING = 2000;
 
 /** Highest retry count normalizeSettings will accept before clamping. */
 export const MAX_RETRIES_CEILING = 10;
@@ -428,6 +440,14 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			input.historyMaxRuns,
 			DEFAULT_SETTINGS.historyMaxRuns,
 			HISTORY_MAX_RUNS_CEILING,
+		),
+		noteNameMaxLength: Math.max(
+			NOTE_NAME_MAX_LENGTH_FLOOR,
+			Math.round(safeNonNegativeNumber(input.noteNameMaxLength, DEFAULT_SETTINGS.noteNameMaxLength, NOTE_NAME_MAX_LENGTH_CEILING)),
+		),
+		logMaxRows: Math.max(
+			LOG_MAX_ROWS_FLOOR,
+			Math.round(safeNonNegativeNumber(input.logMaxRows, DEFAULT_SETTINGS.logMaxRows, LOG_MAX_ROWS_CEILING)),
 		),
 		ribbonCommandIds: (() => {
 			const rawIds = (Array.isArray(input.ribbonCommandIds) ? input.ribbonCommandIds : DEFAULT_SETTINGS.ribbonCommandIds)

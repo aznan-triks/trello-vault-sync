@@ -32,7 +32,14 @@ export async function createInFolder(ctx: CommandContext, card: TrelloCard, fold
 				reporter.log("create", card.name);
 				return `Would create a note for "${card.name}" in ${folder || "(vault root)"}.`;
 			}
-			const note = await createNoteFromCard(ctx.vault, card, folder, template, ctx.settings.cardRefFrontmatterKey);
+			const note = await createNoteFromCard(
+				ctx.vault,
+				card,
+				folder,
+				template,
+				ctx.settings.cardRefFrontmatterKey,
+				ctx.settings.noteNameMaxLength,
+			);
 			return `Created "${note.basename}.md" in ${note.folder || "(vault root)"}, linked to "${card.name}".`;
 		},
 		// One local vault write (template read + note creation): no network call, no loop — nothing to interrupt.
@@ -107,6 +114,7 @@ export async function batchCreateNotesFromCardsAction(
 							targetFolder,
 							template,
 							ctx.settings.cardRefFrontmatterKey,
+							ctx.settings.noteNameMaxLength,
 						);
 						created++;
 						reporter.log("create", note.basename);

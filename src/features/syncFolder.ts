@@ -144,7 +144,7 @@ export async function syncFolder(
 		cardId: vault.getCardRef(note)?.cardId ?? null,
 	}));
 
-	const plan = planFolderMatch(cards, planned, mapping.folder);
+	const plan = planFolderMatch(cards, planned, mapping.folder, options.maxNameLength);
 
 	stats.duplicates = plan.duplicateNotes.length;
 	for (const duplicate of plan.duplicateNotes) {
@@ -216,13 +216,13 @@ export async function syncFolder(
 			reporter.step(card.name);
 			try {
 				stats.created++;
-				const safeName = sanitizeFileName(card.name);
+				const safeName = sanitizeFileName(card.name, options.maxNameLength);
 				reporter.log(
 					"create",
 					safeName === card.name ? card.name : `${card.name} → saved as "${safeName}"`,
 				);
 				if (options.dryRun) continue;
-				await createNoteFromCard(vault, card, mapping.folder, template, cardRefKey);
+				await createNoteFromCard(vault, card, mapping.folder, template, cardRefKey, options.maxNameLength);
 			} catch (error) {
 				stats.created--;
 				stats.errors++;

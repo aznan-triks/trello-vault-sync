@@ -17,7 +17,7 @@ import { silentReporter, type NoteHandle, type Reporter } from "./obsidian/gatew
 import { TrelloVaultSyncSettingsTab } from "./settings/SettingsTab";
 import { DEFAULT_SETTINGS, hasCredentials, normalizeSettings, type TrelloVaultSyncSettings } from "./settings/types";
 import { redactSecrets, TrelloClient } from "./trello/client";
-import { MAX_LOG_ROWS, ProgressPanel } from "./ui/ProgressPanel";
+import { ProgressPanel } from "./ui/ProgressPanel";
 import { SidebarView, VIEW_TYPE_TVS_SIDEBAR } from "./ui/SidebarView";
 
 export default class TrelloVaultSyncPlugin extends Plugin implements CommandContext {
@@ -183,6 +183,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			policy: this.settings.policy,
 			marginMs: this.settings.marginSeconds * 1000,
 			syncTitle: this.settings.syncTitle,
+			maxNameLength: this.settings.noteNameMaxLength,
 			syncDescription: this.settings.syncDescription,
 			syncDue: this.settings.syncDue,
 			syncLabels: this.settings.syncLabels,
@@ -262,6 +263,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		const panel = new ProgressPanel({
 			title: title + suffix,
 			autoCloseMs: this.settings.panelAutoCloseSeconds * 1000,
+			maxLogRows: this.settings.logMaxRows,
 			onCancel,
 			keepOpenOnError: this.settings.keepPanelOpenOnError,
 		});
@@ -290,7 +292,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			log: (level, rawMessage) => {
 				const message = prefixDryRunMessage(rawMessage, this.settings.dryRun);
 				base.log(level, message);
-				this.journal = appendJournalEntry(this.journal, { level, message }, MAX_LOG_ROWS);
+				this.journal = appendJournalEntry(this.journal, { level, message }, this.settings.logMaxRows);
 				this.appendJournalToSidebars(level, message);
 			},
 			// Written to disk once per finished command, not once per log() call

@@ -1619,3 +1619,19 @@
 	color: var(--text-muted);
 }
 
+
+/* Settings search: "In tab: X — go there" link above each matching section */
+.tvs-settings__search-jump {
+	display: block;
+	margin: 12px 0 4px;
+	padding: 2px 8px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-accent);
+	background: none;
+	box-shadow: none;
+	border: 1px solid var(--background-modifier-border);
+	cursor: pointer;
+}
+.tvs-settings__search-jump.is-hidden {
+	display: none;
+}

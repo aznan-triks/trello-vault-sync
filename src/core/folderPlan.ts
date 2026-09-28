@@ -50,6 +50,7 @@ export function planFolderMatch(
 	cards: readonly PlannedCard[],
 	notes: readonly PlannedNote[],
 	folder: string,
+	maxNameLength?: number,
 ): FolderPlan {
 	const sorted = [...notes].sort((a, b) => a.path.localeCompare(b.path));
 
@@ -74,7 +75,7 @@ export function planFolderMatch(
 	const adoptedPaths = new Set<string>();
 
 	for (const card of cards) {
-		const targetPath = joinPath(folder, `${sanitizeFileName(card.name)}.md`);
+		const targetPath = joinPath(folder, `${sanitizeFileName(card.name, maxNameLength)}.md`);
 		let note = byCardId.get(card.id);
 		let adopted = false;
 

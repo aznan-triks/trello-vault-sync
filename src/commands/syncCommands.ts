@@ -6,16 +6,21 @@ import { syncAllMappings as syncAllMappingsFeature, syncFolder, type FolderMappi
 import { syncVault } from "../features/syncVault";
 import { MappingSuggest } from "../ui/MappingSuggest";
 
-export async function syncAllLinked(ctx: CommandContext): Promise<void> {
+/**
+ * `direction` makes this the plain "Pull/Push (vault)": one-directional like
+ * "Pull/Push (active note)", but a genuine conflict is still reported, never
+ * overwritten — only the Force commands bypass it (`forceSyncCommands.ts`).
+ */
+export async function syncAllLinked(ctx: CommandContext, direction?: "pull" | "push"): Promise<void> {
 	if (!ctx.ready(true)) return;
 
-	await ctx.run("Vault sync", async (reporter, signal) => {
+	await ctx.run(direction ? `${direction === "pull" ? "Pull" : "Push"} — vault` : "Vault sync", async (reporter, signal) => {
 		return withHistoryRecording(ctx, ctx.settings.scope, async (vault, onTrelloWrite) => {
 			const stats = await syncVault(
 				vault,
 				ctx.client(reporter),
 				{ scope: ctx.settings.scope, boardId: ctx.settings.boardId, excludedFolders: ctx.settings.excludedFolders },
-				{ ...ctx.noteOptions(), onTrelloWrite },
+				{ ...ctx.noteOptions(direction), onTrelloWrite },
 				reporter,
 				signal,
 			);
@@ -26,25 +31,27 @@ export async function syncAllLinked(ctx: CommandContext): Promise<void> {
 	});
 }
 
-export async function syncOneMapping(ctx: CommandContext): Promise<void> {
+/** `direction` makes this the plain "Pull/Push (mapped folder)" — see `syncAllLinked`. */
+export async function syncOneMapping(ctx: CommandContext, direction?: "pull" | "push"): Promise<void> {
 	if (!ctx.ready()) return;
 	if (ctx.settings.mappings.length === 0) {
 		new Notice("No list ↔ folder mapping defined in the plugin settings.");
 		return;
 	}
 	new MappingSuggest(ctx.app, ctx.settings.mappings, (mapping) => {
-		void runMapping(ctx, mapping);
+		void runMapping(ctx, mapping, direction);
 	}).open();
 }
 
-async function runMapping(ctx: CommandContext, mapping: FolderMapping): Promise<void> {
-	await ctx.run(`Sync — ${mapping.folder}`, async (reporter, signal) => {
+async function runMapping(ctx: CommandContext, mapping: FolderMapping, direction?: "pull" | "push"): Promise<void> {
+	const verb = direction === "pull" ? "Pull" : direction === "push" ? "Push" : "Sync";
+	await ctx.run(`${verb} — ${mapping.folder}`, async (reporter, signal) => {
 		return withHistoryRecording(ctx, mapping.folder, async (vault, onTrelloWrite) => {
 			const stats = await syncFolder(
 				vault,
 				ctx.client(reporter),
 				mapping,
-				{ ...ctx.folderOptions(), onTrelloWrite },
+				{ ...ctx.folderOptions(direction), onTrelloWrite },
 				reporter,
 				undefined,
 				signal,

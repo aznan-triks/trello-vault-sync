@@ -16,6 +16,7 @@ const ICONS: Record<LogLevel, string> = {
 	error: "✕",
 };
 
+/** Default for the `logMaxRows` setting — kept exported for callers with no settings at hand (tests). */
 export const MAX_LOG_ROWS = 60;
 
 /**
@@ -56,6 +57,8 @@ export interface PanelOptions {
 	title: string;
 	/** Delay before a successful panel disappears; 0 keeps it until dismissed. */
 	autoCloseMs: number;
+	/** Lines kept before the oldest is dropped (setting `logMaxRows`). Defaults to `MAX_LOG_ROWS`. */
+	maxLogRows?: number;
 	/** Called once when the user asks to stop the sync this panel is tracking. */
 	onCancel?: () => void;
 	/** On by default — a run that logged ≥ 1 error never auto-closes, even when `autoCloseMs > 0`. See `core/panelAutoClose.ts::shouldAutoClosePanel`. */
@@ -152,7 +155,7 @@ export class ProgressPanel implements Reporter {
 
 	log(level: LogLevel, message: string): void {
 		if (level === "error") this.hasErrors = true;
-		renderLogRow(this.logEl, level, message, MAX_LOG_ROWS);
+		renderLogRow(this.logEl, level, message, this.options.maxLogRows ?? MAX_LOG_ROWS);
 	}
 
 	finish(outcome: "done" | "aborted" | "error", summary: string): void {

@@ -27,6 +27,10 @@ import {
 	AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
 	BASE_DELAY_MS_CEILING,
 	HISTORY_MAX_RUNS_CEILING,
+	LOG_MAX_ROWS_CEILING,
+	LOG_MAX_ROWS_FLOOR,
+	NOTE_NAME_MAX_LENGTH_CEILING,
+	NOTE_NAME_MAX_LENGTH_FLOOR,
 	MAX_BACKOFF_DELAY_MS_CEILING,
 	MAX_RETRIES_CEILING,
 	REQUEST_TIMEOUT_MS_CEILING,
@@ -241,6 +245,19 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				cls: `tvs-settings__section tvs-settings__section--${sec.id}`,
 			});
 			secEl.dataset.tab = sec.tab;
+			// Shown only while searching: names the tab a match lives in and jumps
+			// there, so the next visit doesn't need a search at all.
+			const tabLabel = SETTINGS_TABS.find((t) => t.id === sec.tab)?.label ?? sec.tab;
+			const jump = secEl.createEl("button", {
+				cls: "tvs-settings__search-jump",
+				text: `In tab: ${tabLabel} — go there →`,
+			});
+			jump.addEventListener("click", () => {
+				this.searchQuery = "";
+				this.activeTab = sec.tab;
+				this.display();
+				this.containerEl.querySelector(`.tvs-settings__section--${sec.id}`)?.scrollIntoView({ block: "start" });
+			});
 			sec.render(secEl);
 		}
 	}
@@ -282,6 +299,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				});
 				sectionEl.toggleClass("is-hidden", !sectionHasMatch);
 			}
+			sectionEl.querySelector(".tvs-settings__search-jump")?.toggleClass("is-hidden", !isSearching);
 		});
 
 		if (this.searchCountEl) {
@@ -1066,7 +1084,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Sync history — runs kept")
 			.setDesc(
-				"Oldest run is dropped once this many are recorded. Range 0-200, default 20. 0 keeps no history " +
+				"Oldest run is dropped once this many are recorded. Range 0-1000, default 20. 0 keeps no history " +
 					"at all — every run is dropped right after it completes, and undo has nothing to work with.",
 			)
 			.addText((text) =>
@@ -1786,6 +1804,40 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.keepPanelOpenOnError).onChange((value) => {
 					this.plugin.settings.keepPanelOpenOnError = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Journal lines kept")
+			.setDesc(
+				`Lines shown in the progress panel and the sidebar journal before the oldest is dropped. ` +
+					`Range ${LOG_MAX_ROWS_FLOOR}-${LOG_MAX_ROWS_CEILING}, default 60.`,
+			)
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.logMaxRows)).onChange((value) => {
+					const parsed = Number.parseInt(value, 10);
+					if (!Number.isFinite(parsed)) return;
+					this.plugin.settings.logMaxRows = Math.max(LOG_MAX_ROWS_FLOOR, Math.min(parsed, LOG_MAX_ROWS_CEILING));
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Note name max length")
+			.setDesc(
+				`Longest note file name (without ".md") made from a card title — longer titles are cut. Applies to ` +
+					`new notes and to renames when titles sync. Range ${NOTE_NAME_MAX_LENGTH_FLOOR}-` +
+					`${NOTE_NAME_MAX_LENGTH_CEILING}, default 120. Changing it renames already-cut notes on their next sync.`,
+			)
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.noteNameMaxLength)).onChange((value) => {
+					const parsed = Number.parseInt(value, 10);
+					if (!Number.isFinite(parsed)) return;
+					this.plugin.settings.noteNameMaxLength = Math.max(
+						NOTE_NAME_MAX_LENGTH_FLOOR,
+						Math.min(parsed, NOTE_NAME_MAX_LENGTH_CEILING),
+					);
 					void this.save();
 				}),
 			);
