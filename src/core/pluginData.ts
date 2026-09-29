@@ -6,6 +6,8 @@ export interface PersistedData {
 	settingsRaw: unknown;
 	journal: JournalEntry[];
 	history: SyncRun[];
+	/** Epoch ms of the last successful sync (manual or auto) — the auto-sync timer counts from it, across restarts. */
+	lastSyncAt: number | null;
 }
 
 function isJournalEntry(value: unknown): value is JournalEntry {
@@ -64,14 +66,16 @@ function isSyncRun(value: unknown): value is SyncRun {
  */
 export function normalizePersistedData(raw: unknown): PersistedData {
 	const hasSettingsKey = typeof raw === "object" && raw !== null && "settings" in raw;
-	if (!hasSettingsKey) return { settingsRaw: raw, journal: [], history: [] };
+	if (!hasSettingsKey) return { settingsRaw: raw, journal: [], history: [], lastSyncAt: null };
 
-	const { settings, journal: rawJournal, history: rawHistory } = raw as {
+	const { settings, journal: rawJournal, history: rawHistory, lastSyncAt: rawLastSyncAt } = raw as {
 		settings: unknown;
 		journal?: unknown;
 		history?: unknown;
+		lastSyncAt?: unknown;
 	};
 	const journal = Array.isArray(rawJournal) ? rawJournal.filter(isJournalEntry) : [];
 	const history = Array.isArray(rawHistory) ? rawHistory.filter(isSyncRun) : [];
-	return { settingsRaw: settings, journal, history };
+	const lastSyncAt = typeof rawLastSyncAt === "number" && Number.isFinite(rawLastSyncAt) ? rawLastSyncAt : null;
+	return { settingsRaw: settings, journal, history, lastSyncAt };
 }

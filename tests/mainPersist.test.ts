@@ -162,3 +162,49 @@ describe("onload synchronous view registration", () => {
 		await onloadPromise;
 	});
 });
+
+describe("auto-sync bookkeeping", () => {
+	type Internals = {
+		lastSyncAt: number | null;
+		inBackground: (body: () => Promise<void>) => Promise<void>;
+		autoSyncState: () => string;
+		refreshSidebarViews: () => void;
+	};
+
+	test("a full sync that finishes cleanly is persisted as the timer's start", async () => {
+		const { instance, saveData } = plugin();
+		await instance.run("Sync", async () => "ok", { countsAsSync: true });
+		const saved = (saveData.mock.calls.at(-1) as unknown[] | undefined)?.[0] as { lastSyncAt: number | null };
+		expect(typeof saved.lastSyncAt).toBe("number");
+	});
+
+	test("a dry run, or a run that doesn't count as a sync, leaves the timer alone", async () => {
+		const { instance } = plugin();
+		instance.settings.dryRun = true;
+		await instance.run("Sync", async () => "ok", { countsAsSync: true });
+		instance.settings.dryRun = false;
+		await instance.run("Audit", async () => "ok");
+		expect((instance as unknown as Internals).lastSyncAt).toBeNull();
+	});
+
+	test("auto-sync pauses after the configured number of failures in a row, and re-enabling resumes it", async () => {
+		const { instance } = plugin();
+		const internals = instance as unknown as Internals;
+		internals.refreshSidebarViews = () => {};
+		(instance as unknown as { rebuildRibbon: () => void }).rebuildRibbon = () => {};
+		instance.settings.autoSyncEnabled = true;
+		instance.settings.autoSyncPauseAfterFailures = 2;
+		const failing = () =>
+			internals.inBackground(() =>
+				instance.run("Sync", async () => {
+					throw new Error("boom");
+				}),
+			);
+		await failing();
+		expect(internals.autoSyncState()).toBe("on");
+		await failing();
+		expect(internals.autoSyncState()).toBe("paused");
+		await instance.setAutoSyncEnabled(true);
+		expect(internals.autoSyncState()).toBe("on");
+	});
+});

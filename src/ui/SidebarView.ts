@@ -232,6 +232,32 @@ export class SidebarView extends ItemView {
 				modeBadge.toggleClass("tvs-badge--warn", value);
 			}),
 		);
+
+		this.renderAutoSyncRow(card);
+	}
+
+	/** Same look as the dry-run row: a quick on/off switch for auto-sync, with its state (ON / OFF / PAUSED after failures). */
+	private renderAutoSyncRow(card: HTMLElement): void {
+		const state = this.ctx.autoSyncState?.() ?? (this.ctx.settings.autoSyncEnabled ? "on" : "off");
+		const row = card.createDiv({ cls: "tvs-sidebar__dryrun-row" });
+		const labelGroup = row.createDiv({ cls: "tvs-sidebar__dryrun-label-group" });
+		labelGroup.createSpan({ cls: "tvs-sidebar__dryrun-label", text: "Auto-sync" });
+		const badge = labelGroup.createSpan({
+			cls: `tvs-badge ${state === "on" ? "tvs-badge--accent" : state === "paused" ? "tvs-badge--warn" : ""}`,
+			text: state.toUpperCase(),
+		});
+		if (state === "paused") {
+			setTooltip(badge, "Paused after several failed auto-syncs in a row. Switch off and on, or run a manual sync, to resume.");
+		}
+		new Setting(row).addToggle((toggle) =>
+			toggle.setValue(this.ctx.settings.autoSyncEnabled).onChange((value) => {
+				if (this.ctx.setAutoSyncEnabled) void this.ctx.setAutoSyncEnabled(value);
+				else {
+					this.ctx.settings.autoSyncEnabled = value;
+					void this.ctx.saveSettings();
+				}
+			}),
+		);
 	}
 
 	private renderSearchAndNav(root: HTMLElement): void {

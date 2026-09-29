@@ -1,4 +1,5 @@
 import { Notice } from "obsidian";
+import type { NoteHandle } from "../obsidian/gateway";
 import type { CommandContext } from "./context";
 import { withHistoryRecording } from "./syncHistoryHelper";
 import { parseDueRef } from "../core/dueRef";
@@ -25,7 +26,16 @@ import { ConflictModal } from "../ui/ConflictModal";
 export async function syncActive(ctx: CommandContext, force?: "pull" | "push", bypassConflict?: boolean): Promise<void> {
 	const note = ctx.activeNote();
 	if (!ctx.ready() || !note) return;
+	await syncNoteAt(ctx, note, force, bypassConflict);
+}
 
+/** Syncs one given note — the active-note commands and the "note changed" auto-sync trigger share it. */
+export async function syncNoteAt(
+	ctx: CommandContext,
+	note: NoteHandle,
+	force?: "pull" | "push",
+	bypassConflict?: boolean,
+): Promise<void> {
 	await ctx.run(`Sync — ${note.basename}`, async (reporter, signal) => {
 		reporter.setTotal(1);
 		reporter.step(note.basename);

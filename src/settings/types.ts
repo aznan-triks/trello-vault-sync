@@ -180,6 +180,16 @@ export interface TrelloVaultSyncSettings {
 
 	/** Off by default — an unsolicited sync writes to the vault. */
 	autoSyncEnabled: boolean;
+	/** Show the progress panel and the success notice for automatic syncs (errors always notify). */
+	autoSyncShowPanel: boolean;
+	/** Consecutive failed auto-syncs before auto-sync pauses itself; 0 = never pause. */
+	autoSyncPauseAfterFailures: number;
+	/** Skip timer-triggered auto-syncs while Obsidian's window is hidden or minimized. */
+	autoSyncOnlyWhenVisible: boolean;
+	/** Sync a linked note by itself a few seconds after it is edited. */
+	autoSyncOnNoteChange: boolean;
+	/** Quiet time after the last edit before the note-change sync runs. */
+	autoSyncNoteChangeDelaySeconds: number;
 	/** Independent toggles (not an either/or) — any combination triggers an auto-sync check on that event. */
 	autoSyncOnInterval: boolean;
 	autoSyncOnFocus: boolean;
@@ -273,6 +283,11 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	auditReportCreateCards: true,
 	auditReportApplyCreationScopes: true,
 	autoSyncEnabled: false,
+	autoSyncShowPanel: false,
+	autoSyncPauseAfterFailures: 3,
+	autoSyncOnlyWhenVisible: false,
+	autoSyncOnNoteChange: false,
+	autoSyncNoteChangeDelaySeconds: 10,
 	autoSyncOnInterval: true,
 	autoSyncOnFocus: false,
 	autoSyncOnStartup: false,
@@ -290,6 +305,11 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 export const AUTO_SYNC_INTERVAL_MINUTES_CEILING = 1440;
 /** Highest anti-burst floor, in seconds, `autoSyncMinIdleSeconds` will accept before clamping. */
 export const AUTO_SYNC_MIN_IDLE_SECONDS_CEILING = 3600;
+/** Highest `autoSyncPauseAfterFailures` accepted (0 = never pause). */
+export const AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING = 50;
+/** Bounds for `autoSyncNoteChangeDelaySeconds` — under 2 s every keystroke pause would hit Trello. */
+export const AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR = 2;
+export const AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING = 600;
 
 /** Highest number of runs `historyMaxRuns` will accept before clamping — a corrupted setting must not turn into an unbounded `data.json`. */
 export const HISTORY_MAX_RUNS_CEILING = 1000;
@@ -512,6 +532,21 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			input.autoSyncMinIdleSeconds,
 			DEFAULT_SETTINGS.autoSyncMinIdleSeconds,
 			AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
+		),
+		autoSyncPauseAfterFailures: Math.round(
+			safeNonNegativeNumber(
+				input.autoSyncPauseAfterFailures,
+				DEFAULT_SETTINGS.autoSyncPauseAfterFailures,
+				AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING,
+			),
+		),
+		autoSyncNoteChangeDelaySeconds: Math.max(
+			AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR,
+			safeNonNegativeNumber(
+				input.autoSyncNoteChangeDelaySeconds,
+				DEFAULT_SETTINGS.autoSyncNoteChangeDelaySeconds,
+				AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING,
+			),
 		),
 		membersFrontmatterKey: safeFrontmatterKey(input.membersFrontmatterKey, DEFAULT_SETTINGS.membersFrontmatterKey),
 		customFieldsFrontmatterKey: safeFrontmatterKey(

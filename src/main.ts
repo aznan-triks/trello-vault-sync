@@ -4,6 +4,7 @@ import * as noteCommands from "./commands/noteCommands";
 import { COMMANDS, type CommandDescriptor } from "./commands/registry";
 import * as syncCommands from "./commands/syncCommands";
 import { decideAutoSync, type AutoSyncEvent } from "./core/autoSyncSchedule";
+import { excludeFolders, notesInFolder } from "./core/fileName";
 import { errorMessage } from "./core/errorMessage";
 import { appendJournalEntry, prefixDryRunMessage, type JournalEntry, type LogLevel } from "./core/journal";
 import { normalizePersistedData } from "./core/pluginData";
@@ -29,10 +30,24 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	lastRunConflicts: number | null = null;
 	/** Guards every command in `run()` — two commands writing to the vault at once can race. */
 	private syncing = false;
-	/** Epoch ms of the last auto-sync attempt this session — in-memory only, reset on reload (see `decideAutoSync`). */
-	private lastAutoSyncAt: number | null = null;
+	/** Epoch ms of the last successful sync (manual or auto) — persisted in data.json, so the auto-sync timer survives a restart and a manual sync resets it. */
+	private lastSyncAt: number | null = null;
+	/** Auto-syncs that ended in error in a row — `autoSyncPauseAfterFailures` pauses auto-sync when reached. */
+	private autoSyncFailures = 0;
+	/** Paused after too many failures; cleared by re-enabling auto-sync or by any successful sync. In memory: a restart retries. */
+	private autoSyncPaused = false;
+	/** True while an automatic sync runs — `run()` then stays quiet unless `autoSyncShowPanel`. */
+	private backgroundRun = false;
+	/** Outcome of the latest `run()`, read after an automatic sync to count failures. */
+	private lastRunOutcome: "done" | "error" | "aborted" | "busy" = "done";
+	/** Epoch ms when the latest `run()` ended — edits right after a sync are the sync's own writes, not the user's. */
+	private lastRunEndedAt = 0;
+	/** Pending "note changed" syncs, one debounce timer per note path. */
+	private noteChangeTimers = new Map<string, number>();
 	/** Fixed scheduling detail, not a setting — how often `checkAutoSync("interval")` is polled; `decideAutoSync` (fed live settings each tick) is what actually decides whether that tick fires a sync. */
 	private static readonly AUTO_SYNC_POLL_MS = 30_000;
+	/** Fixed detail, not a setting: edits within this long after a sync ended are treated as the sync's own writes. */
+	private static readonly OWN_WRITE_GRACE_MS = 1500;
 	/** The panel of the sync currently running, if any — torn down on unload. */
 	private activePanel: ProgressPanel | null = null;
 	/** Tracked ribbon icon elements (with their title, for proper native removal) — removed and rebuilt by `rebuildRibbon()` when settings change. */
@@ -41,7 +56,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	override async onload(): Promise<void> {
 		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
 
-		const { settingsRaw, journal, history } = normalizePersistedData(await this.loadData());
+		const { settingsRaw, journal, history, lastSyncAt } = normalizePersistedData(await this.loadData());
+		this.lastSyncAt = lastSyncAt;
 		this.settings = normalizeSettings(settingsRaw);
 		this.journal = journal;
 		this.history = history;
@@ -54,6 +70,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 
 	override onunload(): void {
 		this.activePanel?.destroy();
+		for (const timer of this.noteChangeTimers.values()) window.clearTimeout(timer);
 	}
 
 	async saveSettings(): Promise<void> {
@@ -64,7 +81,12 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 
 	/** Writes settings, journal and sync history together into the plugin's own `data.json` — none of it a vault note (internal state, not a user-facing deliverable like the audit reports). */
 	private async persist(): Promise<void> {
-		await this.saveData({ settings: this.settings, journal: this.journal, history: this.history });
+		await this.saveData({
+			settings: this.settings,
+			journal: this.journal,
+			history: this.history,
+			lastSyncAt: this.lastSyncAt,
+		});
 	}
 
 	/**
@@ -254,7 +276,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	private panel(title: string, onCancel?: () => void): Reporter {
-		const base = this.settings.showPanel ? this.buildPanel(title, onCancel) : silentReporter;
+		const visible = this.settings.showPanel && (!this.backgroundRun || this.settings.autoSyncShowPanel);
+		const base = visible ? this.buildPanel(title, onCancel) : silentReporter;
 		return this.withJournal(base);
 	}
 
@@ -353,38 +376,71 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	async run(
 		title: string,
 		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
-		{ cancellable = true }: { cancellable?: boolean } = {},
+		{ cancellable = true, countsAsSync = false }: { cancellable?: boolean; countsAsSync?: boolean } = {},
 	): Promise<void> {
 		if (this.syncing) {
-			new Notice("Trello Vault Sync: a sync is already running — wait for it to finish.");
+			this.lastRunOutcome = "busy";
+			if (!this.backgroundRun) new Notice("Trello Vault Sync: a sync is already running — wait for it to finish.");
 			return;
 		}
+		const quiet = this.backgroundRun && !this.settings.autoSyncShowPanel;
+		const prefix = this.backgroundRun ? "Auto-sync: " : "";
 		this.syncing = true;
 		const controller = new AbortController();
 		const reporter = this.panel(title, cancellable ? () => controller.abort() : undefined);
 		try {
 			const summary = await body(reporter, controller.signal);
 			if (controller.signal.aborted) {
+				this.lastRunOutcome = "aborted";
 				reporter.finish("aborted", "Cancelled.");
 				new Notice("Trello Vault Sync: sync cancelled.");
 			} else {
+				this.lastRunOutcome = "done";
+				if (countsAsSync && !this.settings.dryRun) this.markSyncSucceeded();
 				reporter.finish("done", summary);
-				new Notice(`✅ ${summary}`);
+				if (!quiet) new Notice(`✅ ${prefix}${summary}`);
 			}
 		} catch (error) {
 			if (controller.signal.aborted) {
+				this.lastRunOutcome = "aborted";
 				reporter.finish("aborted", "Cancelled.");
 				new Notice("Trello Vault Sync: sync cancelled.");
 				return;
 			}
+			this.lastRunOutcome = "error";
 			const message = errorMessage(error);
 			reporter.log("error", message);
 			reporter.finish("error", message);
-			new Notice(`❌ ${message}`);
+			new Notice(`❌ ${prefix}${message}`);
 			console.error("[trello-vault-sync]", error);
 		} finally {
 			this.syncing = false;
+			this.lastRunEndedAt = Date.now();
 		}
+	}
+
+	/** A sync finished cleanly: restart the auto-sync timer from now and lift a failure pause. */
+	private markSyncSucceeded(): void {
+		this.lastSyncAt = Date.now();
+		this.autoSyncFailures = 0;
+		if (this.autoSyncPaused) {
+			this.autoSyncPaused = false;
+			this.refreshSidebarViews();
+		}
+	}
+
+	/** What the sidebar shows next to its auto-sync switch. */
+	autoSyncState(): "off" | "on" | "paused" {
+		if (!this.settings.autoSyncEnabled) return "off";
+		return this.autoSyncPaused ? "paused" : "on";
+	}
+
+	/** Palette command and sidebar switch: turning auto-sync on also lifts a failure pause. */
+	async setAutoSyncEnabled(enabled: boolean): Promise<void> {
+		this.settings.autoSyncEnabled = enabled;
+		this.autoSyncPaused = false;
+		this.autoSyncFailures = 0;
+		await this.saveSettings();
 	}
 
 	private registerCommands(): void {
@@ -395,6 +451,15 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				callback: () => command.run(this),
 			});
 		}
+
+		this.addCommand({
+			id: "toggle-auto-sync",
+			name: "Toggle auto-sync",
+			callback: async () => {
+				await this.setAutoSyncEnabled(!this.settings.autoSyncEnabled);
+				new Notice(`Auto-sync ${this.settings.autoSyncEnabled ? "enabled" : "disabled"}.`);
+			},
+		});
 
 		this.addCommand({
 			id: "toggle-dry-run",
@@ -478,6 +543,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			window.setInterval(() => void this.checkAutoSync("interval"), TrelloVaultSyncPlugin.AUTO_SYNC_POLL_MS),
 		);
 		this.registerDomEvent(window, "focus", () => void this.checkAutoSync("focus"));
+		this.registerEvent(this.app.vault.on("modify", (file) => this.onNoteModified(file)));
 		// Layout-ready, not onload() itself: the workspace (active file, panes)
 		// isn't settled yet inside onload(), and a sync that fires before it is
 		// would race Obsidian's own startup.
@@ -496,31 +562,104 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				return this.settings.autoSyncOnFocus;
 			case "startup":
 				return this.settings.autoSyncOnStartup;
+			case "note-change":
+				return this.settings.autoSyncOnNoteChange;
 		}
 	}
 
-	private async checkAutoSync(event: AutoSyncEvent): Promise<void> {
+	/**
+	 * "Sync a linked note after I edit it": debounced per note, so a typing
+	 * burst becomes one sync once the note has been quiet for
+	 * `autoSyncNoteChangeDelaySeconds`. Edits during a sync, or just after, are
+	 * the sync's own writes (pull, rename) and are ignored.
+	 */
+	private onNoteModified(file: unknown): void {
+		if (!this.settings.autoSyncEnabled || !this.settings.autoSyncOnNoteChange) return;
+		if (!(file instanceof TFile) || file.extension !== "md") return;
+		if (this.syncing || Date.now() - this.lastRunEndedAt < TrelloVaultSyncPlugin.OWN_WRITE_GRACE_MS) return;
+		const inScope = excludeFolders(notesInFolder([file], this.settings.scope), this.settings.excludedFolders);
+		if (inScope.length === 0) return;
+
+		const path = file.path;
+		const pending = this.noteChangeTimers.get(path);
+		if (pending !== undefined) window.clearTimeout(pending);
+		this.noteChangeTimers.set(
+			path,
+			window.setTimeout(() => {
+				this.noteChangeTimers.delete(path);
+				void this.runNoteChangeSync(path);
+			}, this.settings.autoSyncNoteChangeDelaySeconds * 1000),
+		);
+	}
+
+	private async runNoteChangeSync(path: string): Promise<void> {
+		const note = this.vault.noteAt(path);
+		if (!note || !this.vault.getCardRef(note)) return;
+		if (!this.autoSyncAllowed("note-change")) return;
+		await this.inBackground(() => noteCommands.syncNoteAt(this, note));
+	}
+
+	/** Shared gate for every trigger. A single-note sync ignores `lastSyncAt`: its own floor is the edit debounce. */
+	private autoSyncAllowed(event: AutoSyncEvent): boolean {
+		// No credentials yet: stay silent — `ready()` would otherwise pop a notice on every tick.
+		if (!hasCredentials(this.settings)) return false;
 		const decision = decideAutoSync({
 			enabled: this.settings.autoSyncEnabled,
 			triggerEnabled: this.isAutoSyncTriggerEnabled(event),
 			event,
 			now: Date.now(),
-			lastRunAt: this.lastAutoSyncAt,
+			lastRunAt: event === "note-change" ? null : this.lastSyncAt,
 			syncing: this.isSyncing(),
 			intervalMinutes: this.settings.autoSyncIntervalMinutes,
 			minIdleSeconds: this.settings.autoSyncMinIdleSeconds,
+			online: navigator.onLine,
+			paused: this.autoSyncPaused,
+			hidden: document.hidden,
+			onlyWhenVisible: this.settings.autoSyncOnlyWhenVisible,
 		});
-		if (decision.action !== "run") return;
-		// Both scope toggles off is reachable now that they're independent
-		// (the old single-choice enum couldn't land here) — nothing to run, so
-		// don't advance the anti-burst timer for a no-op either.
-		if (!this.settings.autoSyncScopeMappings && !this.settings.autoSyncScopeVault) return;
+		return decision.action === "run";
+	}
 
-		this.lastAutoSyncAt = Date.now();
+	/** Runs `body` as an automatic sync (quiet by default) and counts its failures toward the pause threshold. */
+	private async inBackground(body: () => Promise<void>): Promise<void> {
+		this.backgroundRun = true;
+		try {
+			await body();
+		} finally {
+			this.backgroundRun = false;
+		}
+		if (this.lastRunOutcome === "error") this.recordAutoSyncFailure();
+		else if (this.lastRunOutcome === "done") this.autoSyncFailures = 0;
+	}
+
+	private recordAutoSyncFailure(): void {
+		this.autoSyncFailures++;
+		const limit = this.settings.autoSyncPauseAfterFailures;
+		if (limit > 0 && this.autoSyncFailures >= limit && !this.autoSyncPaused) {
+			this.autoSyncPaused = true;
+			new Notice(
+				`Trello Vault Sync: auto-sync paused after ${this.autoSyncFailures} failed runs in a row. ` +
+					"A successful manual sync, or switching auto-sync off and on, resumes it.",
+			);
+			this.refreshSidebarViews();
+		}
+	}
+
+	private async checkAutoSync(event: AutoSyncEvent): Promise<void> {
+		if (!this.autoSyncAllowed(event)) return;
+		const { autoSyncScopeMappings: mappings, autoSyncScopeVault: vault } = this.settings;
+		if (!mappings && !vault) return;
+
 		// Mapped folders first — it's the only one of the two that can create a
 		// note — then the whole vault, so a note just created above is already
-		// linked and gets picked up by the same run instead of waiting for the next one.
-		if (this.settings.autoSyncScopeMappings) await syncCommands.syncAllMappings(this);
-		if (this.settings.autoSyncScopeVault) await syncCommands.syncAllLinked(this);
+		// linked and gets picked up by the same run. With both on, the vault pass
+		// skips the mapped folders: they were just synced, a second pass would
+		// only spend Trello requests. A failed folder pass stops there.
+		await this.inBackground(async () => {
+			if (mappings) await syncCommands.syncAllMappings(this);
+			if (vault && (!mappings || this.lastRunOutcome === "done")) {
+				await syncCommands.syncAllLinked(this, undefined, { skipMappedFolders: mappings });
+			}
+		});
 	}
 }

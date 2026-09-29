@@ -39,8 +39,8 @@ describe("normalizePersistedData", () => {
 	});
 
 	test("handles a fresh install (undefined/null raw data)", () => {
-		expect(normalizePersistedData(undefined)).toEqual({ settingsRaw: undefined, journal: [], history: [] });
-		expect(normalizePersistedData(null)).toEqual({ settingsRaw: null, journal: [], history: [] });
+		expect(normalizePersistedData(undefined)).toEqual({ settingsRaw: undefined, journal: [], history: [], lastSyncAt: null });
+		expect(normalizePersistedData(null)).toEqual({ settingsRaw: null, journal: [], history: [], lastSyncAt: null });
 	});
 
 	test("extracts a well-formed sync history", () => {
@@ -72,5 +72,13 @@ describe("normalizePersistedData", () => {
 	test("history defaults to an empty array when missing or not an array", () => {
 		expect(normalizePersistedData({ settings: {} }).history).toEqual([]);
 		expect(normalizePersistedData({ settings: {}, history: "nope" }).history).toEqual([]);
+	});
+});
+
+describe("normalizePersistedData — lastSyncAt", () => {
+	test("keeps a numeric lastSyncAt and drops anything else", () => {
+		expect(normalizePersistedData({ settings: {}, lastSyncAt: 123 }).lastSyncAt).toBe(123);
+		expect(normalizePersistedData({ settings: {}, lastSyncAt: "x" }).lastSyncAt).toBeNull();
+		expect(normalizePersistedData({ settings: {} }).lastSyncAt).toBeNull();
 	});
 });

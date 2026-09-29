@@ -80,3 +80,25 @@ describe("decideAutoSync", () => {
 		expect(decideAutoSync(input)).toEqual({ action: "skip", reason: "too-soon" });
 	});
 });
+
+describe("decideAutoSync — offline, paused, hidden", () => {
+	test("offline skips (not counted as a failure by the caller)", () => {
+		expect(decideAutoSync({ ...base, online: false })).toEqual({ action: "skip", reason: "offline" });
+	});
+
+	test("paused after failures skips every trigger", () => {
+		expect(decideAutoSync({ ...base, event: "focus", paused: true })).toEqual({ action: "skip", reason: "paused" });
+	});
+
+	test("hidden window skips timer ticks only when the setting asks for it", () => {
+		expect(decideAutoSync({ ...base, hidden: true, onlyWhenVisible: true })).toEqual({ action: "skip", reason: "hidden" });
+		expect(decideAutoSync({ ...base, hidden: true, onlyWhenVisible: false })).toEqual({ action: "run" });
+		expect(decideAutoSync({ ...base, event: "focus", hidden: true, onlyWhenVisible: true })).toEqual({ action: "run" });
+	});
+
+	test("a note-change event answers only to the anti-burst floor, not the interval", () => {
+		const lastRunAt = base.now - 120_000;
+		expect(decideAutoSync({ ...base, event: "note-change", lastRunAt })).toEqual({ action: "run" });
+		expect(decideAutoSync({ ...base, event: "interval", lastRunAt })).toEqual({ action: "skip", reason: "too-soon" });
+	});
+});

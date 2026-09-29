@@ -25,6 +25,9 @@ import { VaultPathSuggest } from "../ui/VaultPathSuggest";
 import {
 	AUTO_SYNC_INTERVAL_MINUTES_CEILING,
 	AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
+	AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING,
+	AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR,
+	AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING,
 	BASE_DELAY_MS_CEILING,
 	HISTORY_MAX_RUNS_CEILING,
 	LOG_MAX_ROWS_CEILING,
@@ -1363,9 +1366,41 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Trigger — after I edit a linked note")
+			.setDesc(
+				"Syncs just that note once you stop typing for the delay below. Only notes linked to a card, " +
+					"inside the sync scope. Off by default.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.autoSyncOnNoteChange).onChange((value) => {
+					this.plugin.settings.autoSyncOnNoteChange = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Delay after the last edit (seconds)")
+			.setDesc(
+				`Quiet time before an edited note is synced. Range ${AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR}-` +
+					`${AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING}, default 10.`,
+			)
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.autoSyncNoteChangeDelaySeconds)).onChange((value) => {
+					const parsed = Number.parseInt(value, 10);
+					if (!Number.isFinite(parsed)) return;
+					this.plugin.settings.autoSyncNoteChangeDelaySeconds = Math.max(
+						AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR,
+						Math.min(parsed, AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING),
+					);
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Interval (minutes)")
 			.setDesc(
-				'Minimum wait before "On a timer" is allowed to sync again (it checks every 30 seconds, but ' +
+				'Minimum wait before "On a timer" syncs again, counted from the last successful sync — manual ' +
+					"syncs included, and remembered across restarts (it checks every 30 seconds, but " +
 					"only actually syncs once this many minutes have passed). Range 0-1440 (24h), default 15. 0 " +
 					"removes this wait — every 30-second check can sync, still subject to the minimum gap below.",
 			)
@@ -1415,6 +1450,49 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						parsed,
 						0,
 						AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
+					);
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Only when Obsidian is visible")
+			.setDesc("Skip timer-triggered auto-syncs while the Obsidian window is minimized or hidden. Off by default.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.autoSyncOnlyWhenVisible).onChange((value) => {
+					this.plugin.settings.autoSyncOnlyWhenVisible = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Show the progress panel for auto-syncs")
+			.setDesc(
+				"Off (default): automatic syncs run quietly — no panel, no success notice; errors still show a " +
+					"notice and everything lands in the journal. On: same panel and notice as a manual sync.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.autoSyncShowPanel).onChange((value) => {
+					this.plugin.settings.autoSyncShowPanel = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Pause after failed runs in a row")
+			.setDesc(
+				`Auto-sync pauses itself after this many consecutive failures (a notice says so), instead of ` +
+					`failing on every trigger. A successful manual sync or switching auto-sync off and on resumes it. ` +
+					`Range 0-${AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING}, default 3. 0 never pauses. ` +
+					`Being offline is skipped, not counted as a failure.`,
+			)
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.autoSyncPauseAfterFailures)).onChange((value) => {
+					const parsed = Number.parseInt(value, 10);
+					if (!Number.isFinite(parsed)) return;
+					this.plugin.settings.autoSyncPauseAfterFailures = Math.max(
+						0,
+						Math.min(parsed, AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING),
 					);
 					void this.save();
 				}),
