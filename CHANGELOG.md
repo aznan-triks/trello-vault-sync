@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] — 2026-09-29
+
+### Added
+
+- **Plain**: Auto-sync can now sync a linked note by itself a few seconds after you stop editing it.
+  **Technical**: New trigger `autoSyncOnNoteChange` (default off) with `autoSyncNoteChangeDelaySeconds` (2-600, default 10): per-note debounce on `vault.on("modify")`, scoped to `scope`/`excludedFolders`, linked notes only; edits during a sync or within 1.5 s after it are ignored as the sync's own writes. Reuses the new `noteCommands.syncNoteAt`.
+- **Plain**: A quick Auto-sync switch in the sidebar (showing ON / OFF / PAUSED) and a "Toggle auto-sync" command.
+  **Technical**: `SidebarView.renderAutoSyncRow`, `setAutoSyncEnabled`/`autoSyncState` on the plugin (optional on `CommandContext`), palette command `toggle-auto-sync`.
+- **Plain**: Auto-sync pauses itself after several failures in a row instead of failing on every trigger, and simply waits while you're offline.
+  **Technical**: `autoSyncPauseAfterFailures` (0-50, default 3, 0 = never); `decideAutoSync` gains `offline`/`paused` skip reasons; a successful manual sync or re-enabling resumes.
+- **Plain**: Option to skip timer syncs while Obsidian is minimized or hidden.
+  **Technical**: `autoSyncOnlyWhenVisible` (default off), `hidden` skip reason for interval ticks only.
+
+### Changed
+
+- **Plain**: Automatic syncs are now quiet by default: no progress panel and no success pop-up; errors still show, and everything is in the journal.
+  **Technical**: `autoSyncShowPanel` (default off) — `run()` uses a silent reporter and suppresses the success notice for background runs; error notices are prefixed "Auto-sync:".
+
+### Fixed
+
+- **Plain**: Opening Obsidian no longer triggers an auto-sync half a minute later when the "at startup" trigger is off, and a manual sync now resets the auto-sync timer.
+  **Technical**: The timer now counts from `lastSyncAt` (last successful full sync, manual or auto, not dry-run), persisted in data.json via `pluginData`, instead of an in-memory "last attempt" reset on every load.
+- **Plain**: Auto-sync with no Trello key yet no longer shows a "set the key and token" pop-up on every trigger.
+  **Technical**: `autoSyncAllowed` checks `hasCredentials` silently before `ready()` can notify.
+- **Plain**: With both "mapped folders" and "whole vault" scopes on, notes in mapped folders are no longer synced twice per auto-sync (fewer Trello requests); a failed folder pass no longer chains into the vault pass.
+  **Technical**: `syncAllLinked(..., { skipMappedFolders })` adds mapping folders to the excluded list for that pass.
+
 ## [1.20.0] — 2026-09-28
 
 ### Added
