@@ -51,7 +51,8 @@ export interface CommandContext {
 	run(
 		title: string,
 		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
-		opts?: { cancellable?: boolean },
+		/** `countsAsSync`: a clean finish restarts the auto-sync timer (full folder/vault syncs only). */
+		opts?: { cancellable?: boolean; countsAsSync?: boolean },
 	): Promise<void>;
 	activeNote(): NoteHandle | null;
 	/** Whether a sync (manual or auto) is already running — the single-sync-at-a-time lock `run()` enforces. */
@@ -61,5 +62,9 @@ export interface CommandContext {
 	folderOptions(force?: "pull" | "push", bypassConflict?: boolean): FolderSyncOptions;
 	auditOptions(kind?: "links" | "locations" | "changes"): AuditOptions;
 	activateSidebarView(): Promise<void>;
+	/** Auto-sync status for the sidebar switch — optional so test contexts needn't stub it. */
+	autoSyncState?(): "off" | "on" | "paused";
+	/** Turns auto-sync on/off (and lifts a failure pause). */
+	setAutoSyncEnabled?(enabled: boolean): Promise<void>;
 	saveSettings(): Promise<void>;
 }

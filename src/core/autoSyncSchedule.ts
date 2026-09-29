@@ -1,5 +1,5 @@
 /** What just happened, checked against the matching `autoSyncOn*` setting in `main.ts::checkAutoSync`. */
-export type AutoSyncEvent = "interval" | "focus" | "startup";
+export type AutoSyncEvent = "interval" | "focus" | "startup" | "note-change";
 
 export interface AutoSyncScheduleInput {
 	enabled: boolean;
@@ -15,9 +15,17 @@ export interface AutoSyncScheduleInput {
 	intervalMinutes: number;
 	/** Anti-burst floor: the minimum gap between two auto-sync attempts, regardless of what triggered either. */
 	minIdleSeconds: number;
+	/** `navigator.onLine` — false skips without counting as a failure. Omitted = online. */
+	online?: boolean;
+	/** Auto-sync paused after too many consecutive failures, until the user re-enables it or a sync succeeds. */
+	paused?: boolean;
+	/** Obsidian's window is hidden/minimized (`document.hidden`). */
+	hidden?: boolean;
+	/** Setting `autoSyncOnlyWhenVisible`: skip timer ticks while `hidden`. */
+	onlyWhenVisible?: boolean;
 }
 
-export type AutoSyncSkipReason = "disabled" | "wrong-trigger" | "syncing" | "too-soon";
+export type AutoSyncSkipReason = "disabled" | "wrong-trigger" | "syncing" | "too-soon" | "offline" | "paused" | "hidden";
 
 export type AutoSyncDecision = { action: "run" } | { action: "skip"; reason: AutoSyncSkipReason };
 
@@ -31,14 +39,18 @@ export type AutoSyncDecision = { action: "run" } | { action: "skip"; reason: Aut
 export function decideAutoSync(input: AutoSyncScheduleInput): AutoSyncDecision {
 	if (!input.enabled) return { action: "skip", reason: "disabled" };
 	if (!input.triggerEnabled) return { action: "skip", reason: "wrong-trigger" };
+	if (input.paused) return { action: "skip", reason: "paused" };
 	if (input.syncing) return { action: "skip", reason: "syncing" };
+	if (input.online === false) return { action: "skip", reason: "offline" };
+	if (input.event === "interval" && input.onlyWhenVisible && input.hidden) return { action: "skip", reason: "hidden" };
 
 	if (input.lastRunAt !== null) {
 		const idleMs = input.now - input.lastRunAt;
 		if (idleMs < input.minIdleSeconds * 1000) return { action: "skip", reason: "too-soon" };
 		// A periodic tick additionally waits out the configured interval — a
-		// "focus"/"startup" event only ever answers to the anti-burst floor
-		// above, since neither is periodic to begin with.
+		// "focus"/"startup"/"note-change" event only ever answers to the anti-burst
+		// floor above, since none is periodic to begin with. `lastRunAt` is the last
+		// successful sync of any kind (manual included), persisted across restarts.
 		if (input.event === "interval" && idleMs < input.intervalMinutes * 60_000) {
 			return { action: "skip", reason: "too-soon" };
 		}

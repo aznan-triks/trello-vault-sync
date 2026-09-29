@@ -11,7 +11,11 @@ import { MappingSuggest } from "../ui/MappingSuggest";
  * "Pull/Push (active note)", but a genuine conflict is still reported, never
  * overwritten — only the Force commands bypass it (`forceSyncCommands.ts`).
  */
-export async function syncAllLinked(ctx: CommandContext, direction?: "pull" | "push"): Promise<void> {
+export async function syncAllLinked(
+	ctx: CommandContext,
+	direction?: "pull" | "push",
+	{ skipMappedFolders = false }: { skipMappedFolders?: boolean } = {},
+): Promise<void> {
 	if (!ctx.ready(true)) return;
 
 	await ctx.run(direction ? `${direction === "pull" ? "Pull" : "Push"} — vault` : "Vault sync", async (reporter, signal) => {
@@ -19,7 +23,14 @@ export async function syncAllLinked(ctx: CommandContext, direction?: "pull" | "p
 			const stats = await syncVault(
 				vault,
 				ctx.client(reporter),
-				{ scope: ctx.settings.scope, boardId: ctx.settings.boardId, excludedFolders: ctx.settings.excludedFolders },
+				{
+					scope: ctx.settings.scope,
+					boardId: ctx.settings.boardId,
+					// Auto-sync with both scopes on: the mapped folders were synced just before.
+					excludedFolders: skipMappedFolders
+						? [...ctx.settings.excludedFolders, ...ctx.settings.mappings.map((m) => m.folder)]
+						: ctx.settings.excludedFolders,
+				},
 				{ ...ctx.noteOptions(direction), onTrelloWrite },
 				reporter,
 				signal,
@@ -28,7 +39,7 @@ export async function syncAllLinked(ctx: CommandContext, direction?: "pull" | "p
 			ctx.setLastRunConflicts?.(stats.conflicts);
 			return `↓ ${stats.pulled} · ↑ ${stats.pushed} · = ${stats.skipped} · ⚠ ${stats.conflicts} · 👻 ${stats.phantoms} · ✕ ${stats.errors}`;
 		});
-	});
+	}, { countsAsSync: direction === undefined });
 }
 
 /** `direction` makes this the plain "Pull/Push (mapped folder)" — see `syncAllLinked`. */
@@ -84,5 +95,5 @@ export async function syncAllMappings(ctx: CommandContext): Promise<void> {
 			ctx.setLastRunConflicts?.(total.conflicts);
 			return `${ctx.settings.mappings.length} folder(s) · + ${total.created} · ↓ ${total.pulled} · ↑ ${total.pushed} · ✕ ${total.errors}`;
 		});
-	});
+	}, { countsAsSync: true });
 }
