@@ -24,9 +24,17 @@ export const MAX_LOG_ROWS = 60;
  * `maxRows`. Shared by the floating panel and the sidebar's persistent
  * journal so both stay visually identical without duplicating the markup.
  */
-export function renderLogRow(container: HTMLElement, level: LogLevel, message: string, maxRows: number): void {
+export function renderLogRow(
+	container: HTMLElement,
+	level: LogLevel,
+	message: string,
+	maxRows: number,
+	/** Operation title, shown before the message when several operations share this log. */
+	source?: string,
+): void {
 	const row = createDiv({ cls: `tvs-panel__row tvs-panel__row--${level}` });
 	row.createSpan({ cls: "tvs-panel__icon", text: ICONS[level] });
+	if (source) row.createSpan({ cls: "tvs-panel__source", text: source });
 	row.createSpan({ cls: "tvs-panel__message", text: message });
 	container.prepend(row);
 	while (container.children.length > maxRows) container.lastElementChild?.remove();
@@ -63,10 +71,21 @@ export interface PanelOptions {
 	onCancel?: () => void;
 	/** On by default — a run that logged ≥ 1 error never auto-closes, even when `autoCloseMs > 0`. See `core/panelAutoClose.ts::shouldAutoClosePanel`. */
 	keepOpenOnError?: boolean;
+	/** Called once when this panel is removed from the screen (closed, auto-closed, or torn down). */
+	onDestroy?: () => void;
+}
+
+const STACK_CLASS = "tvs-panel-stack";
+
+/** The one container every panel lives in: operations running together each get their own card, stacked. */
+function panelStack(): HTMLElement {
+	return document.body.querySelector<HTMLElement>(`.${STACK_CLASS}`) ?? document.body.createDiv({ cls: STACK_CLASS });
 }
 
 /**
- * The single floating progress panel, shared by every command.
+ * One floating progress card per running operation, shared by every command.
+ * Cards stack in a common container, so starting a second operation never
+ * removes the first one's card.
  *
  * The legacy scripts each carried their own ~120-line copy of this widget with
  * inline styles; here there is one implementation and one stylesheet.
@@ -91,9 +110,7 @@ export class ProgressPanel implements Reporter {
 	private hasErrors = false;
 
 	constructor(private readonly options: PanelOptions) {
-		document.querySelectorAll(".tvs-panel").forEach((node) => node.remove());
-
-		this.root = document.body.createDiv({ cls: "tvs-panel" });
+		this.root = panelStack().createDiv({ cls: "tvs-panel" });
 
 		const header = this.root.createDiv({ cls: "tvs-panel__header" });
 		header.createSpan({ cls: "tvs-panel__title", text: options.title });
@@ -182,7 +199,11 @@ export class ProgressPanel implements Reporter {
 
 	destroy(): void {
 		if (this.timer !== null) window.clearTimeout(this.timer);
+		const stack = this.root.parentElement;
 		this.root.remove();
+		// The last card out removes the (now empty) container, so nothing lingers on screen.
+		if (stack?.classList.contains(STACK_CLASS) && stack.children.length === 0) stack.remove();
+		this.options.onDestroy?.();
 	}
 
 	private renderProgress(): void {

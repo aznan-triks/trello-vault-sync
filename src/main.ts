@@ -4,9 +4,11 @@ import * as noteCommands from "./commands/noteCommands";
 import { COMMANDS, type CommandDescriptor } from "./commands/registry";
 import * as syncCommands from "./commands/syncCommands";
 import { decideAutoSync, type AutoSyncEvent } from "./core/autoSyncSchedule";
+import { ConcurrencyGate } from "./core/concurrencyGate";
 import { excludeFolders, notesInFolder } from "./core/fileName";
 import { errorMessage } from "./core/errorMessage";
 import { appendJournalEntry, prefixDryRunMessage, type JournalEntry, type LogLevel } from "./core/journal";
+import { OperationGuard } from "./core/operationGuard";
 import { normalizePersistedData } from "./core/pluginData";
 import { appendSyncRun, type SyncAction, type SyncRun } from "./core/syncHistory";
 import type { AuditOptions } from "./features/auditShared";
@@ -21,6 +23,9 @@ import { redactSecrets, TrelloClient } from "./trello/client";
 import { ProgressPanel } from "./ui/ProgressPanel";
 import { SidebarView, VIEW_TYPE_TVS_SIDEBAR } from "./ui/SidebarView";
 
+/** How an operation ended — `busy` means it was refused because the same one was already running. */
+type RunOutcome = "done" | "error" | "aborted" | "busy";
+
 export default class TrelloVaultSyncPlugin extends Plugin implements CommandContext {
 	override settings: TrelloVaultSyncSettings = { ...DEFAULT_SETTINGS };
 	vault!: ObsidianVault;
@@ -28,19 +33,19 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	history: SyncRun[] = [];
 	/** Conflicts counted in the most recent sync run — in-memory only, see `CommandContext.lastRunConflicts`. */
 	lastRunConflicts: number | null = null;
-	/** Guards every command in `run()` — two commands writing to the vault at once can race. */
-	private syncing = false;
+	/** Shared by every operation running at the same time — two that reach the same card take turns. Handed to the engines through `noteOptions()`. */
+	readonly guard = new OperationGuard();
+	/** Caps how many operations run together (setting `maxConcurrentOperations`); the next one waits for a slot. */
+	private readonly gate = new ConcurrencyGate(() => this.settings.maxConcurrentOperations);
+	/** Titles of the operations running or waiting for a slot — launching one that is already there is refused, not stacked. */
+	private readonly pendingTitles = new Set<string>();
 	/** Epoch ms of the last successful sync (manual or auto) — persisted in data.json, so the auto-sync timer survives a restart and a manual sync resets it. */
 	private lastSyncAt: number | null = null;
 	/** Auto-syncs that ended in error in a row — `autoSyncPauseAfterFailures` pauses auto-sync when reached. */
 	private autoSyncFailures = 0;
 	/** Paused after too many failures; cleared by re-enabling auto-sync or by any successful sync. In memory: a restart retries. */
 	private autoSyncPaused = false;
-	/** True while an automatic sync runs — `run()` then stays quiet unless `autoSyncShowPanel`. */
-	private backgroundRun = false;
-	/** Outcome of the latest `run()`, read after an automatic sync to count failures. */
-	private lastRunOutcome: "done" | "error" | "aborted" | "busy" = "done";
-	/** Epoch ms when the latest `run()` ended — edits right after a sync are the sync's own writes, not the user's. */
+	/** Epoch ms when the latest operation ended — edits right after a sync are the sync's own writes, not the user's. */
 	private lastRunEndedAt = 0;
 	/** Pending "note changed" syncs, one debounce timer per note path. */
 	private noteChangeTimers = new Map<string, number>();
@@ -48,8 +53,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private static readonly AUTO_SYNC_POLL_MS = 30_000;
 	/** Fixed detail, not a setting: edits within this long after a sync ended are treated as the sync's own writes. */
 	private static readonly OWN_WRITE_GRACE_MS = 1500;
-	/** The panel of the sync currently running, if any — torn down on unload. */
-	private activePanel: ProgressPanel | null = null;
+	/** The panels of the operations currently on screen — torn down on unload. */
+	private readonly panels = new Set<ProgressPanel>();
+	/** Writes to `data.json` one after the other: operations finishing together must not interleave their writes. */
+	private persistQueue: Promise<unknown> = Promise.resolve();
 	/** Tracked ribbon icon elements (with their title, for proper native removal) — removed and rebuilt by `rebuildRibbon()` when settings change. */
 	private configurableRibbonEls: { el: HTMLElement; title: string }[] = [];
 
@@ -69,7 +76,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	override onunload(): void {
-		this.activePanel?.destroy();
+		for (const panel of [...this.panels]) panel.destroy();
 		for (const timer of this.noteChangeTimers.values()) window.clearTimeout(timer);
 	}
 
@@ -80,13 +87,18 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	/** Writes settings, journal and sync history together into the plugin's own `data.json` — none of it a vault note (internal state, not a user-facing deliverable like the audit reports). */
-	private async persist(): Promise<void> {
-		await this.saveData({
-			settings: this.settings,
-			journal: this.journal,
-			history: this.history,
-			lastSyncAt: this.lastSyncAt,
-		});
+	private persist(): Promise<void> {
+		// The snapshot is taken when the write actually starts, so the last write always carries the newest state.
+		const write = this.persistQueue.then(() =>
+			this.saveData({
+				settings: this.settings,
+				journal: this.journal,
+				history: this.history,
+				lastSyncAt: this.lastSyncAt,
+			}),
+		);
+		this.persistQueue = write.catch(() => undefined);
+		return write;
 	}
 
 	/**
@@ -239,6 +251,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 					(text) => redactSecrets(text, [this.settings.token, this.settings.apiKey]),
 					this.attachmentAuthHeaders(),
 				),
+			guard: this.guard,
 			...(force ? { force } : {}),
 			...(bypassConflict ? { bypassConflict } : {}),
 		};
@@ -275,10 +288,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		};
 	}
 
-	private panel(title: string, onCancel?: () => void): Reporter {
-		const visible = this.settings.showPanel && (!this.backgroundRun || this.settings.autoSyncShowPanel);
+	private panel(title: string, background: boolean, onCancel?: () => void): Reporter {
+		const visible = this.settings.showPanel && (!background || this.settings.autoSyncShowPanel);
 		const base = visible ? this.buildPanel(title, onCancel) : silentReporter;
-		return this.withJournal(base);
+		return this.withJournal(base, title);
 	}
 
 	private buildPanel(title: string, onCancel?: () => void): ProgressPanel {
@@ -289,11 +302,12 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			maxLogRows: this.settings.logMaxRows,
 			onCancel,
 			keepOpenOnError: this.settings.keepPanelOpenOnError,
+			onDestroy: () => this.panels.delete(panel),
 		});
-		// Tracked so onunload() can tear it down: without this, a panel left open
+		// Tracked so onunload() can tear them down: without this, a panel left open
 		// (autoCloseMs: 0, or one still mid-sync) survives a plugin disable/reload
 		// with no owner left to remove it.
-		this.activePanel = panel;
+		this.panels.add(panel);
 		return panel;
 	}
 
@@ -304,7 +318,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	 * can be a `ProgressPanel` instance, whose methods live on the prototype
 	 * and would be lost by a shallow spread.
 	 */
-	private withJournal(base: Reporter): Reporter {
+	private withJournal(base: Reporter, title: string): Reporter {
 		return {
 			setTotal: (total) => base.setTotal(total),
 			step: (label) => base.step(label),
@@ -315,8 +329,14 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			log: (level, rawMessage) => {
 				const message = prefixDryRunMessage(rawMessage, this.settings.dryRun);
 				base.log(level, message);
-				this.journal = appendJournalEntry(this.journal, { level, message }, this.settings.logMaxRows);
-				this.appendJournalToSidebars(level, message);
+				// The shared journal mixes lines from every running operation: name the source only when that is ambiguous.
+				const source = this.gate.active > 1 ? title : undefined;
+				this.journal = appendJournalEntry(
+					this.journal,
+					source ? { level, message, source } : { level, message },
+					this.settings.logMaxRows,
+				);
+				this.appendJournalToSidebars(level, message, source);
 			},
 			// Written to disk once per finished command, not once per log() call
 			// — a sync can emit dozens of log lines, one disk write per line would be wasteful.
@@ -330,9 +350,9 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		};
 	}
 
-	private appendJournalToSidebars(level: LogLevel, message: string): void {
+	private appendJournalToSidebars(level: LogLevel, message: string, source?: string): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TVS_SIDEBAR)) {
-			if (leaf.view instanceof SidebarView) leaf.view.appendJournalEntry(level, message);
+			if (leaf.view instanceof SidebarView) leaf.view.appendJournalEntry(level, message, source);
 		}
 	}
 
@@ -346,7 +366,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	isSyncing(): boolean {
-		return this.syncing;
+		return this.pendingTitles.size > 0;
 	}
 
 	/**
@@ -367,7 +387,9 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	/**
-	 * Run a command body with one panel, one error path and one summary notice.
+	 * Run a command body with its own panel, one error path and one summary notice.
+	 * Operations run side by side (up to `maxConcurrentOperations`), each with its own
+	 * panel and cancel button; launching one never cancels another.
 	 * The Cancel button is shown by default. `cancellable: false` is reserved for
 	 * bodies that make no network call and run no unbounded loop — there, the
 	 * button would have nothing to actually stop, so showing it would just risk a
@@ -376,46 +398,77 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	async run(
 		title: string,
 		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
-		{ cancellable = true, countsAsSync = false }: { cancellable?: boolean; countsAsSync?: boolean } = {},
+		opts: { cancellable?: boolean; countsAsSync?: boolean } = {},
 	): Promise<void> {
-		if (this.syncing) {
-			this.lastRunOutcome = "busy";
-			if (!this.backgroundRun) new Notice("Trello Vault Sync: a sync is already running — wait for it to finish.");
-			return;
+		await this.execute(title, body, opts);
+	}
+
+	/** `run()` plus what auto-sync needs: the operation's outcome, and whether it is a background one. */
+	private async execute(
+		title: string,
+		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
+		{
+			cancellable = true,
+			countsAsSync = false,
+			background = false,
+		}: { cancellable?: boolean; countsAsSync?: boolean; background?: boolean } = {},
+	): Promise<RunOutcome> {
+		if (this.pendingTitles.has(title)) {
+			if (!background) new Notice(`Trello Vault Sync: "${title}" is already running — wait for it to finish.`);
+			return "busy";
 		}
-		const quiet = this.backgroundRun && !this.settings.autoSyncShowPanel;
-		const prefix = this.backgroundRun ? "Auto-sync: " : "";
-		this.syncing = true;
+		this.pendingTitles.add(title);
+		let release: (() => void) | null = null;
+		try {
+			const mustWait = this.gate.waiting > 0 || this.gate.active >= this.settings.maxConcurrentOperations;
+			if (mustWait && !background) {
+				new Notice(`Trello Vault Sync: "${title}" is queued — ${this.gate.active} operation(s) running.`);
+			}
+			release = await this.gate.acquire();
+			return await this.executeInSlot(title, body, cancellable, countsAsSync, background);
+		} finally {
+			release?.();
+			this.pendingTitles.delete(title);
+			this.lastRunEndedAt = Date.now();
+			// Nothing running or waiting any more: the next busy period starts with a clean slate.
+			if (this.pendingTitles.size === 0) this.guard.resetClaims();
+		}
+	}
+
+	private async executeInSlot(
+		title: string,
+		body: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
+		cancellable: boolean,
+		countsAsSync: boolean,
+		background: boolean,
+	): Promise<RunOutcome> {
+		const quiet = background && !this.settings.autoSyncShowPanel;
+		const prefix = background ? "Auto-sync: " : "";
 		const controller = new AbortController();
-		const reporter = this.panel(title, cancellable ? () => controller.abort() : undefined);
+		const reporter = this.panel(title, background, cancellable ? () => controller.abort() : undefined);
 		try {
 			const summary = await body(reporter, controller.signal);
 			if (controller.signal.aborted) {
-				this.lastRunOutcome = "aborted";
 				reporter.finish("aborted", "Cancelled.");
 				new Notice("Trello Vault Sync: sync cancelled.");
-			} else {
-				this.lastRunOutcome = "done";
-				if (countsAsSync && !this.settings.dryRun) this.markSyncSucceeded();
-				reporter.finish("done", summary);
-				if (!quiet) new Notice(`✅ ${prefix}${summary}`);
+				return "aborted";
 			}
+			if (countsAsSync && !this.settings.dryRun) this.markSyncSucceeded();
+			reporter.finish("done", summary);
+			if (!quiet) new Notice(`✅ ${prefix}${summary}`);
+			return "done";
 		} catch (error) {
 			if (controller.signal.aborted) {
-				this.lastRunOutcome = "aborted";
 				reporter.finish("aborted", "Cancelled.");
 				new Notice("Trello Vault Sync: sync cancelled.");
-				return;
+				return "aborted";
 			}
-			this.lastRunOutcome = "error";
 			const message = errorMessage(error);
 			reporter.log("error", message);
 			reporter.finish("error", message);
 			new Notice(`❌ ${prefix}${message}`);
 			console.error("[trello-vault-sync]", error);
-		} finally {
-			this.syncing = false;
-			this.lastRunEndedAt = Date.now();
+			return "error";
 		}
 	}
 
@@ -576,7 +629,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private onNoteModified(file: unknown): void {
 		if (!this.settings.autoSyncEnabled || !this.settings.autoSyncOnNoteChange) return;
 		if (!(file instanceof TFile) || file.extension !== "md") return;
-		if (this.syncing || Date.now() - this.lastRunEndedAt < TrelloVaultSyncPlugin.OWN_WRITE_GRACE_MS) return;
+		if (this.isSyncing() || Date.now() - this.lastRunEndedAt < TrelloVaultSyncPlugin.OWN_WRITE_GRACE_MS) return;
 		const inScope = excludeFolders(notesInFolder([file], this.settings.scope), this.settings.excludedFolders);
 		if (inScope.length === 0) return;
 
@@ -596,7 +649,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		const note = this.vault.noteAt(path);
 		if (!note || !this.vault.getCardRef(note)) return;
 		if (!this.autoSyncAllowed("note-change")) return;
-		await this.inBackground(() => noteCommands.syncNoteAt(this, note));
+		await this.inBackground((ctx) => noteCommands.syncNoteAt(ctx, note));
 	}
 
 	/** Shared gate for every trigger. A single-note sync ignores `lastSyncAt`: its own floor is the edit debounce. */
@@ -620,16 +673,34 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		return decision.action === "run";
 	}
 
-	/** Runs `body` as an automatic sync (quiet by default) and counts its failures toward the pause threshold. */
-	private async inBackground(body: () => Promise<void>): Promise<void> {
-		this.backgroundRun = true;
-		try {
-			await body();
-		} finally {
-			this.backgroundRun = false;
-		}
-		if (this.lastRunOutcome === "error") this.recordAutoSyncFailure();
-		else if (this.lastRunOutcome === "done") this.autoSyncFailures = 0;
+	/**
+	 * Runs `body` as an automatic sync (quiet by default) and counts its failures toward the pause threshold.
+	 * `body` gets a context whose `run()` marks each operation as a background one and records its outcome —
+	 * per call, so a manual operation running at the same time cannot be mistaken for it.
+	 */
+	private async inBackground(
+		body: (ctx: this, lastOutcome: () => RunOutcome | undefined) => Promise<void>,
+	): Promise<void> {
+		const outcomes: RunOutcome[] = [];
+		const lastOutcome = () => outcomes[outcomes.length - 1];
+		const ctx = new Proxy(this, {
+			get: (target, key) => {
+				if (key === "run") {
+					return async (
+						title: string,
+						runBody: (reporter: Reporter, signal: AbortSignal) => Promise<string>,
+						opts: { cancellable?: boolean; countsAsSync?: boolean } = {},
+					): Promise<void> => {
+						outcomes.push(await target.execute(title, runBody, { ...opts, background: true }));
+					};
+				}
+				const value: unknown = Reflect.get(target, key, target);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+		await body(ctx, lastOutcome);
+		if (lastOutcome() === "error") this.recordAutoSyncFailure();
+		else if (lastOutcome() === "done") this.autoSyncFailures = 0;
 	}
 
 	private recordAutoSyncFailure(): void {
@@ -655,10 +726,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		// linked and gets picked up by the same run. With both on, the vault pass
 		// skips the mapped folders: they were just synced, a second pass would
 		// only spend Trello requests. A failed folder pass stops there.
-		await this.inBackground(async () => {
-			if (mappings) await syncCommands.syncAllMappings(this);
-			if (vault && (!mappings || this.lastRunOutcome === "done")) {
-				await syncCommands.syncAllLinked(this, undefined, { skipMappedFolders: mappings });
+		await this.inBackground(async (ctx, lastOutcome) => {
+			if (mappings) await syncCommands.syncAllMappings(ctx);
+			if (vault && (!mappings || lastOutcome() === "done")) {
+				await syncCommands.syncAllLinked(ctx, undefined, { skipMappedFolders: mappings });
 			}
 		});
 	}

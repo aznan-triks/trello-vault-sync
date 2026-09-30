@@ -1,5 +1,6 @@
 import type { App } from "obsidian";
 import type { JournalEntry } from "../core/journal";
+import type { OperationGuard } from "../core/operationGuard";
 import type { SyncAction, SyncRun } from "../core/syncHistory";
 import type { AuditOptions } from "../features/auditShared";
 import type { FolderSyncOptions } from "../features/syncFolder";
@@ -40,6 +41,8 @@ export interface CommandContext {
 	recordSyncRun(scope: string, actions: SyncAction[]): Promise<void>;
 	/** Replaces `history` wholesale — how "Undo last sync run"/"Undo last sync for the active note" consume a run after applying it. */
 	setHistory(next: readonly SyncRun[]): Promise<void>;
+	/** Shared by every operation running at the same time — see `OperationGuard`. Optional so test contexts needn't stub it. */
+	readonly guard?: OperationGuard;
 	client(reporter?: Reporter): TrelloClient;
 	/** Downloads a url's bytes — `null` on anything short of success. `redactFrom` masks secrets out of a failure's console warning; `headers` carries request headers (e.g. `Authorization`) — see `obsidianDownloadBinary` for why a card attachment download needs one. Both omitted for a public url (a Trello avatar) with nothing to redact and no auth needed. */
 	fetchBinary(
@@ -55,7 +58,7 @@ export interface CommandContext {
 		opts?: { cancellable?: boolean; countsAsSync?: boolean },
 	): Promise<void>;
 	activeNote(): NoteHandle | null;
-	/** Whether a sync (manual or auto) is already running — the single-sync-at-a-time lock `run()` enforces. */
+	/** Whether at least one operation (manual or auto) is running right now. */
 	isSyncing(): boolean;
 	ready(needsBoard?: boolean): boolean;
 	noteOptions(force?: "pull" | "push", bypassConflict?: boolean): NoteSyncOptions;

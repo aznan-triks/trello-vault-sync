@@ -39,7 +39,9 @@ export async function createInFolder(ctx: CommandContext, card: TrelloCard, fold
 				template,
 				ctx.settings.cardRefFrontmatterKey,
 				ctx.settings.noteNameMaxLength,
+				ctx.guard,
 			);
+			if (!note) return `"${card.name}" is already being turned into a note by another operation.`;
 			return `Created "${note.basename}.md" in ${note.folder || "(vault root)"}, linked to "${card.name}".`;
 		},
 		// One local vault write (template read + note creation): no network call, no loop — nothing to interrupt.
@@ -115,9 +117,14 @@ export async function batchCreateNotesFromCardsAction(
 							template,
 							ctx.settings.cardRefFrontmatterKey,
 							ctx.settings.noteNameMaxLength,
+							ctx.guard,
 						);
-						created++;
-						reporter.log("create", note.basename);
+						if (note) {
+							created++;
+							reporter.log("create", note.basename);
+						} else {
+							reporter.log("skip", `${card.name} — already being created by another operation`);
+						}
 					}
 				} catch (error) {
 					if (signal?.aborted) break;

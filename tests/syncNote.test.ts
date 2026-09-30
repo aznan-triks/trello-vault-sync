@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_LINKED_CARDS_KEY } from "../src/core/attachmentRef";
+import { OperationGuard } from "../src/core/operationGuard";
 import { DEFAULT_CHECKLIST_HEADING } from "../src/core/checklistRef";
 import { DEFAULT_DUE_KEY as DUE_KEY } from "../src/core/dueRef";
 import { DEFAULT_LABELS_KEY as LABELS_KEY } from "../src/core/labelRef";
@@ -2179,5 +2180,25 @@ describe("granular sync switches (syncDescription, syncDue, syncLabels)", () => 
 		});
 		expect(vault.readFrontmatter(vault.note(PATH))?.trello_labels).toBeUndefined();
 		expect(requests).toHaveLength(0);
+	});
+});
+
+describe("syncNoteWithCard with a guard (operations running at the same time)", () => {
+	test("two operations on the same card take turns; the second finds the note already renamed and skips it", async () => {
+		const { vault, client } = setup("same", at("2026-01-01"));
+		const guard = new OperationGuard();
+		const remote = card({ id: "c1", name: "Sagondo v2", desc: "same", dateLastActivity: "2026-02-01" });
+		const guarded = { ...options, guard };
+		const handle = vault.note(PATH);
+
+		const [first, second] = await Promise.all([
+			syncNoteWithCard(vault, client, handle, remote, guarded),
+			syncNoteWithCard(vault, client, handle, remote, guarded),
+		]);
+
+		expect(first.renamed).toBe(true);
+		expect(second.direction).toBe("skip");
+		expect(second.reason).toBe("changed by another operation");
+		expect(vault.paths().filter((p) => p.startsWith("WoT/85_Idées/Sagondo"))).toEqual(["WoT/85_Idées/Sagondo v2.md"]);
 	});
 });

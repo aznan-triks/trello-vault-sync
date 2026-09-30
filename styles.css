@@ -1,11 +1,21 @@
 /* Trello Vault Sync — progress panel. One stylesheet for every command. */
 
-.tvs-panel {
+/* One card per running operation, stacked bottom-right: a new operation never replaces another one’s card. */
+.tvs-panel-stack {
 	position: fixed;
 	right: 24px;
 	bottom: 24px;
 	z-index: var(--layer-notice, 9999);
 	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	max-height: calc(100vh - 48px);
+	overflow-y: auto;
+}
+
+.tvs-panel {
+	display: flex;
+	flex: 0 0 auto;
 	flex-direction: column;
 	width: 360px;
 	max-height: min(70vh, 520px);
@@ -201,6 +211,15 @@
 
 .tvs-panel__row--skip .tvs-panel__icon {
 	color: var(--text-faint);
+}
+
+.tvs-panel__source {
+	flex: 0 0 auto;
+	max-width: 40%;
+	overflow: hidden;
+	color: var(--text-faint);
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .tvs-panel__message {

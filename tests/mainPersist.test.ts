@@ -166,7 +166,7 @@ describe("onload synchronous view registration", () => {
 describe("auto-sync bookkeeping", () => {
 	type Internals = {
 		lastSyncAt: number | null;
-		inBackground: (body: () => Promise<void>) => Promise<void>;
+		inBackground: (body: (ctx: TrelloVaultSyncPlugin) => Promise<void>) => Promise<void>;
 		autoSyncState: () => string;
 		refreshSidebarViews: () => void;
 	};
@@ -195,8 +195,8 @@ describe("auto-sync bookkeeping", () => {
 		instance.settings.autoSyncEnabled = true;
 		instance.settings.autoSyncPauseAfterFailures = 2;
 		const failing = () =>
-			internals.inBackground(() =>
-				instance.run("Sync", async () => {
+			internals.inBackground((ctx) =>
+				ctx.run("Sync", async () => {
 					throw new Error("boom");
 				}),
 			);
@@ -206,5 +206,98 @@ describe("auto-sync bookkeeping", () => {
 		expect(internals.autoSyncState()).toBe("paused");
 		await instance.setAutoSyncEnabled(true);
 		expect(internals.autoSyncState()).toBe("on");
+	});
+});
+
+describe("operations running at the same time", () => {
+	const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+	test("a second operation starts while the first is still running, and does not cancel it", async () => {
+		const { instance } = plugin();
+		let finishFirst: () => void = () => {};
+		let firstSignal: AbortSignal | undefined;
+		const log: string[] = [];
+		const first = instance.run("Vault sync", async (_reporter, signal) => {
+			firstSignal = signal;
+			log.push("first:start");
+			await new Promise<void>((resolve) => (finishFirst = resolve));
+			log.push("first:end");
+			return "ok";
+		});
+		await tick();
+		const second = instance.run("Location audit", async () => {
+			log.push("second:start");
+			return "ok";
+		});
+		await second;
+		expect(log).toEqual(["first:start", "second:start"]);
+		expect(firstSignal?.aborted).toBe(false);
+		expect(instance.isSyncing()).toBe(true);
+		finishFirst();
+		await first;
+		expect(log).toEqual(["first:start", "second:start", "first:end"]);
+		expect(instance.isSyncing()).toBe(false);
+	});
+
+	test("launching the very same operation again is refused instead of stacked", async () => {
+		const { instance } = plugin();
+		let finishFirst: () => void = () => {};
+		let runs = 0;
+		const body = async () => {
+			runs++;
+			await new Promise<void>((resolve) => (finishFirst = resolve));
+			return "ok";
+		};
+		const first = instance.run("Sync — a", body);
+		await tick();
+		await instance.run("Sync — a", body);
+		expect(runs).toBe(1);
+		finishFirst();
+		await first;
+	});
+
+	test("beyond maxConcurrentOperations, the next operation waits for a free slot", async () => {
+		const { instance } = plugin();
+		instance.settings.maxConcurrentOperations = 1;
+		const log: string[] = [];
+		let finishFirst: () => void = () => {};
+		const first = instance.run("A", async () => {
+			log.push("A:start");
+			await new Promise<void>((resolve) => (finishFirst = resolve));
+			return "ok";
+		});
+		await tick();
+		const second = instance.run("B", async () => {
+			log.push("B:start");
+			return "ok";
+		});
+		await tick();
+		expect(log).toEqual(["A:start"]);
+		finishFirst();
+		await Promise.all([first, second]);
+		expect(log).toEqual(["A:start", "B:start"]);
+	});
+
+	test("journal lines name their operation only while several run together", async () => {
+		const { instance } = plugin();
+		let finishFirst: () => void = () => {};
+		const first = instance.run("Vault sync", async (reporter) => {
+			reporter.log("info", "alone");
+			await new Promise<void>((resolve) => (finishFirst = resolve));
+			reporter.log("info", "with company");
+			return "ok";
+		});
+		await tick();
+		await instance.run("Location audit", async (reporter) => {
+			reporter.log("info", "audit line");
+			return "ok";
+		});
+		finishFirst();
+		await first;
+		expect(instance.journal.map((entry) => [entry.message, entry.source])).toEqual([
+			["alone", undefined],
+			["audit line", "Location audit"],
+			["with company", undefined],
+		]);
 	});
 });

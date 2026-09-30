@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { OperationGuard } from "../src/core/operationGuard";
 import { createNoteFromCard, newNoteContentFromCard, unlinkedCards } from "../src/features/createNoteFromCard";
 import { card } from "./fakes";
 import { FakeVault } from "./fakes";
@@ -65,5 +66,32 @@ describe("createNoteFromCard", () => {
 		expect(note.folder).toBe("WoT/85_Idées");
 		expect(note.path.startsWith("WoT/85_Idées/")).toBe(true);
 		expect(note.path).not.toContain("//");
+	});
+});
+
+describe("createNoteFromCard with a guard", () => {
+	test("a card already claimed by another operation is not created a second time", async () => {
+		const vault = new FakeVault();
+		const guard = new OperationGuard();
+		const c = card({ id: "c1", idBoard: "b1", name: "Sagondo" });
+
+		const first = await createNoteFromCard(vault, c, "WoT", null, "trello_board_card_id", undefined, guard);
+		const second = await createNoteFromCard(vault, c, "WoT", null, "trello_board_card_id", undefined, guard);
+
+		expect(first?.path).toBe("WoT/Sagondo.md");
+		expect(second).toBeNull();
+		expect(vault.listNotes("WoT")).toHaveLength(1);
+	});
+
+	test("a failed creation releases its claim so it can be retried", async () => {
+		const vault = new FakeVault();
+		const guard = new OperationGuard();
+		const c = card({ id: "c1", idBoard: "b1", name: "Sagondo" });
+		const failing = { exists: () => false, create: async () => { throw new Error("disk full"); } };
+
+		await expect(createNoteFromCard(failing, c, "WoT", null, "k", undefined, guard)).rejects.toThrow("disk full");
+		const retry = await createNoteFromCard(vault, c, "WoT", null, "k", undefined, guard);
+
+		expect(retry).not.toBeNull();
 	});
 });

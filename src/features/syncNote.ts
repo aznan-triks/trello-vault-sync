@@ -23,6 +23,7 @@ import {
 import { DEFAULT_CHECKLIST_HEADING, DEFAULT_SYNC_CHECKLISTS } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY, formatDueRef, parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
+import type { OperationGuard } from "../core/operationGuard";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
 import { DEFAULT_LABELS_KEY, formatLabelsRef, normalizeLabelName, parseLabelsRef } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, resolveLabelSync, type LabelSyncMode } from "../core/labelMerge";
@@ -145,6 +146,12 @@ export interface NoteSyncOptions {
 	 * per-card requests. A card fetched without them always falls back to its own request.
 	 */
 	fetchCardDetailsWithCards?: boolean;
+	/**
+	 * Shared by every operation running at the same time: two of them reaching the same
+	 * card take turns instead of overwriting each other. Absent (tests, headless callers):
+	 * no locking, exactly as before.
+	 */
+	guard?: OperationGuard;
 }
 
 /**
@@ -667,8 +674,35 @@ async function convergeAttachmentDownloads(
 	}
 }
 
-/** Sync one note against a card that has already been fetched. */
+/**
+ * Sync one note against a card that has already been fetched. When another
+ * operation is already syncing the same card, waits for it, then re-reads the
+ * note's handle (its modification time — and maybe its path — changed meanwhile).
+ */
 export async function syncNoteWithCard(
+	vault: VaultGateway & CardRefStore,
+	client: TrelloClient,
+	note: NoteHandle,
+	card: TrelloCard,
+	options: NoteSyncOptions,
+	cardIndex?: Map<string, NoteHandle>,
+	memberDirectory?: Map<string, string>,
+	customFieldDefinitions?: Map<string, CustomFieldDefinitionLike>,
+	signal?: AbortSignal,
+): Promise<NoteSyncResult> {
+	const { guard } = options;
+	if (!guard) {
+		return syncNoteWithCardUnguarded(vault, client, note, card, options, cardIndex, memberDirectory, customFieldDefinitions, signal);
+	}
+	return guard.withKey(`card:${card.id}`, async () => {
+		const current = vault.noteAt(note.path);
+		// Renamed or removed by the operation that held the turn before us: nothing left to sync at this path.
+		if (!current) return { direction: "skip" as const, renamed: false, note, reason: "changed by another operation" };
+		return syncNoteWithCardUnguarded(vault, client, current, card, options, cardIndex, memberDirectory, customFieldDefinitions, signal);
+	});
+}
+
+async function syncNoteWithCardUnguarded(
 	vault: VaultGateway & CardRefStore,
 	client: TrelloClient,
 	note: NoteHandle,
