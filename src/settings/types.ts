@@ -130,6 +130,8 @@ export interface TrelloVaultSyncSettings {
 	noteNameMaxLength: number;
 	/** Lines kept in the progress panel and the sidebar journal before the oldest is dropped. */
 	logMaxRows: number;
+	/** How many operations (syncs, audits, creations…) may run at the same time; one more waits for a free slot. 1 = one at a time. */
+	maxConcurrentOperations: number;
 	/** On by default — an undo also reverts the Trello-side writes a run made. Off: only vault writes are reverted; Trello actions are skipped and reported as disabled in settings, not attempted. */
 	historyRevertTrelloWrites: boolean;
 	/** On by default — shows a confirmation modal before "Undo last sync run" / "Undo last sync for the active note" (the picker command already ends on its own explicit "Undo selected" button, so it never goes through this gate). Off disables the modal for repeated use. */
@@ -260,6 +262,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	historyMaxRuns: 20,
 	noteNameMaxLength: 120,
 	logMaxRows: 60,
+	maxConcurrentOperations: 3,
 	historyRevertTrelloWrites: true,
 	confirmUndo: true,
 	syncCardCover: DEFAULT_SYNC_CARD_COVER,
@@ -319,6 +322,9 @@ export const NOTE_NAME_MAX_LENGTH_CEILING = 200;
 /** Bounds for `logMaxRows` — the journal is persisted in data.json, so it must stay bounded. */
 export const LOG_MAX_ROWS_FLOOR = 10;
 export const LOG_MAX_ROWS_CEILING = 2000;
+/** Bounds for `maxConcurrentOperations` — the floor is "one at a time"; the ceiling keeps a typo from flooding Trello with parallel requests. */
+export const MAX_CONCURRENT_OPERATIONS_FLOOR = 1;
+export const MAX_CONCURRENT_OPERATIONS_CEILING = 10;
 
 /** Highest retry count normalizeSettings will accept before clamping. */
 export const MAX_RETRIES_CEILING = 10;
@@ -468,6 +474,16 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		logMaxRows: Math.max(
 			LOG_MAX_ROWS_FLOOR,
 			Math.round(safeNonNegativeNumber(input.logMaxRows, DEFAULT_SETTINGS.logMaxRows, LOG_MAX_ROWS_CEILING)),
+		),
+		maxConcurrentOperations: Math.max(
+			MAX_CONCURRENT_OPERATIONS_FLOOR,
+			Math.round(
+				safeNonNegativeNumber(
+					input.maxConcurrentOperations,
+					DEFAULT_SETTINGS.maxConcurrentOperations,
+					MAX_CONCURRENT_OPERATIONS_CEILING,
+				),
+			),
 		),
 		ribbonCommandIds: (() => {
 			const rawIds = (Array.isArray(input.ribbonCommandIds) ? input.ribbonCommandIds : DEFAULT_SETTINGS.ribbonCommandIds)

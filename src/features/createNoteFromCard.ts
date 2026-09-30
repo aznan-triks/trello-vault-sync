@@ -1,5 +1,6 @@
 import { formatCardRef } from "../core/cardRef";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
+import type { OperationGuard } from "../core/operationGuard";
 import { renderTemplate } from "../core/template";
 import type { NoteHandle, VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard } from "../trello/client";
@@ -38,8 +39,35 @@ export async function createNoteFromCard(
 	template: string | null,
 	cardRefKey: string,
 	maxNameLength?: number,
-): Promise<NoteHandle> {
-	const safeName = sanitizeFileName(card.name, maxNameLength);
-	const path = uniqueNotePath(folder, safeName, (p) => vault.exists(p));
-	return vault.create(path, newNoteContentFromCard(card, template, cardRefKey));
+): Promise<NoteHandle>;
+/** With a `guard` (operations running at the same time) a card another operation is already turning into a note is not created twice — `null` then. */
+export async function createNoteFromCard(
+	vault: Pick<VaultGateway, "exists" | "create">,
+	card: TrelloCard,
+	folder: string,
+	template: string | null,
+	cardRefKey: string,
+	maxNameLength: number | undefined,
+	guard: OperationGuard | undefined,
+): Promise<NoteHandle | null>;
+export async function createNoteFromCard(
+	vault: Pick<VaultGateway, "exists" | "create">,
+	card: TrelloCard,
+	folder: string,
+	template: string | null,
+	cardRefKey: string,
+	maxNameLength?: number,
+	guard?: OperationGuard,
+): Promise<NoteHandle | null> {
+	const claimKey = `create:${card.id}`;
+	if (guard && !guard.claim(claimKey)) return null;
+	try {
+		const safeName = sanitizeFileName(card.name, maxNameLength);
+		const path = uniqueNotePath(folder, safeName, (p) => vault.exists(p));
+		return await vault.create(path, newNoteContentFromCard(card, template, cardRefKey));
+	} catch (error) {
+		// Not created: let a later attempt (or another operation) try again.
+		guard?.release(claimKey);
+		throw error;
+	}
 }

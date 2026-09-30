@@ -32,6 +32,8 @@ import {
 	HISTORY_MAX_RUNS_CEILING,
 	LOG_MAX_ROWS_CEILING,
 	LOG_MAX_ROWS_FLOOR,
+	MAX_CONCURRENT_OPERATIONS_CEILING,
+	MAX_CONCURRENT_OPERATIONS_FLOOR,
 	NOTE_NAME_MAX_LENGTH_CEILING,
 	NOTE_NAME_MAX_LENGTH_FLOOR,
 	MAX_BACKOFF_DELAY_MS_CEILING,
@@ -1897,6 +1899,25 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					const parsed = Number.parseInt(value, 10);
 					if (!Number.isFinite(parsed)) return;
 					this.plugin.settings.logMaxRows = Math.max(LOG_MAX_ROWS_FLOOR, Math.min(parsed, LOG_MAX_ROWS_CEILING));
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Operations at the same time")
+			.setDesc(
+				`How many operations (syncs, audits, creations…) may run together, each with its own progress panel. ` +
+					`One more waits for a free slot. 1 = one at a time. ` +
+					`Range ${MAX_CONCURRENT_OPERATIONS_FLOOR}-${MAX_CONCURRENT_OPERATIONS_CEILING}, default 3.`,
+			)
+			.addText((text) =>
+				text.setValue(String(this.plugin.settings.maxConcurrentOperations)).onChange((value) => {
+					const parsed = Number.parseInt(value, 10);
+					if (!Number.isFinite(parsed)) return;
+					this.plugin.settings.maxConcurrentOperations = Math.max(
+						MAX_CONCURRENT_OPERATIONS_FLOOR,
+						Math.min(parsed, MAX_CONCURRENT_OPERATIONS_CEILING),
+					);
 					void this.save();
 				}),
 			);

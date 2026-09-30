@@ -4,6 +4,8 @@ export type LogLevel = "info" | "pull" | "push" | "create" | "adopt" | "rename" 
 export interface JournalEntry {
 	level: LogLevel;
 	message: string;
+	/** Title of the operation that wrote the line — set only while several operations run at once, so their lines can be told apart in the shared journal. */
+	source?: string;
 }
 
 /**

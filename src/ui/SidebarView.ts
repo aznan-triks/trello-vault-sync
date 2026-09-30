@@ -102,13 +102,13 @@ export class SidebarView extends ItemView {
 	 * would redraw all command buttons on every log line, which a large
 	 * sync fires many times a second.
 	 */
-	appendJournalEntry(level: LogLevel, message: string): void {
+	appendJournalEntry(level: LogLevel, message: string, source?: string): void {
 		if (!this.journalEl) return;
 		if (this.journalEmptyEl) {
 			this.journalEmptyEl.remove();
 			this.journalEmptyEl = null;
 		}
-		renderLogRow(this.journalEl, level, message, this.ctx.settings.logMaxRows);
+		renderLogRow(this.journalEl, level, message, this.ctx.settings.logMaxRows, source);
 		this.updateJournalBadge();
 	}
 
@@ -473,7 +473,7 @@ export class SidebarView extends ItemView {
 		} else {
 			this.journalEmptyEl = null;
 			for (const entry of this.ctx.journal) {
-				renderLogRow(this.journalEl, entry.level, entry.message, this.ctx.settings.logMaxRows);
+				renderLogRow(this.journalEl, entry.level, entry.message, this.ctx.settings.logMaxRows, entry.source);
 			}
 		}
 	}

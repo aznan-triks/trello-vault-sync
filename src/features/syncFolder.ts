@@ -222,7 +222,20 @@ export async function syncFolder(
 					safeName === card.name ? card.name : `${card.name} → saved as "${safeName}"`,
 				);
 				if (options.dryRun) continue;
-				await createNoteFromCard(vault, card, mapping.folder, template, cardRefKey, options.maxNameLength);
+				const created = await createNoteFromCard(
+					vault,
+					card,
+					mapping.folder,
+					template,
+					cardRefKey,
+					options.maxNameLength,
+					options.guard,
+				);
+				if (created === null) {
+					stats.created--;
+					stats.skipped++;
+					reporter.log("skip", `${card.name} — already being created by another operation`);
+				}
 			} catch (error) {
 				stats.created--;
 				stats.errors++;

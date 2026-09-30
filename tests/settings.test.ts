@@ -279,6 +279,13 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ historyMaxRuns: 999_999 }).historyMaxRuns).toBe(1000);
 	});
 
+	test("maxConcurrentOperations defaults to 3 and is clamped to 1-10, with the default when corrupted", () => {
+		expect(normalizeSettings({}).maxConcurrentOperations).toBe(3);
+		expect(normalizeSettings({ maxConcurrentOperations: 0 }).maxConcurrentOperations).toBe(1);
+		expect(normalizeSettings({ maxConcurrentOperations: 99 }).maxConcurrentOperations).toBe(10);
+		expect(normalizeSettings({ maxConcurrentOperations: "x" as unknown as number }).maxConcurrentOperations).toBe(3);
+	});
+
 	test("clamps noteNameMaxLength and logMaxRows into their ranges, with defaults when corrupted", () => {
 		expect(normalizeSettings({}).noteNameMaxLength).toBe(120);
 		expect(normalizeSettings({ noteNameMaxLength: 5 }).noteNameMaxLength).toBe(20);
