@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] — 2026-09-30
+
+### Added
+
+- **Plain**: You can now start several operations at once (a sync, an audit, a note creation…): each one gets its own progress panel, stacked on screen, and starting one never cancels or hides another.
+  **Technical**: `run()` no longer holds a single `syncing` lock. `ConcurrencyGate` (new setting `maxConcurrentOperations`, 1-10, default 3; 1 = one at a time, extra operations queue) limits parallelism; `ProgressPanel` cards live in a shared `.tvs-panel-stack` container instead of removing every other panel; outcome, background flag and titles are per operation (`execute()` returns it; auto-sync gets a proxy context whose `run()` marks its own operations).
+- **Plain**: When several operations run together, each line of the shared log (sidebar) names the operation it comes from.
+  **Technical**: optional `JournalEntry.source`, set by `withJournal` only while `gate.active > 1`; `renderLogRow` shows it.
+
+### Changed
+
+- **Plain**: Two operations that reach the same card or create the same note no longer step on each other: they take turns, and a card is never turned into a note twice.
+  **Technical**: `OperationGuard` — `withKey("card:<id>")` around `syncNoteWithCard` (re-reads the note handle after waiting; skips with reason `changed by another operation` if it was renamed/removed) and `claim("create:<id>")` in `createNoteFromCard` (overload returning `null` when already claimed; claims reset when no operation is left). Passed to engines via `noteOptions().guard` / `ctx.guard`.
+- **Plain**: Launching an operation that is already running (same title) is refused with a message instead of being silently dropped or duplicated.
+  **Technical**: `pendingTitles` set replaces the global busy check.
+- **Plain**: Saving the plugin data when several operations finish together can no longer mix up writes.
+  **Technical**: `persist()` chains writes through `persistQueue` and snapshots state when the write starts.
+
 ## [1.21.0] — 2026-09-29
 
 ### Added
