@@ -1,27 +1,73 @@
 # Trello Vault Sync
 
-Two-way Trello sync, link auditing and card matching for Obsidian — built for a
-worldbuilding vault where every note mirrors a card on a single board.
+Two-way Trello synchronization, an interactive card sidebar, link auditing, and safe conflict handling for Obsidian.
 
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A51.7.2-7c3aed)
 
-It replaces a set of Templater user scripts driven by ribbon buttons: one plugin,
-one credential pair, native commands, and a test suite.
+Keep your Obsidian notes and Trello cards perfectly aligned. View and edit cards directly in Obsidian's sidebar, synchronize notes individually or across entire project folders, and rest easy with zero-data-loss safety guarantees, visual conflict resolution, and 100% undoable history.
 
-This plugin was built for one specific vault, but the entire plugin — code, comments,
-and everything you see inside Obsidian (commands, settings, the progress panel,
-Notices, and the Markdown audit reports it writes into your notes) — is in English.
-There is no language setting.
+![Trello Card View in Obsidian](docs/media/card-view-preview.svg)
 
-**Acknowledgements** — [nathonius's Trello plugin](https://github.com/nathonius/obsidian-trello)
-is what first got my notes and Trello cards talking to each other, and using it is
-part of what pushed me to build this one. Thanks for the inspiration.
+---
 
-## Features
+## First 10 minutes
 
-Every command below is available both from the right sidebar panel and the
-command palette.
+Get up and running in 6 simple steps. **Default settings work out of the box** — you don't need to tweak complex configurations to start syncing.
+
+1. **Install the plugin**: In Obsidian, open **Settings → Community plugins → Browse**, search for **"Trello Vault Sync"**, install and enable it.
+2. **Connect your Trello board**:
+   - Open [trello.com/app-key](https://trello.com/app-key) in your browser.
+   - Copy your **API Key**.
+   - Click the authorization link on the same page to generate and copy your **Token**.
+   - In Obsidian, open **Settings → Trello Vault Sync**, paste your Key and Token, then type your board's name in the **Board id** search field. Click **"Test connection"** to confirm access.
+3. **Link your first note**: Open any note in your vault, open the command palette (`Ctrl+P` or `Cmd+P`), and run **"Link this note to a card I choose"** (or **"Link this note to the card with the same name"** for automatic title matching).
+4. **Run your first sync**: Run **"Sync this note with its card"**. The newest edit automatically updates the other side. *(Tip: Turn on Dry run in the sidebar anytime you want to preview a sync with zero writes).*
+5. **Open the Card View**: Run **"Open the card view"** to open the interactive side panel in Obsidian's right sidebar. You can inspect card covers, toggle checklist items, adjust due dates, add comments, or edit descriptions live.
+6. **(Optional) Sync entire folders**: Under **Settings → Trello list ↔ folder**, pair any vault folder with a Trello list to reconcile all project notes in one click with **"Sync one folder with its list"**.
+
+---
+
+## The 5 commands you need to know
+
+While Trello Vault Sync includes over 30 commands for specialized batch, audit, and recovery operations, everyday work only relies on these five:
+
+1. **Open the card view** — Open the interactive sidebar panel showing the open note's Trello card.
+2. **Sync this note with its card** — Reconcile the active note with its card (newest timestamp wins).
+3. **Link this note to a card I choose** — Search your Trello board by name and link the selected card to your note.
+4. **Sync one folder with its list** — Reconcile all notes in a folder with their corresponding Trello list in a single pass.
+5. **Undo the last sync** — Revert every write made by the most recent sync run with one click.
+
+*All other commands (vault-wide sweeps, orphan link audits, batch note/card creation, and change-log exports) remain available in the command palette and sidebar when you need advanced workflows.*
+
+---
+
+## Interactive Card View
+
+**"Open the card view"** opens an interactive panel in Obsidian's right sidebar that follows your open note:
+
+- **Follows active note**: Automatically updates when you switch notes, displaying the linked card's cover, title, list, due date, labels, assigned members, description, checklists, attachments, custom fields, and comments.
+- **In-place live editing**: Toggle checklist tasks, update due dates, edit descriptions, add comments, or archive cards directly inside Obsidian.
+- **Minimal API footprint**: Exactly one request per card, cached for a configurable duration. No background requests when the sidebar is hidden or when viewing unlinked notes.
+- **Per-card customization**: Click the gear icon (`⚙`) in the header to choose which sections (checklists, comments, custom fields, attachments) are visible on that specific card.
+
+---
+
+## Safety & Peace of mind
+
+Syncing between two systems shouldn't risk your notes. Trello Vault Sync is built with strict safety invariants:
+
+- **100% Undoable History**: Every sync run (active note, folder, or vault-wide) is recorded. The **"Undo the last sync"** command can revert vault writes and matching Trello writes.
+- **Visual Conflict Arbitration**: If both a note and its card changed since the last sync, the plugin flags a conflict and opens a side-by-side comparison modal so you can inspect differences and choose the winner.
+- **Timestamp Preservation (`mtime`)**: Note cleanups and non-content metadata updates preserve the file's original modification date, preventing false sync loops or accidental overwrites.
+- **Non-Destructive Trashing**: The plugin never permanently deletes local notes; deleted notes are always moved safely to Obsidian's configured Trash (`.trash` or system trash).
+- **In-Stream Note Cleanup**: When you turn off a feature toggle in settings (e.g. Due dates or Card covers), the plugin automatically prunes safe stale frontmatter keys in-stream during subsequent syncs with **0 extra Trello API requests**, leaving user content strictly intact.
+
+---
+
+## Features & Command Reference
+
+Every command below is available both from the right sidebar panel and the command palette.
 
 ### Active note
 
@@ -69,9 +115,9 @@ command palette.
 | --- | --- |
 | Create a note from an unlinked card | Pick a Trello card with no linked note yet and create one for it. |
 | Recreate the missing cards of notes | Pick a note with no linked Trello card yet and create one for it. |
-| Create notes and cards from the link report | Create notes for the orphan cards and cards for the unlinked notes left unchecked in the link audit report — all of it, or one list or folder. |
-| Create notes from the link report | Create notes only for the orphan cards left unchecked in the link audit report — all of them, or one list. |
-| Create cards from the link report | Create Trello cards only for the unlinked notes left unchecked in the link audit report — all of them, or one folder. |
+| Create notes and cards from the link report | Create notes for orphan cards and cards for unlinked notes left unchecked in the link audit report. |
+| Create notes from the link report | Create notes only for the orphan cards left unchecked in the link audit report. |
+| Create cards from the link report | Create Trello cards only for the unlinked notes left unchecked in the link audit report. |
 
 ### Audit
 
@@ -91,234 +137,63 @@ command palette.
 | Undo the last sync | Revert every write made by the most recent sync run. |
 | Undo part of a past sync | Pick a past sync run and choose which of its writes to revert. |
 
-Plus **"Turn test mode (dry-run) on or off"**, which flips the Dry run setting — a command in
-the palette, and a switch at the top of the sidebar panel.
-
-A note points at its card through a single frontmatter key:
-
-```yaml
-trello_board_card_id: "<boardId>;<cardId>"
-```
-
-A bare card id is accepted too. Unfilled `{{CARD_ID}}` template placeholders are
-ignored rather than sent to the API.
-
-You never need to type that value by hand: run **"Link this note to a card I choose"** and search the board's cards by name, or **"Link this note to the card with the same name"**
-for automatic title-matching.
-
-To find which note is linked to which Trello card, the plugin lists the vault's
-markdown notes and checks each one's card-link frontmatter key across every
-folder — used for vault sync, the link/location audits and moved-note detection;
-it reads nothing outside the vault and sends only card-related data to Trello.
-
-### Undo and cancellation
-
-Every sync run is recorded (when Sync history is on), so it can be undone: the
-last run, the last run for the active note, or any recorded run with individual
-writes picked one by one. Undo reverts vault writes and, if enabled, the matching
-Trello writes — it never overwrites something that changed on either side since
-the run. The Cancel button on the progress panel stops a sync between requests,
-but a request already sent to Trello can't be recalled mid-flight; undo can put
-it back afterwards.
-
-### Note cleanup and settings alignment
-
-When you turn off a synchronization toggle (such as due dates, labels, members, custom fields, attachments, or card covers), existing notes in your vault may still hold frontmatter properties written by earlier syncs.
-
-The plugin provides two ways to align your notes with your current settings:
-
-1. **Automatic alignment during sync (`cleanUpDuringSync`)**:
-   Enabled by default (`true`). Whenever a card sync runs (active note, folder, or vault-wide), the plugin automatically checks the note's frontmatter against active settings and prunes safe stale properties in-stream. This check operates entirely locally from cached card and note data and makes **0 extra Trello API requests**.
-
-2. **Manual cleanup command ("Clean up notes to match current settings")**:
-   Available from the command palette, sidebar, and left ribbon. This command scans notes across your configured scope and opens a category selection modal displaying exact affected note counts. You can review categories, choose what to clean, and run the cleanup across all matching notes in a single pass.
-
-3. **Settings helper banners**:
-   When you disable a feature toggle in settings (e.g. "Sync due dates"), an inline helper banner appears directly below the switch showing how many notes still carry that property, along with a button to clean them immediately.
-
-**Safety and non-destructive guarantees:**
-- **Timestamp preservation (`mtime`)**: Both automatic and manual cleanups preserve the file's original modification date. Obsidian and the sync engine will not mistake the cleanup for a user edit, preventing false `local-newer` sync conflicts or accidental overwrites on Trello.
-- **Safe vs. opt-in categories**: Frontmatter keys (`due`, `labels`, `members`, `custom-fields`, `attachments`, `linked-cards`, `cover`, and configurable `key-migration`) are safe to align automatically. Markdown body sections (`Checklists`), third-party plugin note IDs (`trello_plugin_note_id`), and obsolete custom label properties are classified as non-safe user content: they are **never** touched during automatic sync and are left unchecked by default in the manual modal.
-- **Local cover protection**: Turning off cover sync removes remote Trello image URLs while strictly preserving local note covers (vault paths or wikilinks).
-- **100% undoable**: All cleanup mutations are recorded in the sync history and can be completely reverted with **"Undo the last sync"**.
-
-## Install
-
-Install from Obsidian's **Settings → Community plugins → Browse**, then search
-for "Trello Vault Sync".
-
-You can also install manually: download `main.js`, `manifest.json` and
-`styles.css` from a [GitHub release](https://github.com/aznan-triks/trello-vault-sync/releases),
-and copy them into `<vault>/.obsidian/plugins/trello-vault-sync/`, then enable
-the plugin in Obsidian's Community Plugins settings.
-
-To build from source instead:
-
-```bash
-npm install
-npm run check
-```
-
-For live development, `npm run dev` rebuilds `main.js` on save.
-
-## Quickstart
-
-1. **Get a Trello key and token** — open <https://trello.com/app-key>, copy the
-   **Key**, then use the token-generation link on that same page to create a
-   **Token** (Trello walks you through granting read/write access).
-2. **Install the plugin** — see [Install](#install) above, then enable it in
-   Obsidian's Community Plugins settings.
-3. **Open the plugin settings**, paste the key and token into the *Trello
-   connection* section, then fill **Board id** — start typing to search your
-   boards by name instead of hunting for the id.
-4. **Click "Test connection"** to confirm the key, the token and board access
-   all work before syncing anything.
-5. **Add one list ↔ folder mapping**, or link a single existing note first with
-   **"Link this note to a card I choose"**.
-6. **Turn on Dry run**, then run **"Sync one folder with its list"** once —
-   nothing is written, but the log shows exactly what would happen.
-7. Happy with the plan? **Turn Dry run off** and run the same command for real.
+---
 
 ## Configuration
 
-Everything lives in the plugin settings — **never in a vault note**. Section
-names below match the settings tab exactly.
+Everything lives in the plugin settings — **never in a vault note**. Section names match the settings tab exactly:
 
-- **Trello connection** — API key and token (a single pair, stored in the
-  plugin's own `data.json`), board id with a name-search picker, and "Test
-  connection".
-- **Scope** — synced folder for the vault-wide commands (empty = whole vault),
-  and folders excluded regardless of link state.
-- **Audit output** — the report note the audits write into, and the path of the
-  standalone HTML change log page.
-- **Arbitration & safety** — who wins on conflict (newer side, Obsidian always,
-  or Trello always), the clock margin before a divergence counts as a real
-  conflict, Sync titles, Dry run, Clean up notes during sync (automatically
-  prunes safe frontmatter properties of disabled sync features with 0 extra
-  Trello requests), Create missing notes (overridable per mapping), adopting an
-  unlinked note named like a card, and confirmations before a forced sync or an
-  unlink.
-- **When a card changes on Trello** — what a sync does with a note whose card
-  was moved to another list (follow it to the matching folder, keep, trash),
-  archived (remove the Trello properties — the default —, keep, move to an
-  archive folder, trash) or deleted (remove the properties, keep, trash), the
-  archive folder with its two options, and what happens to a card whose note
-  you deleted (stop recreating it and list it under *Ignored cards*, archive
-  the card, or recreate the note). Every change can be undone from the sync
-  history.
-- **Labels** — merge vs. overwrite when the note's and the card's labels diverge.
-- **Labels to properties** — map a Trello label to a note property and value(s)
-  (for example label *NPC* writes `type: npc`); scan the board's labels, then
-  fill the key and values of each row. A label counts as present on the note
-  when all its values are in the property.
-- **Attachments** — Sync attachments (pull-only, into frontmatter), Download
-  attachments (writes files into the vault, off by default), and where a
-  download lands (same folder as the note, or one shared folder).
-- **Checklists** — Sync checklists, mirroring the card's checklists as Markdown
-  tasks under a configurable section heading.
-- **Cover image** — Sync card cover into a frontmatter key (compatible with
-  Pixelbanner), and which key it uses.
-- **Members** — Sync a card's assigned members into frontmatter as readable
-  names, and which key holds them.
-- **Custom fields** — Sync a card's custom fields into one frontmatter object,
-  keyed by each field's label.
-- **Sync history** — the master toggle for recording runs, whether undo also
-  reverts Trello writes, whether undoing asks for confirmation first, and how
-  many runs are kept before the oldest is dropped.
-- **Create note from a card** — fallback folder used by "Create note from a
-  Trello card" when the card's list isn't mapped to one (empty = ask each time).
-- **Auto-sync** — the master toggle, its triggers (on a timer, on focus, at
-  startup), its scope (every mapped folder and/or the whole vault), the timer
-  interval, and the minimum gap enforced between runs however they were
-  triggered.
-- **Trello list ↔ folder** — one row per list/folder pair, its note template,
-  and per-mapping overrides for Create missing notes / "Never trash notes in this folder".
-- **Ribbon icons** — a toggle per command, choosing which ones get a button in
-  Obsidian's left ribbon; every command stays available from the sidebar panel
-  and the command palette regardless of this setting.
-- **Card view** — the side panel showing the Trello card of the open note
-  (see below): which sections it shows and in which order, which fields can be
-  edited, cache durations, comments loaded, date format and more.
-- **Advanced** — similarity threshold for automatic title-matching, whether
-  attachments and checklists are fetched together with the cards, the progress
-  panel and its auto-close delay, the frontmatter key used for each synced
-  value (including the card-link key itself and the optional
-  `trello_plugin_note_id`), and a closed *Expert settings* block (network
-  retries and timings, rarely changed values, report wording).
+- **Trello connection** — API key and token (stored in the plugin's own `data.json`), board id with a name-search picker, and "Test connection".
+- **Scope** — synced folder for vault-wide commands (empty = whole vault), and excluded folders.
+- **Audit output** — the report note audits write into, and the path of the standalone HTML change log page.
+- **Arbitration & safety** — who wins on conflict (newer side, Obsidian always, or Trello always), clock margin, Dry run toggle, and automatic note cleanup during sync.
+- **When a card changes on Trello** — what a sync does when a card is moved, archived, or deleted on Trello, plus ignored cards handling.
+- **Labels & Labels to properties** — label merging rules and bidirectional mapping from Trello labels to Obsidian frontmatter properties.
+- **Attachments, Checklists, Cover image, Members, Custom fields** — toggle sync for each card dimension, configure frontmatter keys, and set attachment download locations.
+- **Sync history** — history retention count, confirmation prompt, and Trello write rollback toggle.
+- **Auto-sync** — background synchronization triggers (timer, focus, startup) and interval settings.
+- **Card view** — customization options for the sidebar panel (ordering, editable fields, cache timeouts).
+- **Advanced** — frontmatter key overrides, similarity thresholds, and network retry tuning.
 
-Every setting shows its default value; a changed one is marked and can be reset
-with one click, and the top of the tab says how many differ from the defaults
-(with a *Show only changed* filter). Sub-settings of a switch are hidden while
-it is off.
-
-### Card view
-
-**"Open the card view"** opens a side panel that follows the open note and
-shows its Trello card: cover, title, list, due date, labels, members,
-description, checklists, attachments, custom fields and comments. One request
-per card, reused for a configurable time, and none while the note is not linked
-or the panel is hidden. With editing on (the default) you can change the title,
-description, due date, list, labels, members, checklist items, comments, custom
-fields, attach a link, and archive the card — but never delete a comment, an
-item, an attachment or the card. The gear button chooses which sections one
-particular card shows.
+---
 
 ## Templates
 
-A mapping's template may use `{{TITLE}}`, `{{DESCRIPTION}}`, `{{URL}}`, `{{CARD_ID}}`
-and `{{BOARD_ID}}`. Unknown placeholders are left untouched. With no template, a new
-note gets a minimal frontmatter and the card description.
+Folder mappings may use note templates with dynamic placeholders: `{{TITLE}}`, `{{DESCRIPTION}}`, `{{URL}}`, `{{CARD_ID}}`, and `{{BOARD_ID}}`. Unfilled placeholders are left intact.
 
-`{{TITLE}}` and `{{DESCRIPTION}}` carry arbitrary Trello card text, so when either one
-lands inside the frontmatter fence it is rendered as an auto-quoted, YAML-escaped
-string — write `title: {{TITLE}}`, not `title: "{{TITLE}}"`, or the value ends up
-double-quoted. `{{CARD_ID}}`/`{{BOARD_ID}}`/`{{URL}}` are Trello's own fixed-format
-ids and are never escaped, so the default `"{{BOARD_ID}};{{CARD_ID}}"` pattern still
-works as written.
+`{{TITLE}}` and `{{DESCRIPTION}}` carry arbitrary card text, so when either lands inside the frontmatter fence it is rendered as an auto-quoted, YAML-escaped string — write `title: {{TITLE}}`, not `title: "{{TITLE}}"`. `{{CARD_ID}}`/`{{BOARD_ID}}`/`{{URL}}` are fixed-format Trello ids and are never escaped.
+
+---
 
 ## Architecture
 
 ```
 src/
-  core/       pure logic, no Obsidian and no network — where the tests live
-  trello/     REST client with an injected transport, retry/backoff, secret redaction
-  obsidian/   VaultGateway interface + the real Obsidian implementation
-  features/   sync, audit and rollback engines, written against the interfaces
-  ui/         sidebar view, progress panel, pickers and confirmation modals
-  settings/   settings shape and settings tab
+  core/       pure logic, no Obsidian and no network — where unit tests live
+  trello/     REST client with injected transport, retry/backoff, secret redaction
+  obsidian/   VaultGateway interface + concrete Obsidian API implementation
+  features/   sync, card view actions, audit, and rollback engines
+  ui/         card view, sidebar view, progress panel, pickers, and modals
+  settings/   settings definitions and SettingsTab renderer
 ```
 
-`core/` never imports Obsidian, so the sync decisions, the folder planner and the
-report builders run in plain Node under Vitest. `features/` depends on the
-`VaultGateway` and `TrelloClient` interfaces, so the engines are exercised end to end
-against an in-memory vault and a stubbed transport.
+`core/` never imports Obsidian or network modules. `features/` depends strictly on the `VaultGateway` and `TrelloClient` interfaces, allowing the entire sync engine and edge cases to run deterministically in Vitest.
 
-## Scripts
+---
+
+## Development
 
 ```bash
 npm run check         # typecheck + hardcode check + tests + production build
-npm test               # tests only
-npm run build          # typecheck + production build
-npm run dev            # watch build
-npm run check:hardcode # scans for hardcoded values that belong in settings
+npm test              # tests only
+npm run build         # typecheck + production build
+npm run dev           # watch mode
+npm run check:hardcode# scans for hardcoded values that belong in settings
 ```
 
-## Notable differences from the scripts it replaces
+---
 
-- One credential pair instead of one per script, held in settings, never in a note.
-- The card list is fetched in one request per batch run instead of one per note,
-  attachments and checklists included (unless "Fetch attachments and checklists
-  with the cards" is turned off in Advanced).
-- Retry with exponential backoff on 429 and 5xx, instead of aborting the whole run.
-- Frontmatter handled as YAML (or line-wise), never with `indexOf("---", 3)` — a `---`
-  inside a YAML value no longer corrupts the note, and BOM/CRLF files are safe.
-- Simultaneous divergence surfaces as a conflict instead of being silently skipped.
-- Note deletion is opt-in (globally or per mapping), can spare cards moved or
-  archived elsewhere on the board, and always goes through Obsidian's own
-  "Deleted files" setting — never a permanent delete.
-- Rename collisions get a ` (2)` suffix instead of failing.
-- Every sync run can be undone afterward, instead of being a one-way write.
+## Acknowledgements & License
 
-## License
-
-[MIT](LICENSE)
+- **Acknowledgements** — [nathonius's Trello plugin](https://github.com/nathonius/obsidian-trello) inspired connecting notes and Trello cards and helped motivate this project.
+- **License** — [MIT](LICENSE)
