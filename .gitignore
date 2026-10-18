@@ -50,3 +50,9 @@ CODE_REVIEW_FINDINGS_*.md
 
 # Obsidian workspace config at repo root (machine-specific, not source).
 .obsidian/
+
+# Private agent entry points and long-form notes (see CONTEXT.md) — local only.
+CLAUDE.md
+AGENTS.md
+CONTEXT_reference.md
+_backup_methode_*/

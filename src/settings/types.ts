@@ -109,6 +109,8 @@ export interface TrelloVaultSyncSettings {
 	labelsFrontmatterKey: string;
 	attachmentsFrontmatterKey: string;
 	linkedCardsFrontmatterKey: string;
+	/** Off by default — also writes the "Trello" plugin's `trello_plugin_note_id` on every note this plugin links or creates. */
+	writeTrelloPluginNoteId: boolean;
 
 	/** Pull-only, on by default — costs one extra Trello request per note synced (attachments aren't embedded in the card object). */
 	syncAttachments: boolean;
@@ -253,6 +255,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	labelsFrontmatterKey: DEFAULT_LABELS_KEY,
 	attachmentsFrontmatterKey: DEFAULT_ATTACHMENTS_KEY,
 	linkedCardsFrontmatterKey: DEFAULT_LINKED_CARDS_KEY,
+	writeTrelloPluginNoteId: false,
 	syncAttachments: DEFAULT_SYNC_ATTACHMENTS,
 	syncLinkedCards: DEFAULT_SYNC_LINKED_CARDS,
 	syncChecklists: DEFAULT_SYNC_CHECKLISTS,

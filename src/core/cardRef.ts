@@ -37,3 +37,11 @@ export function parseCardRef(raw: unknown): CardRef | null {
 export function formatCardRef(boardId: string | null | undefined, cardId: string): string {
 	return boardId ? `${boardId};${cardId}` : cardId;
 }
+
+/** Frontmatter key the "Trello" plugin (nathonius/obsidian-trello) uses for its own per-note id — fixed by that plugin, not configurable. */
+export const DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY = "trello_plugin_note_id";
+
+/** A random per-note id in the shape the "Trello" plugin accepts (any unique string). */
+export function newPluginNoteId(): string {
+	return crypto.randomUUID().replace(/-/g, "");
+}

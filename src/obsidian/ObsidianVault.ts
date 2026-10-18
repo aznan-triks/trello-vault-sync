@@ -1,5 +1,12 @@
-import { TFile, type App } from "obsidian";
-import { DEFAULT_CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../core/cardRef";
+import { TFile, getFrontMatterInfo, parseYaml, type App } from "obsidian";
+import {
+	DEFAULT_CARD_REF_KEY,
+	DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY,
+	formatCardRef,
+	newPluginNoteId,
+	parseCardRef,
+	type CardRef,
+} from "../core/cardRef";
 import { excludeFolders, notesInFolder } from "../core/fileName";
 import type { CardRefStore, NoteHandle, TemplateResolver, VaultGateway } from "./gateway";
 
@@ -14,6 +21,7 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 	constructor(
 		private readonly app: App,
 		private readonly getCardRefKey: () => string = () => DEFAULT_CARD_REF_KEY,
+		private readonly getWritePluginNoteId: () => boolean = () => false,
 	) {}
 
 	private toHandle(file: TFile): NoteHandle {
@@ -66,7 +74,15 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 		const key = this.getCardRefKey();
 		await this.writeFrontmatter(note, (frontmatter) => {
 			frontmatter[key] = formatCardRef(ref.boardId, ref.cardId);
+			this.addPluginNoteId(frontmatter);
 		});
+	}
+
+	/** Adds the "Trello" plugin's per-note id when the option is on and the note has none yet. */
+	private addPluginNoteId(frontmatter: Record<string, unknown>): void {
+		if (!this.getWritePluginNoteId()) return;
+		if (typeof frontmatter[DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY] === "string") return;
+		frontmatter[DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY] = newPluginNoteId();
 	}
 
 	async read(note: NoteHandle): Promise<string> {
@@ -93,7 +109,20 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 
 	async create(path: string, content: string): Promise<NoteHandle> {
 		await this.ensureParentFolder(path);
-		return this.toHandle(await this.app.vault.create(path, content));
+		const handle = this.toHandle(await this.app.vault.create(path, content));
+		if (this.getWritePluginNoteId() && this.carriesCardRef(content)) {
+			await this.writeFrontmatter(handle, (frontmatter) => this.addPluginNoteId(frontmatter));
+		}
+		return handle;
+	}
+
+	/** Reads the YAML straight from the content: the metadata cache isn't ready right after `create`. */
+	private carriesCardRef(content: string): boolean {
+		const info = getFrontMatterInfo(content);
+		if (!info.exists) return false;
+		const parsed: unknown = parseYaml(info.frontmatter);
+		const raw = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>)[this.getCardRefKey()] : undefined;
+		return parseCardRef(raw) !== null;
 	}
 
 	async trash(note: NoteHandle): Promise<void> {

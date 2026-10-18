@@ -2003,6 +2003,19 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 				}),
 			);
+
+		new Setting(root)
+			.setName("Write the \"Trello\" plugin's note id")
+			.setDesc(
+				"Also adds trello_plugin_note_id to every note this plugin links or creates, for people who still use " +
+					"the \"Trello\" plugin by nathonius alongside this one (the card link itself is already compatible).",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.writeTrelloPluginNoteId).onChange((value) => {
+					this.plugin.settings.writeTrelloPluginNoteId = value;
+					void this.save();
+				}),
+			);
 	}
 
 	private renderChangelog(root: HTMLElement): void {

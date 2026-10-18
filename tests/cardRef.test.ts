@@ -1,5 +1,22 @@
 import { describe, expect, test } from "vitest";
-import { formatCardRef, isPlaceholder, parseCardRef } from "../src/core/cardRef";
+import {
+	DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY,
+	formatCardRef,
+	isPlaceholder,
+	newPluginNoteId,
+	parseCardRef,
+} from "../src/core/cardRef";
+
+describe("newPluginNoteId", () => {
+	test("returns a non-empty id that differs between calls", () => {
+		const a = newPluginNoteId();
+		expect(a).toMatch(/^[A-Za-z0-9_-]{16,}$/);
+		expect(a).not.toBe(newPluginNoteId());
+	});
+	test("key matches the Trello plugin's contract", () => {
+		expect(DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY).toBe("trello_plugin_note_id");
+	});
+});
 
 describe("parseCardRef", () => {
 	test("splits the legacy 'boardId;cardId' pair", () => {
