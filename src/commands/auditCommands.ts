@@ -45,11 +45,11 @@ export async function runChangesAudit(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 
 	await ctx.run("Audit changes", async (reporter, signal) => {
-		const { boardId, reportPath, timestamp } = ctx.auditOptions("changes");
+		const { boardId, reportPath, timestamp, reportLabels } = ctx.auditOptions("changes");
 		const result = await auditChanges(
 			ctx.vault,
 			ctx.client(reporter),
-			{ boardId, reportPath, timestamp, since: ctx.settings.auditChangesCursor },
+			{ boardId, reportPath, timestamp, since: ctx.settings.auditChangesCursor, reportLabels },
 			reporter,
 			signal,
 		);
@@ -71,7 +71,14 @@ export async function runChangesHtmlExport(ctx: CommandContext): Promise<void> {
 		const result = await exportChangesHtml(
 			ctx.vault,
 			ctx.client(reporter),
-			{ boardId, htmlPath: ctx.settings.changesHtmlPath, timestamp, since: ctx.settings.auditChangesCursor },
+			{
+				boardId,
+				htmlPath: ctx.settings.changesHtmlPath,
+				timestamp,
+				since: ctx.settings.auditChangesCursor,
+				avatarSize: ctx.settings.changeLogAvatarSize,
+				extraCss: ctx.settings.changeLogHtmlExtraCss,
+			},
 			(url, avatarSignal) => ctx.fetchBinary(url, avatarSignal),
 			reporter,
 			signal,

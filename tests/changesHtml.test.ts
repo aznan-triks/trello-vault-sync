@@ -70,3 +70,11 @@ describe("buildChangesHtml", () => {
 		expect(withoutCard).toContain("Name changed");
 	});
 });
+
+describe("buildChangesHtml — extra CSS", () => {
+	test("is appended to the style, and cannot close the style element", () => {
+		const html = buildChangesHtml({ timestamp: "t", entries: [], extraCss: "h1{color:red}</style><script>x</script>" });
+		expect(html).toContain("h1{color:red}");
+		expect(html.match(/<\/style>/g)).toHaveLength(1);
+	});
+});

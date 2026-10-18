@@ -172,6 +172,10 @@ export interface TrelloClientOptions {
 	onRetry?: (info: RetryInfo) => void;
 	/** Per-attempt timeout — a request that outlives this is treated as a transport-level failure (retryable), same path as a 5xx. */
 	requestTimeoutMs?: number;
+	/** HTTP statuses that are retried. Default: `DEFAULT_RETRYABLE_STATUS_CODES`. */
+	retryableStatusCodes?: readonly number[];
+	/** Actions asked per call of `getActions`. Default (and Trello's maximum): `DEFAULT_ACTIONS_PAGE_LIMIT`. */
+	actionsPageLimit?: number;
 }
 
 const API_ROOT = "https://api.trello.com/1";
@@ -214,9 +218,10 @@ function includeParams(includes?: CardIncludes): Record<string, string> {
 	return params;
 }
 
-const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
-/** One page's worth of actions per call — no automatic multi-page walk, see PLAN_2026-09-04_feature-audit-changes.md. */
-const ACTIONS_PAGE_LIMIT = "1000";
+/** Status codes that are retried unless the caller says otherwise. */
+export const DEFAULT_RETRYABLE_STATUS_CODES: readonly number[] = [408, 429, 500, 502, 503, 504];
+/** Trello's own maximum for one page of actions (no automatic multi-page walk). */
+export const DEFAULT_ACTIONS_PAGE_LIMIT = 1000;
 /** Extra fields requested on `memberCreator` — `avatarUrl` lets the HTML export show who did what without a separate per-member call. */
 const MEMBER_CREATOR_FIELDS = "avatarUrl,fullName";
 
@@ -244,6 +249,8 @@ export class TrelloClient {
 	private readonly sleep: (ms: number) => Promise<void>;
 	private readonly onRetry?: (info: RetryInfo) => void;
 	private readonly requestTimeoutMs: number;
+	private readonly retryable: ReadonlySet<number>;
+	private readonly actionsPageLimit: number;
 
 	constructor(
 		private readonly credentials: TrelloCredentials,
@@ -256,6 +263,8 @@ export class TrelloClient {
 		this.sleep = options.sleep ?? defaultSleep;
 		this.onRetry = options.onRetry;
 		this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+		this.retryable = new Set(options.retryableStatusCodes ?? DEFAULT_RETRYABLE_STATUS_CODES);
+		this.actionsPageLimit = options.actionsPageLimit ?? DEFAULT_ACTIONS_PAGE_LIMIT;
 	}
 
 	/** True when both halves of the single configured credential pair are present. */
@@ -382,7 +391,7 @@ export class TrelloClient {
 	): Promise<TrelloAction[]> {
 		const params: Record<string, string> = {
 			filter: "all",
-			limit: ACTIONS_PAGE_LIMIT,
+			limit: String(this.actionsPageLimit),
 			memberCreator_fields: MEMBER_CREATOR_FIELDS,
 		};
 		if (options.since) params.since = options.since;
@@ -512,7 +521,7 @@ export class TrelloClient {
 
 			if (response) {
 				if (response.status >= 200 && response.status < 300) return response;
-				const retryable = RETRYABLE.has(response.status);
+				const retryable = this.retryable.has(response.status);
 				lastError = new TrelloError(this.describe(response), response.status, retryable);
 				if (!retryable) throw lastError;
 			}

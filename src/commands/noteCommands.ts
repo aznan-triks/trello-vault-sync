@@ -74,6 +74,7 @@ export async function linkActive(ctx: CommandContext): Promise<void> {
 			{
 				boardId: ctx.settings.boardId,
 				threshold: ctx.settings.similarityThreshold,
+				containmentScore: ctx.settings.nameContainmentScore,
 			},
 			signal,
 		);
@@ -112,7 +113,7 @@ export async function linkActivePick(ctx: CommandContext): Promise<void> {
 		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId, undefined, signal);
 		new CardPickerModal(ctx.app, cards, (card) => {
 			void linkNoteToCard(ctx.vault, note, card).then(
-				() => new Notice(`Linked to "${card.name}".`),
+				() => { if (ctx.settings.showSuccessNotices) new Notice(`Linked to "${card.name}".`); },
 				(error) => {
 					new Notice(`❌ ${errorMessage(error)}`);
 					console.error("[trello-vault-sync]", error);

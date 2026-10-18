@@ -43,3 +43,11 @@ describe("prefixDryRunMessage", () => {
 		expect(prefixDryRunMessage("[Dry-run] Created note.md", true)).toBe("[Dry-run] Created note.md");
 	});
 });
+
+describe("prefixDryRunMessage — custom prefix", () => {
+	test("uses the given prefix, and an empty one means none", () => {
+		expect(prefixDryRunMessage("x", true, "DRY ")).toBe("DRY x");
+		expect(prefixDryRunMessage("x", true, "")).toBe("x");
+		expect(prefixDryRunMessage("DRY x", true, "DRY ")).toBe("DRY x");
+	});
+});

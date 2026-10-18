@@ -1,3 +1,4 @@
+import type { ReportLabels } from "../core/auditReport";
 import type { VaultGateway } from "../obsidian/gateway";
 
 export interface AuditOptions {
@@ -11,6 +12,8 @@ export interface AuditOptions {
 	excludedFolders?: string[];
 	/** Cards the user chose to stop creating notes for: not reported as orphan cards. */
 	ignoredCardIds?: ReadonlySet<string>;
+	/** Report headings and group prefixes (Settings -> Audit output); absent = the built-in ones. */
+	reportLabels?: ReportLabels;
 	/** Create the report note when missing instead of throwing. */
 	autoCreateReportNote?: boolean;
 }

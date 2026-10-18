@@ -13,6 +13,10 @@ export interface ChangesHtmlOptions {
 	timestamp: string;
 	/** Cursor from the last "Audit changes" run — this command never advances it. */
 	since: string;
+	/** Avatar size Trello serves: "30", "50", "170" or "original". Default "50". */
+	avatarSize?: string;
+	/** Appended to the page's built-in CSS. */
+	extraCss?: string;
 }
 
 export interface ChangesHtmlResult {
@@ -20,8 +24,8 @@ export interface ChangesHtmlResult {
 	html: string;
 }
 
-/** One size — small enough for a list row, still recognizable. Trello serves this suffix off the base `avatarUrl`. */
-const AVATAR_SIZE_SUFFIX = "/50.png";
+/** Trello serves `<size>.png` off the base `avatarUrl`; 50 is small enough for a list row, still recognizable. */
+const DEFAULT_AVATAR_SIZE = "50";
 
 function requireHtmlPath(htmlPath: string): string {
 	if (htmlPath.trim() === "") {
@@ -52,7 +56,7 @@ export async function exportChangesHtml(
 	const avatarCache = new Map<string, string | null>();
 	async function resolveAvatar(url: string): Promise<string | null> {
 		if (avatarCache.has(url)) return avatarCache.get(url) ?? null;
-		const bytes = await fetchBinary(url + AVATAR_SIZE_SUFFIX, signal);
+		const bytes = await fetchBinary(`${url}/${options.avatarSize ?? DEFAULT_AVATAR_SIZE}.png`, signal);
 		if (!bytes) reporter.log("warn", `Could not download avatar, showing an initial instead: ${url}`);
 		const dataUri = bytes ? `data:image/png;base64,${arrayBufferToBase64(bytes)}` : null;
 		avatarCache.set(url, dataUri);
@@ -72,7 +76,7 @@ export async function exportChangesHtml(
 		await yieldPeriodically(i);
 	}
 
-	const html = buildChangesHtml({ timestamp: options.timestamp, entries });
+	const html = buildChangesHtml({ timestamp: options.timestamp, entries, extraCss: options.extraCss });
 	const existing = vault.noteAt(htmlPath);
 	if (existing) await vault.write(existing, html);
 	else await vault.create(htmlPath, html);

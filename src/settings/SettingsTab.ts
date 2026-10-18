@@ -24,27 +24,21 @@ import {
 } from "../core/changelog";
 import { BUNDLED_CHANGELOG } from "../core/bundledChangelog";
 import { TrelloPickerSuggest, type IdName } from "../ui/TrelloPickerSuggest";
+import { DEFAULT_ACTIONS_PAGE_LIMIT, DEFAULT_RETRYABLE_STATUS_CODES } from "../trello/client";
+import { DEFAULT_DRY_RUN_PREFIX } from "../core/journal";
 import { VaultPathSuggest } from "../ui/VaultPathSuggest";
 import {
-	AUTO_SYNC_INTERVAL_MINUTES_CEILING,
-	AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
-	AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING,
 	AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR,
-	AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING,
-	BASE_DELAY_MS_CEILING,
-	HISTORY_MAX_RUNS_CEILING,
-	LOG_MAX_ROWS_CEILING,
 	LOG_MAX_ROWS_FLOOR,
-	MAX_CONCURRENT_OPERATIONS_CEILING,
 	MAX_CONCURRENT_OPERATIONS_FLOOR,
 	NOTE_NAME_MAX_LENGTH_CEILING,
 	NOTE_NAME_MAX_LENGTH_FLOOR,
-	MAX_BACKOFF_DELAY_MS_CEILING,
-	MAX_RETRIES_CEILING,
-	REQUEST_TIMEOUT_MS_CEILING,
 	normalizeVaultPath,
 	safeFrontmatterKey,
 	safeNonNegativeNumber,
+	CHANGE_LOG_AVATAR_SIZES,
+	DEFAULT_SETTINGS,
+	type ChangeLogAvatarSize,
 	type OrphanCardScope,
 	type PhantomNoteScope,
 } from "./types";
@@ -275,6 +269,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			{ id: "scope", tab: "general", render: (el) => this.renderScope(el) },
 			{ id: "ribbon", tab: "general", render: (el) => this.renderRibbon(el) },
 			{ id: "audit-output", tab: "general", render: (el) => this.renderAuditOutput(el) },
+			{ id: "report-labels", tab: "general", render: (el) => this.renderReportLabels(el) },
 			// Tab 2: Sync Rules
 			{ id: "arbitration", tab: "sync-rules", render: (el) => this.renderArbitration(el) },
 			{ id: "card-lifecycle", tab: "sync-rules", render: (el) => this.renderCardLifecycle(el) },
@@ -574,6 +569,113 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 	}
 
+	private toggleField(root: HTMLElement, name: string, desc: string, get: () => boolean, set: (value: boolean) => void): void {
+		new Setting(root)
+			.setName(name)
+			.setDesc(desc)
+			.addToggle((toggle) =>
+				toggle.setValue(get()).onChange((value) => {
+					set(value);
+					void this.save();
+				}),
+			);
+	}
+
+	/** A whole-number field; an unusable entry is ignored until it parses, then clamped to `min`..`max`. */
+	private numberField(
+		root: HTMLElement,
+		name: string,
+		desc: string,
+		get: () => number,
+		set: (value: number) => void,
+		min: number,
+		max = Number.POSITIVE_INFINITY,
+	): void {
+		new Setting(root)
+			.setName(name)
+			.setDesc(desc)
+			.addText((text) =>
+				text.setValue(String(get())).onChange((value) => {
+					const parsed = Number(value);
+					if (value.trim() === "" || !Number.isFinite(parsed)) return;
+					set(Math.min(max, Math.max(min, parsed)));
+					void this.save();
+				}),
+			);
+	}
+
+	private textField(
+		root: HTMLElement,
+		name: string,
+		desc: string,
+		get: () => string,
+		set: (value: string) => void,
+		placeholder = "",
+	): void {
+		new Setting(root)
+			.setName(name)
+			.setDesc(desc)
+			.addText((text) =>
+				text.setPlaceholder(placeholder).setValue(get()).onChange((value) => {
+					set(value);
+					void this.save();
+				}),
+			);
+	}
+
+	private renderReportLabels(root: HTMLElement): void {
+		const s = this.plugin.settings;
+		new Setting(root).setName("Report wording and change log page").setHeading();
+		root.createEl("p", {
+			cls: "setting-item-description",
+			text: "Reports are rewritten at every audit, so changing a heading takes effect on the next one (an old report keeps its old heading until then). A heading or group prefix must start with #.",
+		});
+		const heading = (name: string, key: "linkReportHeading" | "locationReportHeading" | "changesReportHeading" | "orphanCardGroupPrefix" | "phantomNoteGroupPrefix" | "unlinkedNoteGroupPrefix", desc: string) =>
+			this.textField(root, name, desc, () => s[key], (value) => { s[key] = value.trim() === "" || !value.trimStart().startsWith("#") ? DEFAULT_SETTINGS[key] : value; }, DEFAULT_SETTINGS[key]);
+		heading("Link report heading", "linkReportHeading", "Title line of the link report.");
+		heading("Location report heading", "locationReportHeading", "Title line of the location report.");
+		heading("Change log report heading", "changesReportHeading", "Title line of the change log report.");
+		heading("Orphan cards group prefix", "orphanCardGroupPrefix", "Starts each list's group of cards without a note, in the link report.");
+		heading("Phantom notes group prefix", "phantomNoteGroupPrefix", "Starts each folder's group of notes whose card is gone.");
+		heading("Unlinked notes group prefix", "unlinkedNoteGroupPrefix", "Starts each folder's group of notes with no card.");
+
+		new Setting(root)
+			.setName("Change log avatar size")
+			.setDesc("Size of the avatars embedded in the HTML change log. Trello serves these sizes only; a larger one makes the page heavier.")
+			.addDropdown((dropdown) => {
+				for (const size of CHANGE_LOG_AVATAR_SIZES) dropdown.addOption(size, size === "original" ? "Original" : `${size} px`);
+				dropdown.setValue(s.changeLogAvatarSize).onChange((value) => {
+					s.changeLogAvatarSize = value as ChangeLogAvatarSize;
+					void this.save();
+				});
+			});
+		new Setting(root)
+			.setName("Change log extra CSS")
+			.setDesc("Appended to the HTML change log's own style, after it, so your rules win. Applied the next time the page is exported.")
+			.addTextArea((area) =>
+				area.setValue(s.changeLogHtmlExtraCss).onChange((value) => {
+					s.changeLogHtmlExtraCss = value;
+					void this.save();
+				}),
+			);
+	}
+
+	private renderTuning(root: HTMLElement): void {
+		const s = this.plugin.settings;
+		new Setting(root).setName("Tuning").setHeading();
+		this.numberField(root, "Auto-sync check every (seconds)", "How often auto-sync looks at whether it is time to sync. The interval above still decides when it actually syncs. Minimum 1, default 30.", () => s.autoSyncCheckSeconds, (v) => (s.autoSyncCheckSeconds = Math.round(v)), 1);
+		this.numberField(root, "Own-write grace (ms)", "After a sync, note edits within this time count as the sync's own writes and do not trigger a sync. Minimum 0, default 1500.", () => s.ownWriteGraceMs, (v) => (s.ownWriteGraceMs = v), 0);
+		this.textField(root, "Retry on these HTTP statuses", "Comma-separated codes (100-599) that a failed request is retried on.", () => s.retryableStatusCodes.join(", "), (value) => {
+			s.retryableStatusCodes = [...new Set(value.split(",").map((part) => Number(part.trim())).filter((code) => Number.isInteger(code) && code >= 100 && code <= 599))];
+		}, DEFAULT_RETRYABLE_STATUS_CODES.join(", "));
+		this.numberField(root, "Change log page size", `Actions requested per Trello call by the change log. 1 to ${DEFAULT_ACTIONS_PAGE_LIMIT} (Trello's own maximum), default ${DEFAULT_ACTIONS_PAGE_LIMIT}.`, () => s.changeLogPageSize, (v) => (s.changeLogPageSize = Math.round(v)), 1, DEFAULT_ACTIONS_PAGE_LIMIT);
+		this.numberField(root, "Notes between UI pauses", "A scan over many notes pauses once every this many notes so Obsidian can repaint. Minimum 1, default 200.", () => s.yieldEveryNotes, (v) => (s.yieldEveryNotes = Math.round(v)), 1);
+		this.numberField(root, "Title containment score", "Score (0 to 1) given when a note's name appears whole inside a card's title, or the reverse, when linking by name. Default 0.9.", () => s.nameContainmentScore, (v) => (s.nameContainmentScore = v), 0, 1);
+		this.textField(root, "Dry-run log prefix", "Put before every journal line of a dry run. Empty for none.", () => s.dryRunLogPrefix, (v) => (s.dryRunLogPrefix = v), DEFAULT_DRY_RUN_PREFIX);
+		this.toggleField(root, "Success notices", "Show a notice when an operation finishes well. Errors are always shown.", () => s.showSuccessNotices, (v) => (s.showSuccessNotices = v));
+		this.toggleField(root, "Queue notices", "Show a notice when an operation waits behind others or is already running.", () => s.showQueueNotices, (v) => (s.showQueueNotices = v));
+	}
+
 	private renderAuditOutput(root: HTMLElement): void {
 		new Setting(root).setName("Audit output").setHeading();
 		root.createEl("p", {
@@ -756,6 +858,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 				}),
 			);
+
+		this.toggleField(
+			root,
+			"Adopt a note named like a card",
+			"During a folder sync, an unlinked note whose file name is exactly a card's title takes that card as its own instead of the card getting a second note. Off: such a note is only reported as unlinked.",
+			() => this.plugin.settings.adoptUnlinkedNotesByName,
+			(value) => (this.plugin.settings.adoptUnlinkedNotesByName = value),
+		);
 	}
 
 	private renderCardLifecycle(root: HTMLElement): void {
@@ -1339,13 +1449,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Sync history — runs kept")
 			.setDesc(
-				"Oldest run is dropped once this many are recorded. Range 0-1000, default 20. 0 keeps no history " +
+				"Oldest run is dropped once this many are recorded. Minimum 0, default 20 (a very large value makes data.json heavy). 0 keeps no history " +
 					"at all — every run is dropped right after it completes, and undo has nothing to work with.",
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.historyMaxRuns)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.historyMaxRuns = safeNonNegativeNumber(parsed, 0, HISTORY_MAX_RUNS_CEILING);
+					this.plugin.settings.historyMaxRuns = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
 			);
@@ -1633,17 +1743,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Delay after the last edit (seconds)")
 			.setDesc(
-				`Quiet time before an edited note is synced. Range ${AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR}-` +
-					`${AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING}, default 10.`,
+				`Quiet time before an edited note is synced. Minimum ${AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR}, default 10.`,
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.autoSyncNoteChangeDelaySeconds)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
 					if (!Number.isFinite(parsed)) return;
-					this.plugin.settings.autoSyncNoteChangeDelaySeconds = Math.max(
-						AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR,
-						Math.min(parsed, AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING),
-					);
+					this.plugin.settings.autoSyncNoteChangeDelaySeconds = Math.max(AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR, parsed);
 					void this.save();
 				}),
 			);
@@ -1653,17 +1759,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.setDesc(
 				'Minimum wait before "On a timer" syncs again, counted from the last successful sync — manual ' +
 					"syncs included, and remembered across restarts (it checks every 30 seconds, but " +
-					"only actually syncs once this many minutes have passed). Range 0-1440 (24h), default 15. 0 " +
+					"only actually syncs once this many minutes have passed). Minimum 0, default 15. 0 " +
 					"removes this wait — every 30-second check can sync, still subject to the minimum gap below.",
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.autoSyncIntervalMinutes)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.autoSyncIntervalMinutes = safeNonNegativeNumber(
-						parsed,
-						0,
-						AUTO_SYNC_INTERVAL_MINUTES_CEILING,
-					);
+					this.plugin.settings.autoSyncIntervalMinutes = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
 			);
@@ -1698,11 +1800,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.autoSyncMinIdleSeconds)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.autoSyncMinIdleSeconds = safeNonNegativeNumber(
-						parsed,
-						0,
-						AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
-					);
+					this.plugin.settings.autoSyncMinIdleSeconds = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
 			);
@@ -1735,17 +1833,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.setDesc(
 				`Auto-sync pauses itself after this many consecutive failures (a notice says so), instead of ` +
 					`failing on every trigger. A successful manual sync or switching auto-sync off and on resumes it. ` +
-					`Range 0-${AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING}, default 3. 0 never pauses. ` +
+					`Minimum 0, default 3. 0 never pauses. ` +
 					`Being offline is skipped, not counted as a failure.`,
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.autoSyncPauseAfterFailures)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
 					if (!Number.isFinite(parsed)) return;
-					this.plugin.settings.autoSyncPauseAfterFailures = Math.max(
-						0,
-						Math.min(parsed, AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING),
-					);
+					this.plugin.settings.autoSyncPauseAfterFailures = Math.max(0, parsed);
 					void this.save();
 				}),
 			);
@@ -2045,7 +2140,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.maxRetries)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.maxRetries = safeNonNegativeNumber(parsed, 0, MAX_RETRIES_CEILING);
+					this.plugin.settings.maxRetries = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
 			);
@@ -2056,7 +2151,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.baseDelayMs)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.baseDelayMs = safeNonNegativeNumber(parsed, 0, BASE_DELAY_MS_CEILING);
+					this.plugin.settings.baseDelayMs = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
 			);
@@ -2067,11 +2162,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.requestTimeoutMs)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.requestTimeoutMs = safeNonNegativeNumber(
-						parsed,
-						0,
-						REQUEST_TIMEOUT_MS_CEILING,
-					);
+					this.plugin.settings.requestTimeoutMs = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
 			);
@@ -2082,11 +2173,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.maxBackoffDelayMs)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.maxBackoffDelayMs = safeNonNegativeNumber(
-						parsed,
-						0,
-						MAX_BACKOFF_DELAY_MS_CEILING,
-					);
+					this.plugin.settings.maxBackoffDelayMs = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
 			);
@@ -2141,13 +2228,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.setName("Journal lines kept")
 			.setDesc(
 				`Lines shown in the progress panel and the sidebar journal before the oldest is dropped. ` +
-					`Range ${LOG_MAX_ROWS_FLOOR}-${LOG_MAX_ROWS_CEILING}, default 60.`,
+					`Minimum ${LOG_MAX_ROWS_FLOOR}, default 60. Every line is kept in data.json, so a very large value makes it heavy.`,
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.logMaxRows)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
 					if (!Number.isFinite(parsed)) return;
-					this.plugin.settings.logMaxRows = Math.max(LOG_MAX_ROWS_FLOOR, Math.min(parsed, LOG_MAX_ROWS_CEILING));
+					this.plugin.settings.logMaxRows = Math.max(LOG_MAX_ROWS_FLOOR, parsed);
 					void this.save();
 				}),
 			);
@@ -2157,16 +2244,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.setDesc(
 				`How many operations (syncs, audits, creations…) may run together, each with its own progress panel. ` +
 					`One more waits for a free slot. 1 = one at a time. ` +
-					`Range ${MAX_CONCURRENT_OPERATIONS_FLOOR}-${MAX_CONCURRENT_OPERATIONS_CEILING}, default 3.`,
+					`Minimum ${MAX_CONCURRENT_OPERATIONS_FLOOR}, default 3. A high value can hit Trello's rate limits.`,
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.maxConcurrentOperations)).onChange((value) => {
 					const parsed = Number.parseInt(value, 10);
 					if (!Number.isFinite(parsed)) return;
-					this.plugin.settings.maxConcurrentOperations = Math.max(
-						MAX_CONCURRENT_OPERATIONS_FLOOR,
-						Math.min(parsed, MAX_CONCURRENT_OPERATIONS_CEILING),
-					);
+					this.plugin.settings.maxConcurrentOperations = Math.max(MAX_CONCURRENT_OPERATIONS_FLOOR, parsed);
 					void this.save();
 				}),
 			);
@@ -2265,6 +2349,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 				}),
 			);
+
+		this.renderTuning(root);
 	}
 
 	private renderChangelog(root: HTMLElement): void {

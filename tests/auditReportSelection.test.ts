@@ -77,3 +77,22 @@ describe("matchReportKeys", () => {
 		});
 	});
 });
+
+describe("custom report wording", () => {
+	test("a report built with custom headings is parsed with the same ones, and not with the defaults", () => {
+		const labels = { linkHeading: "# Links", locationHeading: "# L", changesHeading: "# C", orphanCardPrefix: "## Cards: ", phantomNotePrefix: "## Ghosts: ", unlinkedNotePrefix: "## Free: " };
+		const md = buildLinkReport({
+			scope: "",
+			timestamp: "t",
+			listNames: new Map([["l1", "To do"]]),
+			orphanCards: [{ id: "c1", name: "Alpha", url: "https://trello.com/c/c1", idList: "l1" }],
+			phantomNotes: [],
+			unlinkedNotes: [],
+			checked: new Set(),
+			labels,
+		});
+		expect(md.startsWith("# Links")).toBe(true);
+		expect(parseLinkReportGroups(md, labels)?.map((g) => g.name)).toEqual(["To do"]);
+		expect(parseLinkReportGroups(md)).toBeNull();
+	});
+});

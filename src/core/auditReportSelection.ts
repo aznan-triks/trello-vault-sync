@@ -9,10 +9,8 @@
  */
 
 import {
-	LINK_REPORT_HEADING,
-	ORPHAN_CARD_GROUP_PREFIX,
-	PHANTOM_NOTE_GROUP_PREFIX,
-	UNLINKED_NOTE_GROUP_PREFIX,
+	DEFAULT_REPORT_LABELS,
+	type ReportLabels,
 	reportItemKeys,
 } from "./auditReport";
 
@@ -34,8 +32,8 @@ export type ReportGroupSelection = "all" | { kind: ReportGroupKind; name: string
 const ITEM_LINE = /^[-*]\s\[([ xX])\]\s(.*)$/;
 
 /** Groups of the link report found in `markdown`, or `null` when the note holds no link report at all. */
-export function parseLinkReportGroups(markdown: string): ReportGroup[] | null {
-	const start = markdown.indexOf(LINK_REPORT_HEADING);
+export function parseLinkReportGroups(markdown: string, labels: ReportLabels = DEFAULT_REPORT_LABELS): ReportGroup[] | null {
+	const start = markdown.indexOf(labels.linkHeading);
 	if (start === -1) return null;
 
 	const groups: ReportGroup[] = [];
@@ -50,11 +48,11 @@ export function parseLinkReportGroups(markdown: string): ReportGroup[] | null {
 
 	for (const rawLine of markdown.slice(start).split(/\r?\n/)) {
 		const line = rawLine.trimEnd();
-		if (line.startsWith(ORPHAN_CARD_GROUP_PREFIX)) {
-			current = open("orphan-cards", line.slice(ORPHAN_CARD_GROUP_PREFIX.length).trim());
-		} else if (line.startsWith(UNLINKED_NOTE_GROUP_PREFIX)) {
-			current = open("unlinked-notes", line.slice(UNLINKED_NOTE_GROUP_PREFIX.length).trim());
-		} else if (line.startsWith(PHANTOM_NOTE_GROUP_PREFIX) || line.startsWith("#")) {
+		if (line.startsWith(labels.orphanCardPrefix)) {
+			current = open("orphan-cards", line.slice(labels.orphanCardPrefix.length).trim());
+		} else if (line.startsWith(labels.unlinkedNotePrefix)) {
+			current = open("unlinked-notes", line.slice(labels.unlinkedNotePrefix.length).trim());
+		} else if (line.startsWith(labels.phantomNotePrefix) || line.startsWith("#")) {
 			current = null;
 		} else if (current) {
 			const item = line.match(ITEM_LINE);

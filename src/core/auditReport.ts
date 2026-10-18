@@ -20,6 +20,25 @@ export const ORPHAN_CARD_GROUP_PREFIX = "### 📋 ";
 export const PHANTOM_NOTE_GROUP_PREFIX = "### 🏚️ ";
 export const UNLINKED_NOTE_GROUP_PREFIX = "### 📁 ";
 
+/** The headings and group prefixes the three reports are built and parsed with - user-adjustable, so every builder and the parser take them as a parameter. */
+export interface ReportLabels {
+	linkHeading: string;
+	locationHeading: string;
+	changesHeading: string;
+	orphanCardPrefix: string;
+	phantomNotePrefix: string;
+	unlinkedNotePrefix: string;
+}
+
+export const DEFAULT_REPORT_LABELS: ReportLabels = {
+	linkHeading: LINK_REPORT_HEADING,
+	locationHeading: LOCATION_REPORT_HEADING,
+	changesHeading: CHANGES_REPORT_HEADING,
+	orphanCardPrefix: ORPHAN_CARD_GROUP_PREFIX,
+	phantomNotePrefix: PHANTOM_NOTE_GROUP_PREFIX,
+	unlinkedNotePrefix: UNLINKED_NOTE_GROUP_PREFIX,
+};
+
 const CHECKED_LINE = /^[-*]\s\[x\]\s(.*)$/gim;
 const TRELLO_URL = /\((https:\/\/trello\.com\/[^)]+)\)/;
 const WIKILINK = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/;
@@ -73,6 +92,7 @@ export interface LinkReportInput {
 	checked: ReadonlySet<string>;
 	/** Adds a line saying orphan cards / unlinked notes were narrowed by the creation scopes, so the counts are explained. */
 	filteredByCreationScopes?: boolean;
+	labels?: ReportLabels;
 }
 
 /** Escape characters that would let an untrusted Trello card name break out of markdown link/table syntax. */
@@ -95,8 +115,9 @@ export function buildLinkReport(input: LinkReportInput): string {
 	const tick = (key: string) => (input.checked.has(key) ? "x" : " ");
 	const scope = input.scope === "" ? "the whole vault" : `\`${input.scope}\``;
 
+	const labels = input.labels ?? DEFAULT_REPORT_LABELS;
 	const out: string[] = [
-		LINK_REPORT_HEADING,
+		labels.linkHeading,
 		`> ${input.timestamp} · Scope: ${scope}`,
 		...(input.filteredByCreationScopes
 			? ["> Orphan cards and unlinked notes are filtered by the detection scopes set in Settings → Creation."]
@@ -110,7 +131,7 @@ export function buildLinkReport(input: LinkReportInput): string {
 		out.push("✅ No orphan card.", "");
 	} else {
 		for (const [listId, cards] of groupBy(input.orphanCards, (c) => c.idList)) {
-			out.push(`${ORPHAN_CARD_GROUP_PREFIX}${input.listNames.get(listId) ?? "Unknown list"}`);
+			out.push(`${labels.orphanCardPrefix}${input.listNames.get(listId) ?? "Unknown list"}`);
 			for (const card of cards) out.push(`- [${tick(card.url)}] [${escapeMarkdown(card.name)}](${card.url})`);
 			out.push("");
 		}
@@ -121,7 +142,7 @@ export function buildLinkReport(input: LinkReportInput): string {
 		out.push("✅ No broken link.", "");
 	} else {
 		for (const [folder, notes] of groupBy(input.phantomNotes, (n) => n.folder || "Root")) {
-			out.push(`${PHANTOM_NOTE_GROUP_PREFIX}${folder}`);
+			out.push(`${labels.phantomNotePrefix}${folder}`);
 			for (const note of notes) {
 				out.push(`- [${tick(note.path)}] [[${note.path}|${note.basename}]] — card \`${note.cardId}\` not found`);
 			}
@@ -134,7 +155,7 @@ export function buildLinkReport(input: LinkReportInput): string {
 		out.push("✅ Every note is linked.", "");
 	} else {
 		for (const [folder, notes] of groupBy(input.unlinkedNotes, (n) => n.folder || "Root")) {
-			out.push(`${UNLINKED_NOTE_GROUP_PREFIX}${folder}`);
+			out.push(`${labels.unlinkedNotePrefix}${folder}`);
 			for (const note of notes) out.push(`- [${tick(note.path)}] [[${note.path}|${note.basename}]]`);
 			out.push("");
 		}
@@ -154,12 +175,13 @@ export interface LocationReportInput {
 	scope: string;
 	timestamp: string;
 	rows: readonly LocationRow[];
+	labels?: ReportLabels;
 }
 
 /** Table of where each linked card's note actually lives, grouped by Trello list. */
 export function buildLocationReport(input: LocationReportInput): string {
 	const scope = input.scope === "" ? "the whole vault" : `\`${input.scope}\``;
-	const out: string[] = [LOCATION_REPORT_HEADING, `> ${input.timestamp} · Scope: ${scope}`, ""];
+	const out: string[] = [(input.labels ?? DEFAULT_REPORT_LABELS).locationHeading, `> ${input.timestamp} · Scope: ${scope}`, ""];
 
 	if (input.rows.length === 0) {
 		out.push("✅ No linked note to compare.", "");
@@ -179,6 +201,7 @@ export function buildLocationReport(input: LocationReportInput): string {
 export interface ChangesReportInput {
 	timestamp: string;
 	entries: readonly AuditEntry[];
+	labels?: ReportLabels;
 }
 
 /**
@@ -208,7 +231,7 @@ export function entryTime(entry: AuditEntry): string {
 
 /** Trello board activity since the last run, grouped by day (most recent first) then by card. */
 export function buildChangesReport(input: ChangesReportInput): string {
-	const out: string[] = [CHANGES_REPORT_HEADING, `> ${input.timestamp} · times in UTC`, ""];
+	const out: string[] = [(input.labels ?? DEFAULT_REPORT_LABELS).changesHeading, `> ${input.timestamp} · times in UTC`, ""];
 
 	if (input.entries.length === 0) {
 		out.push("✅ No change since the last run.", "");

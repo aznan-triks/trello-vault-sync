@@ -7,6 +7,7 @@ import { decideAutoSync, type AutoSyncEvent } from "./core/autoSyncSchedule";
 import { ConcurrencyGate } from "./core/concurrencyGate";
 import { excludeFolders, notesInFolder } from "./core/fileName";
 import { errorMessage } from "./core/errorMessage";
+import { configureYieldEvery } from "./core/asyncUtil";
 import { appendJournalEntry, prefixDryRunMessage, type JournalEntry, type LogLevel } from "./core/journal";
 import { OperationGuard } from "./core/operationGuard";
 import { normalizePersistedData } from "./core/pluginData";
@@ -44,6 +45,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private readonly pendingTitles = new Set<string>();
 	/** Epoch ms of the last successful sync (manual or auto) — persisted in data.json, so the auto-sync timer survives a restart and a manual sync resets it. */
 	private lastSyncAt: number | null = null;
+	private autoSyncPoll: number | null = null;
+	private autoSyncPollSeconds = 0;
 	/** See `PersistedData`: how a deleted note is told from a new card. Public so the settings tab can list and clear the ignored cards. */
 	knownLinks: Record<string, string[]> = {};
 	ignoredCards: IgnoredCards = {};
@@ -55,10 +58,6 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private lastRunEndedAt = 0;
 	/** Pending "note changed" syncs, one debounce timer per note path. */
 	private noteChangeTimers = new Map<string, number>();
-	/** Fixed scheduling detail, not a setting — how often `checkAutoSync("interval")` is polled; `decideAutoSync` (fed live settings each tick) is what actually decides whether that tick fires a sync. */
-	private static readonly AUTO_SYNC_POLL_MS = 30_000;
-	/** Fixed detail, not a setting: edits within this long after a sync ended are treated as the sync's own writes. */
-	private static readonly OWN_WRITE_GRACE_MS = 1500;
 	/** The panels of the operations currently on screen — torn down on unload. */
 	private readonly panels = new Set<ProgressPanel>();
 	/** Writes to `data.json` one after the other: operations finishing together must not interleave their writes. */
@@ -74,6 +73,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		this.knownLinks = knownLinks;
 		this.ignoredCards = ignoredCards;
 		this.settings = normalizeSettings(settingsRaw);
+		configureYieldEvery(this.settings.yieldEveryNotes);
 		this.journal = journal;
 		this.history = history;
 		this.vault = new ObsidianVault(
@@ -93,6 +93,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	}
 
 	async saveSettings(): Promise<void> {
+		configureYieldEvery(this.settings.yieldEveryNotes);
+		if (this.autoSyncPoll !== null && this.autoSyncPollSeconds !== this.settings.autoSyncCheckSeconds) this.armAutoSyncPoll();
 		await this.persist();
 		this.refreshSidebarViews();
 		this.rebuildRibbon();
@@ -200,6 +202,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				baseDelayMs: this.settings.baseDelayMs,
 				requestTimeoutMs: this.settings.requestTimeoutMs,
 				maxBackoffDelayMs: this.settings.maxBackoffDelayMs,
+				retryableStatusCodes: this.settings.retryableStatusCodes,
+				actionsPageLimit: this.settings.changeLogPageSize,
 				onRetry: ({ attempt, maxAttempts, delayMs, status }) =>
 					reporter.log(
 						"warn",
@@ -315,6 +319,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			...this.noteOptions(force, bypassConflict),
 			...this.fateOptions(),
 			archiveCreateMissing: this.settings.archiveFolderCreateMissing,
+			adoptUnlinkedByName: this.settings.adoptUnlinkedNotesByName,
 			deletedNotes: {
 				rule: this.settings.onLinkedNoteDeleted,
 				knownLinks: (listId) => new Set(this.knownLinks[listId] ?? []),
@@ -348,6 +353,14 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			timestamp: new Date().toLocaleString("en-CA", { hour12: false }),
 			excludedFolders: this.settings.excludedFolders,
 			ignoredCardIds: this.ignoredCardIds(),
+			reportLabels: {
+				linkHeading: this.settings.linkReportHeading,
+				locationHeading: this.settings.locationReportHeading,
+				changesHeading: this.settings.changesReportHeading,
+				orphanCardPrefix: this.settings.orphanCardGroupPrefix,
+				phantomNotePrefix: this.settings.phantomNoteGroupPrefix,
+				unlinkedNotePrefix: this.settings.unlinkedNoteGroupPrefix,
+			},
 			autoCreateReportNote: this.settings.autoCreateReportNote,
 		};
 	}
@@ -391,7 +404,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			// only place a "[Dry-run]" prefix is ever added (core/journal.ts::prefixDryRunMessage),
 			// so the panel, the in-memory journal and every sidebar copy stay in sync for free.
 			log: (level, rawMessage) => {
-				const message = prefixDryRunMessage(rawMessage, this.settings.dryRun);
+				const message = prefixDryRunMessage(rawMessage, this.settings.dryRun, this.settings.dryRunLogPrefix);
 				base.log(level, message);
 				// The shared journal mixes lines from every running operation: name the source only when that is ambiguous.
 				const source = this.gate.active > 1 ? title : undefined;
@@ -478,14 +491,14 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		}: { cancellable?: boolean; countsAsSync?: boolean; background?: boolean } = {},
 	): Promise<RunOutcome> {
 		if (this.pendingTitles.has(title)) {
-			if (!background) new Notice(`Trello Vault Sync: "${title}" is already running — wait for it to finish.`);
+			if (!background && this.settings.showQueueNotices) new Notice(`Trello Vault Sync: "${title}" is already running — wait for it to finish.`);
 			return "busy";
 		}
 		this.pendingTitles.add(title);
 		let release: (() => void) | null = null;
 		try {
 			const mustWait = this.gate.waiting > 0 || this.gate.active >= this.settings.maxConcurrentOperations;
-			if (mustWait && !background) {
+			if (mustWait && !background && this.settings.showQueueNotices) {
 				new Notice(`Trello Vault Sync: "${title}" is queued — ${this.gate.active} operation(s) running.`);
 			}
 			release = await this.gate.acquire();
@@ -519,7 +532,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			}
 			if (countsAsSync && !this.settings.dryRun) this.markSyncSucceeded();
 			reporter.finish("done", summary);
-			if (!quiet) new Notice(`✅ ${prefix}${summary}`);
+			if (!quiet && this.settings.showSuccessNotices) new Notice(`✅ ${prefix}${summary}`);
 			return "done";
 		} catch (error) {
 			if (controller.signal.aborted) {
@@ -656,9 +669,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	 * takes effect on the very next tick — no reload needed.
 	 */
 	private registerAutoSync(): void {
-		this.registerInterval(
-			window.setInterval(() => void this.checkAutoSync("interval"), TrelloVaultSyncPlugin.AUTO_SYNC_POLL_MS),
-		);
+		this.armAutoSyncPoll();
 		this.registerDomEvent(window, "focus", () => void this.checkAutoSync("focus"));
 		this.registerEvent(this.app.vault.on("modify", (file) => this.onNoteModified(file)));
 		// Layout-ready, not onload() itself: the workspace (active file, panes)
@@ -668,6 +679,14 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			void this.ensureSidebarViewsLoaded();
 			void this.checkAutoSync("startup");
 		});
+	}
+
+	/** (Re)starts the periodic auto-sync check at the configured pace; a previous timer is stopped first. */
+	private armAutoSyncPoll(): void {
+		if (this.autoSyncPoll !== null) window.clearInterval(this.autoSyncPoll);
+		this.autoSyncPollSeconds = this.settings.autoSyncCheckSeconds;
+		this.autoSyncPoll = window.setInterval(() => void this.checkAutoSync("interval"), this.autoSyncPollSeconds * 1000);
+		this.registerInterval(this.autoSyncPoll);
 	}
 
 	/** Whether `event` is one of the triggers the user turned on — a plain lookup, not a fixed enum, so a 4th trigger kind is just one more setting and one more branch here. */
@@ -693,7 +712,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private onNoteModified(file: unknown): void {
 		if (!this.settings.autoSyncEnabled || !this.settings.autoSyncOnNoteChange) return;
 		if (!(file instanceof TFile) || file.extension !== "md") return;
-		if (this.isSyncing() || Date.now() - this.lastRunEndedAt < TrelloVaultSyncPlugin.OWN_WRITE_GRACE_MS) return;
+		if (this.isSyncing() || Date.now() - this.lastRunEndedAt < this.settings.ownWriteGraceMs) return;
 		const inScope = excludeFolders(notesInFolder([file], this.settings.scope), this.settings.excludedFolders);
 		if (inScope.length === 0) return;
 
