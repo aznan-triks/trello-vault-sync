@@ -19,6 +19,7 @@ import { buildCustomFieldDefinitions } from "../features/syncNote";
 import type { NoteHandle } from "../obsidian/gateway";
 import { hasCredentials } from "../settings/types";
 import { TrelloError, type TrelloCardView } from "../trello/client";
+import { CardViewSectionsModal } from "./CardViewSectionsModal";
 import { ConfirmModal } from "./ConfirmModal";
 import { ListPickerModal } from "./ListPickerModal";
 import { MultiSelectPickerModal } from "./MultiSelectPickerModal";
@@ -239,6 +240,9 @@ export class CardView extends ItemView {
 		button("link", "Link this note to another card", afterCommand("link-active-note-pick"));
 		button("unlink", "Unlink this note from its card", afterCommand("unlink-active-note"));
 		button("arrow-left-right", "Sync this note with its card", afterCommand("sync-active-note"));
+		button("settings-2", "Choose the sections shown for this card", () => {
+			new CardViewSectionsModal(this.app, this.ctx.settings.cardView, card.id, card.name, () => this.ctx.saveSettings()).open();
+		});
 		if (this.actions.canEdit("archive") && !card.closed) {
 			button("archive", "Archive the card on Trello", () => this.archive(card));
 		}

@@ -87,7 +87,8 @@ export async function linkActive(ctx: CommandContext): Promise<void> {
 export async function unlinkActive(ctx: CommandContext): Promise<void> {
 	const note = ctx.activeNote();
 	if (!ctx.ready() || !note) return;
-	if (!ctx.vault.getCardRef(note)) {
+	const cardId = ctx.vault.getCardRef(note)?.cardId;
+	if (!cardId) {
 		new Notice("Not linked to a Trello card.");
 		return;
 	}
@@ -100,6 +101,11 @@ export async function unlinkActive(ctx: CommandContext): Promise<void> {
 			ctx.run(`Unlink — ${note.basename}`, async () => {
 				const keys = ctx.noteOptions().trelloPropertyKeys ?? [];
 				const removed = await withHistoryRecording(ctx, note.path, (vault) => unlinkNote(vault, note, keys, ctx.settings.dryRun));
+				if (!ctx.settings.dryRun && cardId in ctx.settings.cardView.perCard) {
+					// The card is no longer shown for this note: its per-card sections go with the link.
+					Reflect.deleteProperty(ctx.settings.cardView.perCard, cardId);
+					await ctx.saveSettings();
+				}
 				return `${ctx.settings.dryRun ? "[dry-run] " : ""}Removed ${removed.length} Trello propert${removed.length === 1 ? "y" : "ies"}.`;
 			}),
 	);

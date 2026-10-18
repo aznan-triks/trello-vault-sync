@@ -7,6 +7,9 @@ import {
 	dueState,
 	normalizeCardViewSettings,
 	normalizeSectionOrder,
+	sectionOverride,
+	setSectionOverride,
+	type CardViewSection,
 	visibleSections,
 } from "../src/core/cardViewModel";
 
@@ -66,5 +69,20 @@ describe("normalizeCardViewSettings", () => {
 	test("wrong enumerations fall back", () => {
 		const s = normalizeCardViewSettings({ side: "up", openLinksIn: "x", movedCardPosition: "middle" });
 		expect([s.side, s.openLinksIn, s.movedCardPosition]).toEqual(["right", "browser", "top"]);
+	});
+});
+
+describe("per-card section overrides", () => {
+	test("show and hide are stored, default removes them, an empty card loses its entry", () => {
+		const perCard: Record<string, Partial<Record<CardViewSection, boolean>>> = {};
+		setSectionOverride(perCard, "c1", "comments", "hide");
+		setSectionOverride(perCard, "c1", "cover", "show");
+		expect(perCard).toEqual({ c1: { comments: false, cover: true } });
+		expect(sectionOverride(perCard, "c1", "comments")).toBe("hide");
+		expect(sectionOverride(perCard, "c1", "cover")).toBe("show");
+		expect(sectionOverride(perCard, "c1", "due")).toBe("default");
+		setSectionOverride(perCard, "c1", "comments", "default");
+		setSectionOverride(perCard, "c1", "cover", "default");
+		expect(perCard).toEqual({});
 	});
 });

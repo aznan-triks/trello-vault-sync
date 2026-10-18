@@ -12,8 +12,8 @@ import { DEFAULT_LABELS_KEY } from "../core/labelRef";
 import {
 	ALL_CARD_VIEW_EDITABLE_FIELDS,
 	COMMENTS_LIMIT_CEILING,
+	CARD_VIEW_SECTION_LABELS,
 	type CardViewEditableField,
-	type CardViewSection,
 } from "../core/cardViewModel";
 import { mergeScannedLabels, type LabelPropertyDirection } from "../core/labelProperty";
 import type { OnLinkedNoteDeleted } from "../core/deletedNotes";
@@ -103,20 +103,6 @@ const TRELLO_LABEL_COLORS: Record<string, string> = {
 	lime: "#94c748",
 	pink: "#e774bb",
 	black: "#8590a2",
-};
-
-const CARD_VIEW_SECTION_LABELS: Record<CardViewSection, string> = {
-	cover: "Cover image",
-	title: "Title",
-	list: "List",
-	due: "Due date",
-	labels: "Labels",
-	members: "Members",
-	description: "Description",
-	checklists: "Checklists",
-	attachments: "Attachments",
-	customFields: "Custom fields",
-	comments: "Comments",
 };
 
 const CARD_VIEW_EDITABLE_LABELS: Record<CardViewEditableField, string> = {

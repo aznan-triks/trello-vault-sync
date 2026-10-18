@@ -114,6 +114,15 @@ describe("unlinkActive", () => {
 		expect(vault.contentOf(PATH)).toContain("old body");
 	});
 
+	test("the card's per-card view sections are dropped with the link", async () => {
+		const ctx = linked();
+		const vault = ctx.vault as FakeVault;
+		const cardId = vault.getCardRef(vault.note(PATH))!.cardId;
+		const settings = { ...ctx.settings, confirmUnlink: false, cardView: { ...ctx.settings.cardView, perCard: { [cardId]: { comments: false }, other: { cover: true } } } };
+		await unlinkActive({ ...ctx, settings });
+		expect(settings.cardView.perCard).toEqual({ other: { cover: true } });
+	});
+
 	test("a note that is not linked is left alone", async () => {
 		const ctx = fakeContext({ vault: new FakeVault({ [PATH]: { content: "no link" } }) });
 		await unlinkActive({ ...ctx, settings: { ...ctx.settings, confirmUnlink: false } });

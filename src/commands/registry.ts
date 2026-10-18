@@ -125,6 +125,17 @@ export const COMMANDS: CommandDescriptor[] = [
 		run: (ctx) => noteCommands.resolveConflict(ctx),
 	},
 	{
+		id: "open-card-view",
+		name: "Open the card view",
+		icon: "square-kanban",
+		section: "Active note",
+		description: "Show the open note's Trello card in a side panel: read it, and edit it if editing is on.",
+		tone: "default",
+		run: async (ctx) => {
+			await ctx.openCardView?.();
+		},
+	},
+	{
 		id: "create-card-from-active-note",
 		name: "Create a card from this note",
 		icon: "plus-circle",
