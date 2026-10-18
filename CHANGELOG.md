@@ -6,6 +6,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.23.1] — 2026-10-18
+
+### Fixed
+
+- **Plain**: Code cleanup flagged by Obsidian's plugin review (no behaviour change): timers use `globalThis`, redundant type assertions and an unused import were removed.
+  **Technical**: `core/asyncUtil.ts`, `trello/client.ts`, `main.ts`, `settings/SettingsTab.ts`, `settings/types.ts`, `ui/CardViewSectionsModal.ts`.
+
 ## [1.23.0] — 2026-10-18
 
 ### Added
