@@ -205,6 +205,20 @@ export function dueState(due: string | null | undefined, dueComplete: boolean | 
 	return at - now <= soonHours * 3_600_000 ? "soon" : "later";
 }
 
+/** A due date as a `datetime-local` input holds it (local time, minutes); "" when there is none. */
+export function dueToInputValue(due: string | null | undefined): string {
+	const at = due ? new Date(due) : null;
+	if (!at || Number.isNaN(at.getTime())) return "";
+	const p = (n: number) => String(n).padStart(2, "0");
+	return `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}T${p(at.getHours())}:${p(at.getMinutes())}`;
+}
+
+/** The reverse: an input value to the ISO date Trello wants; `null` for an empty or unreadable one. */
+export function inputValueToDue(value: string): string | null {
+	const at = value === "" ? null : new Date(value);
+	return at && !Number.isNaN(at.getTime()) ? at.toISOString() : null;
+}
+
 /** A card's url, as a Trello desktop-app link (`trello://`) when asked for. */
 export function cardLink(url: string, target: "browser" | "desktop-app"): string {
 	return target === "desktop-app" ? url.replace(/^https:\/\//, "trello://") : url;

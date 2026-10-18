@@ -20,8 +20,13 @@ export class MultiSelectPickerModal<T> extends Modal {
 		private readonly labelFor: (item: T) => string,
 		private readonly confirmLabel: string,
 		private readonly onConfirm: (selected: T[]) => void,
+		/** Items checked when the modal opens - default none. */
+		initiallySelected: (item: T) => boolean = () => false,
 	) {
 		super(app);
+		items.forEach((item, index) => {
+			if (initiallySelected(item)) this.selected.add(index);
+		});
 	}
 
 	override onOpen(): void {
@@ -36,7 +41,7 @@ export class MultiSelectPickerModal<T> extends Modal {
 		const list = contentEl.createDiv({ cls: "tvs-multi-select__list" });
 		this.items.forEach((item, index) => {
 			new Setting(list).setName(this.labelFor(item)).addToggle((toggle) =>
-				toggle.setValue(false).onChange((value) => {
+				toggle.setValue(this.selected.has(index)).onChange((value) => {
 					if (value) this.selected.add(index);
 					else this.selected.delete(index);
 				}),
