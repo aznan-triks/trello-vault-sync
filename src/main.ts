@@ -68,7 +68,11 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		this.settings = normalizeSettings(settingsRaw);
 		this.journal = journal;
 		this.history = history;
-		this.vault = new ObsidianVault(this.app, () => this.settings.cardRefFrontmatterKey);
+		this.vault = new ObsidianVault(
+			this.app,
+			() => this.settings.cardRefFrontmatterKey,
+			() => this.settings.writeTrelloPluginNoteId,
+		);
 		this.addSettingTab(new TrelloVaultSyncSettingsTab(this.app, this));
 		this.registerCommands();
 		this.registerRibbon();
