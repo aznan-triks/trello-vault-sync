@@ -258,11 +258,11 @@ export const DEFAULT_ACTIONS_PAGE_LIMIT = 1000;
 /** Extra fields requested on `memberCreator` — `avatarUrl` lets the HTML export show who did what without a separate per-member call. */
 const MEMBER_CREATOR_FIELDS = "avatarUrl,fullName";
 
-/** `window` under Obsidian (pop-out windows own their timers), `global` under the Node test run. */
+/** `window` under Obsidian (pop-out windows own their timers), `globalThis` under the Node test run. */
 const timers: { setTimeout: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number } =
 	typeof window !== "undefined"
 		? window
-		: (typeof global !== "undefined" ? global : ({} as Window));
+		: (typeof globalThis !== "undefined" ? globalThis : ({} as Window));
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => timers.setTimeout(resolve, ms));
 

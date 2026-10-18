@@ -659,7 +659,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		const refresh = (notify = true) => {
 			const modified = !sameSettingValue(settingAt(settings, path), initial);
 			setting.settingEl.toggleClass("tvs-setting--modified", modified);
-			(reset as HTMLElement | null)?.toggleClass("is-hidden", !modified);
+			reset?.toggleClass("is-hidden", !modified);
 			if (notify) this.updateSummary();
 		};
 		for (const event of ["click", "input", "change"]) setting.controlEl.addEventListener(event, () => refresh());

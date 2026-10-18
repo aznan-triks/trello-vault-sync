@@ -520,7 +520,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 	const normalized: TrelloVaultSyncSettings = {
 		...DEFAULT_SETTINGS,
 		...input,
-		...normalizeCardFateRules(input as Record<string, unknown>),
+		...normalizeCardFateRules(input),
 		archiveFolder: normalizeVaultPath(safeString(input.archiveFolder, DEFAULT_SETTINGS.archiveFolder)),
 		archiveFolderCreateMissing: input.archiveFolderCreateMissing === true,
 		archiveFolderRestoreOnUnarchive: input.archiveFolderRestoreOnUnarchive !== false,

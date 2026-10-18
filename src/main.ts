@@ -811,7 +811,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 					};
 				}
 				const value: unknown = Reflect.get(target, key, target);
-				return typeof value === "function" ? value.bind(target) : value;
+				return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
 			},
 		});
 		await body(ctx, lastOutcome);

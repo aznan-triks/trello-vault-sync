@@ -12,7 +12,7 @@
 const timers: { setTimeout: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number } =
 	typeof window !== "undefined"
 		? window
-		: (typeof global !== "undefined" ? global : ({} as Window));
+		: (typeof globalThis !== "undefined" ? globalThis : ({} as Window));
 
 export const DEFAULT_YIELD_EVERY = 200;
 let yieldEvery = DEFAULT_YIELD_EVERY;

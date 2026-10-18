@@ -3,7 +3,6 @@ import {
 	CARD_VIEW_SECTION_LABELS,
 	sectionOverride,
 	setSectionOverride,
-	type CardViewSection,
 	type CardViewSettings,
 	type SectionOverride,
 } from "../core/cardViewModel";
@@ -36,7 +35,7 @@ export class CardViewSectionsModal extends Modal {
 					.addOptions(CHOICES)
 					.setValue(sectionOverride(this.view.perCard, this.cardId, section))
 					.onChange((value) => {
-						setSectionOverride(this.view.perCard, this.cardId, section as CardViewSection, value as SectionOverride);
+						setSectionOverride(this.view.perCard, this.cardId, section, value as SectionOverride);
 						void this.save();
 					}),
 			);
