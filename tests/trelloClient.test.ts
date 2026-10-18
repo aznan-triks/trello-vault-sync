@@ -534,9 +534,8 @@ describe("TrelloClient — card view endpoints", () => {
 		await new TrelloClient(CREDENTIALS, transport).getCardView("c1", 20);
 		expect(calls).toHaveLength(1);
 		const url = new URL(calls[0]?.url ?? "");
-		for (const [k, v] of [["list", "true"], ["members", "true"], ["checklists", "all"], ["attachments", "true"], ["customFieldItems", "true"], ["actions", "commentCard"], ["actions_limit", "20"]]) {
-			expect(url.searchParams.get(k), k).toBe(v);
-		}
+		const expected: [string, string][] = [["list", "true"], ["members", "true"], ["checklists", "all"], ["attachments", "true"], ["customFieldItems", "true"], ["actions", "commentCard"], ["actions_limit", "20"]];
+		for (const [k, v] of expected) expect(url.searchParams.get(k), k).toBe(v);
 	});
 
 	test("getCardView asks for no comments at all when the limit is 0", async () => {
