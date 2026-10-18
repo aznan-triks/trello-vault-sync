@@ -10,6 +10,14 @@ import {
 	type CoverLocalFormat,
 } from "../core/attachmentRef";
 import type { AttachmentsDestination, AttachmentsDownloadScope } from "../core/attachmentPath";
+import {
+	DEFAULT_CARD_FATE_RULES,
+	migrateCardFateSettings,
+	normalizeCardFateRules,
+	type OnCardArchived,
+	type OnCardDeleted,
+	type OnCardMoved,
+} from "../core/cardFate";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import { DEFAULT_CUSTOM_FIELDS_KEY, DEFAULT_SYNC_CUSTOM_FIELDS } from "../core/customFieldRef";
 import { DEFAULT_MEMBERS_KEY, DEFAULT_SYNC_MEMBERS } from "../core/memberRef";
@@ -59,14 +67,20 @@ export interface TrelloVaultSyncSettings {
 	dryRun: boolean;
 
 	allowCreate: boolean;
-	/** Trash a note when its card leaves the mapped list. Destructive, off by default. */
-	allowDelete: boolean;
-	/**
-	 * Before deleting, checks whether the card was only moved to another list or archived
-	 * elsewhere on the board instead of truly gone. Off by default — missing from the mapped
-	 * list is enough, same as everywhere else "gone" is decided in this plugin.
-	 */
-	protectMovedOrArchivedCards: boolean;
+	/** What a sync does with a note whose card was moved to another list or board. */
+	onCardMoved: OnCardMoved;
+	/** What a sync does with a note whose card was archived. Default: remove the Trello properties. */
+	onCardArchived: OnCardArchived;
+	/** What a sync does with a note whose card was deleted on Trello. Default: remove the Trello properties. */
+	onCardDeleted: OnCardDeleted;
+	/** Where notes of archived cards go when `onCardArchived` is `"archive-folder"`. */
+	archiveFolder: string;
+	/** With the archive folder: also creates a note there for every archived card of a mapped list that has none. */
+	archiveFolderCreateMissing: boolean;
+	/** With the archive folder: a card taken out of the archive brings its note back into its list's folder. On by default. */
+	archiveFolderRestoreOnUnarchive: boolean;
+	/** On by default — asks before "Unlink this note from its card" removes the Trello properties. */
+	confirmUnlink: boolean;
 
 	/** Minimum title similarity accepted when linking a note to a card. */
 	similarityThreshold: number;
@@ -234,8 +248,13 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	syncLabels: true,
 	dryRun: false,
 	allowCreate: true,
-	allowDelete: false,
-	protectMovedOrArchivedCards: false,
+	onCardMoved: DEFAULT_CARD_FATE_RULES.onCardMoved,
+	onCardArchived: DEFAULT_CARD_FATE_RULES.onCardArchived,
+	onCardDeleted: DEFAULT_CARD_FATE_RULES.onCardDeleted,
+	archiveFolder: DEFAULT_CARD_FATE_RULES.archiveFolder,
+	archiveFolderCreateMissing: false,
+	archiveFolderRestoreOnUnarchive: true,
+	confirmUnlink: true,
 	similarityThreshold: 0.45,
 	maxRetries: 3,
 	baseDelayMs: 800,
@@ -404,11 +423,18 @@ export function normalizeRibbonIconColors(raw: unknown): Record<string, string> 
 
 /** Settings merged over the defaults, tolerating a partial or legacy payload. */
 export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
-	const input = (raw ?? {}) as Partial<TrelloVaultSyncSettings>;
+	const input = { ...((raw ?? {}) as Partial<TrelloVaultSyncSettings>) };
+	// Settings saved before the three card-change choices existed: map allowDelete / protectMovedOrArchivedCards onto them.
+	Object.assign(input, migrateCardFateSettings(input as Record<string, unknown>));
 	const mappings = Array.isArray(input.mappings) ? input.mappings : [];
-	return {
+	const normalized: TrelloVaultSyncSettings = {
 		...DEFAULT_SETTINGS,
 		...input,
+		...normalizeCardFateRules(input as Record<string, unknown>),
+		archiveFolder: normalizeVaultPath(safeString(input.archiveFolder, DEFAULT_SETTINGS.archiveFolder)),
+		archiveFolderCreateMissing: input.archiveFolderCreateMissing === true,
+		archiveFolderRestoreOnUnarchive: input.archiveFolderRestoreOnUnarchive !== false,
+		confirmUnlink: input.confirmUnlink !== false,
 		apiKey: safeString(input.apiKey, DEFAULT_SETTINGS.apiKey),
 		token: safeString(input.token, DEFAULT_SETTINGS.token),
 		boardId: safeString(input.boardId, DEFAULT_SETTINGS.boardId),
@@ -509,7 +535,8 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			folder: normalizeVaultPath(safeString(mapping?.folder)),
 			templateName: safeString(mapping?.templateName),
 			allowCreateOverride: safeOverrideMode(mapping?.allowCreateOverride),
-			allowDeleteOverride: safeOverrideMode(mapping?.allowDeleteOverride),
+			// Only "never trash here" survives: the old "always delete" has no meaning once the global choice has three outcomes.
+			allowDeleteOverride: safeOverrideMode(mapping?.allowDeleteOverride) === "off" ? ("off" as const) : ("inherit" as const),
 		})),
 		cardRefFrontmatterKey: safeFrontmatterKey(input.cardRefFrontmatterKey, DEFAULT_SETTINGS.cardRefFrontmatterKey),
 		dueFrontmatterKey: safeFrontmatterKey(input.dueFrontmatterKey, DEFAULT_SETTINGS.dueFrontmatterKey),
@@ -573,4 +600,8 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			DEFAULT_SETTINGS.customFieldsFrontmatterKey,
 		),
 	};
+	// Retired fields (replaced by the card-change choices) must not linger in data.json.
+	Reflect.deleteProperty(normalized, "allowDelete");
+	Reflect.deleteProperty(normalized, "protectMovedOrArchivedCards");
+	return normalized;
 }

@@ -33,7 +33,7 @@ import { DEFAULT_SETTINGS, type TrelloVaultSyncSettings } from "../src/settings/
 import { TrelloClient } from "../src/trello/client";
 import { AuditReportGroupPickerModal, type AuditReportGroupChoice } from "../src/ui/AuditReportGroupPickerModal";
 import { ConfirmModal } from "../src/ui/ConfirmModal";
-import { card, FakeVault, recordingReporter, routedTransport } from "./fakes";
+import { card, FakeVault, recordingReporter, routedTransport, FATE_OPTIONS } from "./fakes";
 
 const REPORT_PATH = "Reports/Links.md";
 const linked = (cardId: string) => `---\ntrello_board_card_id: "board;${cardId}"\n---\n\nbody`;
@@ -114,8 +114,7 @@ function setup(settings: Partial<TrelloVaultSyncSettings> = {}, reportContent: s
 			syncTitle: true,
 			dryRun: false,
 			allowCreate: true,
-			allowDelete: false,
-			protectMovedOrArchivedCards: false,
+			...FATE_OPTIONS,
 			boardId: "board",
 		}),
 		auditOptions: () => ({ scope: "", boardId: "board", reportPath: REPORT_PATH, timestamp: "t", excludedFolders: [] }),

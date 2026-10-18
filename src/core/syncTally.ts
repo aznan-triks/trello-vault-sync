@@ -1,7 +1,11 @@
+/** `NoteSyncResult.reason` of a note that has no card link at all (as opposed to one whose card is gone). */
+export const NO_CARD_REASON = "no card id";
+
 /** The subset of a note-sync result the tally needs — matches `NoteSyncResult`. */
 export interface TallyableResult {
 	renamed: boolean;
 	direction: "skip" | "pull" | "push" | "conflict" | "unlinked";
+	reason?: string;
 }
 
 export interface NoteTallyStats {
@@ -60,7 +64,10 @@ export function describeSyncOutcome(result: TallyableResult): string {
 		case "conflict":
 			return "Conflict: note and card changed at the same time, nothing was written.";
 		case "unlinked":
-			return "Note not linked — use \"Link active note to a card\".";
+			// "unlinked" is also how a note whose card was archived or deleted is reported: its reason says what was done.
+			return result.reason && result.reason !== NO_CARD_REASON
+				? `${result.reason}.`
+				: "Note not linked — use \"Link active note to a card\".";
 		case "skip":
 			return "Already up to date.";
 		default: {

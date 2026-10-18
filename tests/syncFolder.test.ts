@@ -3,7 +3,8 @@ import { DEFAULT_LINKED_CARDS_KEY } from "../src/core/attachmentRef";
 import { syncAllMappings, syncFolder, type FolderMapping, type FolderSyncOptions } from "../src/features/syncFolder";
 import { silentReporter } from "../src/obsidian/gateway";
 import { TrelloClient } from "../src/trello/client";
-import { FakeVault, at, card, recordingReporter, routedTransport } from "./fakes";
+import { FATE_OPTIONS, FakeVault, at, card, recordingReporter, routedTransport } from "./fakes";
+import type { CardFateRules } from "../src/core/cardFate";
 
 const FOLDER = "WoT/85_Idées";
 const MAPPING = { listId: "l1", folder: FOLDER, templateName: "idée (script)" };
@@ -14,11 +15,7 @@ const options: FolderSyncOptions = {
 	syncTitle: true,
 	dryRun: false,
 	allowCreate: true,
-	allowDelete: false,
-	// True in this shared fixture so the pre-existing "deletion safety" suite below keeps
-	// exercising the protection mechanism; the plugin's own default is false (§ user request
-	// 2026-09-13: a card missing from the list is enough, matching "not there" everywhere else).
-	protectMovedOrArchivedCards: true,
+	...FATE_OPTIONS,
 	boardId: "board",
 	// Off by default in this shared fixture — attachments/checklists/members syncing is
 	// covered on its own in syncNote.test.ts (and the dedicated "syncFolder — members"
@@ -314,67 +311,259 @@ describe("syncFolder — existing pairs", () => {
 	});
 });
 
-describe("syncFolder — deletion", () => {
-	test("leaves a note whose card vanished alone by default", async () => {
+const FATE: CardFateRules = { onCardMoved: "move-note", onCardArchived: "unlink", onCardDeleted: "unlink", archiveFolder: "" };
+const withFate = (fate: Partial<CardFateRules>): FolderSyncOptions => ({
+	...options,
+	cardFate: { ...FATE, ...fate },
+	trelloPropertyKeys: ["trello_board_card_id", "trello_due"],
+});
+
+/** A list holding no card, plus per-card lookups (`GET /cards/<id>`) for the cards that left it. */
+function clientWithCards(lookups: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+	const { transport, requests } = routedTransport({ "/lists/l1/cards": [], ...lookups, ...extra });
+	return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 }), requests };
+}
+
+describe("syncFolder — a card that left the list", () => {
+	test("keeps a note whose card is gone when the rule says keep", async () => {
 		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
-		const { client } = clientFor([]);
+		const { client } = clientWithCards({ "/cards/gone": card({ id: "gone", closed: true }) });
 
-		const stats = await syncFolder(vault, client, MAPPING, options);
+		const stats = await syncFolder(vault, client, MAPPING, withFate({ onCardArchived: "keep" }));
 
-		expect(stats.deleted).toBe(0);
 		expect(stats.phantoms).toBe(1);
-		expect(vault.paths()).toEqual([`${FOLDER}/Fantôme.md`]);
+		expect(stats.detached + stats.deleted + stats.relocated).toBe(0);
+		expect(vault.contentOf(`${FOLDER}/Fantôme.md`)).toBe(linked("gone", "x"));
 	});
 
-	test("trashes the note only when deletion is explicitly enabled", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
-		const { client } = clientFor([]);
+	test("an archived card: Trello properties are removed, the body is untouched (default)", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "corps") } });
+		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", closed: true }) });
 
-		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true });
+		const stats = await syncFolder(vault, client, MAPPING, withFate({}));
 
-		expect(stats.deleted).toBe(1);
-		expect(vault.trashed).toEqual([`${FOLDER}/Fantôme.md`]);
-	});
-
-	test("deletes nothing in dry-run mode even when deletion is enabled", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
-		const { client } = clientFor([]);
-
-		await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true, dryRun: true });
-
+		expect(stats.detached).toBe(1);
+		const note = vault.note(`${FOLDER}/Archivée.md`);
+		expect(vault.readFrontmatter(note)?.trello_board_card_id).toBeUndefined();
+		expect(vault.readFrontmatter(note)?.type).toBe("idée");
+		expect(vault.contentOf(note.path)).toContain("corps");
 		expect(vault.trashed).toEqual([]);
 	});
 
-	test("a mapping override can force deletion on even though the global setting is off", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
-		const { client } = clientFor([]);
-		const mapping: FolderMapping = { ...MAPPING, allowDeleteOverride: "on" };
+	test("an archived card with the archive-folder rule: note filed in the archive, still linked", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
+		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", closed: true }) });
 
-		const stats = await syncFolder(vault, client, mapping, { ...options, allowDelete: false });
+		const stats = await syncFolder(vault, client, MAPPING, withFate({ onCardArchived: "archive-folder", archiveFolder: "Archive" }));
 
-		expect(stats.deleted).toBe(1);
-		expect(vault.trashed).toEqual([`${FOLDER}/Fantôme.md`]);
+		expect(stats.relocated).toBe(1);
+		expect(vault.paths()).toEqual(["Archive/Archivée.md"]);
+		expect(vault.getCardRef(vault.note("Archive/Archivée.md"))?.cardId).toBe("c9");
 	});
 
-	test("a mapping override can force deletion off even though the global setting is on", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
-		const { client } = clientFor([]);
+	test("archive-folder never overwrites: an existing note at the destination keeps the original in place", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") },
+			"Archive/Archivée.md": { content: "autre" },
+		});
+		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", closed: true }) });
+		const reporter = recordingReporter();
+
+		const stats = await syncFolder(vault, client, MAPPING, withFate({ onCardArchived: "archive-folder", archiveFolder: "Archive" }), reporter);
+
+		expect(stats.relocated).toBe(0);
+		expect(vault.paths()).toContain(`${FOLDER}/Archivée.md`);
+		expect(vault.contentOf("Archive/Archivée.md")).toBe("autre");
+		expect(reporter.logs.some((entry) => entry.level === "warn" && entry.message.includes("already exists"))).toBe(true);
+	});
+
+	test("archive-folder with no folder set behaves as keep", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
+		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", closed: true }) });
+
+		const stats = await syncFolder(vault, client, MAPPING, withFate({ onCardArchived: "archive-folder" }));
+
+		expect(stats.relocated + stats.detached).toBe(0);
+		expect(vault.paths()).toEqual([`${FOLDER}/Archivée.md`]);
+	});
+
+	test("a deleted card (404): unlinks by default, trashes only when asked", async () => {
+		const unlinkVault = new FakeVault({ [`${FOLDER}/Disparue.md`]: { content: linked("c9", "x") } });
+		const stats = await syncFolder(unlinkVault, clientWithCards({}).client, MAPPING, withFate({}));
+		expect(stats.detached).toBe(1);
+		expect(unlinkVault.trashed).toEqual([]);
+
+		const trashVault = new FakeVault({ [`${FOLDER}/Disparue.md`]: { content: linked("c9", "x") } });
+		const trashed = await syncFolder(trashVault, clientWithCards({}).client, MAPPING, withFate({ onCardDeleted: "trash" }));
+		expect(trashed.deleted).toBe(1);
+		expect(trashVault.trashed).toEqual([`${FOLDER}/Disparue.md`]);
+	});
+
+	test('"Never trash notes in this folder" turns a trash choice into keep', async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Disparue.md`]: { content: linked("c9", "x") } });
 		const mapping: FolderMapping = { ...MAPPING, allowDeleteOverride: "off" };
 
-		const stats = await syncFolder(vault, client, mapping, { ...options, allowDelete: true });
+		const stats = await syncFolder(vault, clientWithCards({}).client, mapping, withFate({ onCardDeleted: "trash" }));
 
 		expect(stats.deleted).toBe(0);
 		expect(vault.trashed).toEqual([]);
 	});
 
-	test("a forced pull never deletes a phantom note when allowDelete stays off — force imposes a direction, not a permission", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
-		const { client } = clientFor([]);
+	test("a card moved to a list that is not mapped: the note stays", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Déplacée.md`]: { content: linked("c9", "x") } });
+		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", idList: "autre" }) });
 
-		const stats = await syncFolder(vault, client, MAPPING, { ...options, force: "pull" });
+		const stats = await syncFolder(vault, client, MAPPING, withFate({}));
 
-		expect(stats.deleted).toBe(0);
-		expect(vault.trashed).toEqual([]);
+		expect(stats.moved).toBe(1);
+		expect(vault.paths()).toEqual([`${FOLDER}/Déplacée.md`]);
+	});
+
+	test("a card moved to a mapped list: the note follows it into that folder", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Déplacée.md`]: { content: linked("c9", "x") } });
+		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", idList: "l2" }) });
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...withFate({}),
+			mappedFolderByListId: new Map([["l2", "WoT/B"]]),
+		});
+
+		expect(stats.relocated).toBe(1);
+		expect(vault.paths()).toEqual(["WoT/B/Déplacée.md"]);
+	});
+
+	test("a moved card with the trash rule trashes the note", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Déplacée.md`]: { content: linked("c9", "x") } });
+		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", idList: "autre" }) });
+
+		const stats = await syncFolder(vault, client, MAPPING, withFate({ onCardMoved: "trash" }));
+
+		expect(stats.deleted).toBe(1);
+		expect(vault.trashed).toEqual([`${FOLDER}/Déplacée.md`]);
+	});
+
+	test("dry-run writes nothing but still reports", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
+		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", closed: true }) });
+		const reporter = recordingReporter();
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...withFate({}), dryRun: true }, reporter);
+
+		expect(stats.detached).toBe(1);
+		expect(vault.contentOf(`${FOLDER}/Archivée.md`)).toBe(linked("c9", "x"));
+		expect(reporter.logs.some((entry) => entry.message.includes("Trello properties removed"))).toBe(true);
+	});
+
+	test("a card whose state cannot be checked is left untouched and logged", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Inconnue.md`]: { content: linked("c9", "x") } });
+		const { transport } = routedTransport({ "/lists/l1/cards": [] });
+		const failing = async (request: Parameters<typeof transport>[0]) =>
+			request.url.includes("/cards/c9") ? { status: 401, text: "unauthorized" } : transport(request);
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, failing, { maxRetries: 0 });
+		const reporter = recordingReporter();
+
+		const stats = await syncFolder(vault, client, MAPPING, withFate({}), reporter);
+
+		expect(stats.detached + stats.deleted + stats.relocated).toBe(0);
+		expect(vault.contentOf(`${FOLDER}/Inconnue.md`)).toBe(linked("c9", "x"));
+		expect(reporter.logs.some((entry) => entry.level === "warn" && entry.message.includes("left untouched"))).toBe(true);
+	});
+
+	test("uses a pre-fetched board card list instead of one request per gone card", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
+		const { client, requests } = clientWithCards({});
+
+		const stats = await syncFolder(vault, client, MAPPING, withFate({}), undefined, [card({ id: "c9", closed: true })]);
+
+		expect(stats.detached).toBe(1);
+		expect(requests.filter((request) => request.url.includes("/cards/c9"))).toHaveLength(0);
+	});
+
+	test("does not spend any extra request when no note lost its card", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Ok.md`]: { content: linked("c1", "x"), mtime: at("2026-03-01") } });
+		const { client, requests } = clientWithCards({}, { "/lists/l1/cards": [card({ id: "c1", name: "Ok", desc: "x", dateLastActivity: "2026-01-01" })] });
+
+		await syncFolder(vault, client, MAPPING, withFate({}));
+
+		expect(requests.filter((request) => request.url.includes("/boards/") || /\/cards\/c1/.test(request.url))).toHaveLength(0);
+	});
+});
+
+describe("syncFolder — a note that already exists elsewhere", () => {
+	const MAP_A: FolderMapping = { listId: "l1", folder: "WoT/A", templateName: "" };
+	const MAP_B: FolderMapping = { listId: "l2", folder: "WoT/B", templateName: "" };
+	const mapped = new Map([["l1", "WoT/A"], ["l2", "WoT/B"]]);
+	const moved = (order: FolderMapping[]) => ({
+		vault: new FakeVault({ "WoT/A/Pj.md": { content: linked("c9", "x"), mtime: at("2026-03-01") } }),
+		order,
+	});
+
+	test("a card moved from A to B is not duplicated whichever folder syncs first", async () => {
+		for (const order of [[MAP_A, MAP_B], [MAP_B, MAP_A]]) {
+			const { vault } = moved(order);
+			const { transport } = routedTransport({
+				"/lists/l1/cards": [],
+				"/lists/l2/cards": [card({ id: "c9", name: "Pj", desc: "x", dateLastActivity: "2026-01-01", idList: "l2" })],
+				"/cards/c9": card({ id: "c9", idList: "l2" }),
+			});
+			const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+
+			const total = await syncAllMappings(vault, client, order, { ...withFate({}), mappedFolderByListId: mapped }, silentReporter);
+
+			expect(vault.paths()).toEqual(["WoT/B/Pj.md"]);
+			expect(total.created).toBe(0);
+		}
+	});
+
+	test("a note in an unmapped place is left there and no second note is created", async () => {
+		const vault = new FakeVault({ "Perso/Pj.md": { content: linked("c9", "x") } });
+		const { transport } = routedTransport({
+			"/lists/l1/cards": [card({ id: "c9", name: "Pj", desc: "x" })],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+
+		const stats = await syncFolder(vault, client, MAP_A, { ...withFate({}), mappedFolderByListId: mapped });
+
+		expect(stats.created).toBe(0);
+		expect(vault.paths()).toEqual(["Perso/Pj.md"]);
+	});
+
+	test("a card taken out of the archive brings its note back, unless restoring is off", async () => {
+		for (const [restore, expected] of [[true, ["WoT/A/Pj.md"]], [false, ["Archive/Pj.md"]]] as const) {
+			const vault = new FakeVault({ "Archive/Pj.md": { content: linked("c9", "x"), mtime: at("2026-03-01") } });
+			const { transport } = routedTransport({
+				"/lists/l1/cards": [card({ id: "c9", name: "Pj", desc: "x", dateLastActivity: "2026-01-01" })],
+			});
+			const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+
+			await syncFolder(vault, client, MAP_A, {
+				...withFate({ onCardArchived: "archive-folder", archiveFolder: "Archive" }),
+				mappedFolderByListId: mapped,
+				archiveRestoreOnUnarchive: restore,
+			});
+
+			expect(vault.paths()).toEqual(expected);
+		}
+	});
+
+	test("archived cards of mapped lists get a note in the archive folder when asked to", async () => {
+		const vault = new FakeVault();
+		const { transport } = routedTransport({
+			"/lists/l1/cards": [],
+			"/boards/board/cards": [card({ id: "z1", name: "Vieille", idList: "l1", closed: true })],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+
+		const total = await syncAllMappings(
+			vault,
+			client,
+			[MAP_A],
+			{ ...withFate({ onCardArchived: "archive-folder", archiveFolder: "Archive" }), mappedFolderByListId: mapped, archiveCreateMissing: true },
+			silentReporter,
+		);
+
+		expect(total.created).toBe(1);
+		expect(vault.paths()).toEqual(["Archive/Vieille.md"]);
 	});
 });
 
@@ -402,20 +591,6 @@ describe("syncFolder — resilience", () => {
 		expect(stats.pushed).toBe(1);
 	});
 
-	test("keeps existing phantom notes and counts an error when the board-cards protection check itself fails", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
-		// No route for /boards/board/cards -> the protection fetch itself throws.
-		const { transport } = routedTransport({ "/lists/l1/cards": [] });
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true });
-
-		expect(stats.deleted).toBe(0);
-		expect(stats.errors).toBe(1);
-		expect(vault.trashed).toEqual([]);
-		expect(vault.paths()).toEqual([`${FOLDER}/Fantôme.md`]);
-	});
-
 	test("logs the sanitized file name actually written when it differs from the card title", async () => {
 		const vault = new FakeVault();
 		const { client } = clientFor([card({ id: "c1", name: "CON" })]);
@@ -435,7 +610,7 @@ describe("syncFolder — resilience", () => {
 		expect(creates).toEqual(['CON → saved as "_CON"']);
 	});
 
-	test("ignores notes outside the mapped folder", async () => {
+	test("a note outside the mapped folder is left alone and no second note is created for its card", async () => {
 		const vault = new FakeVault({
 			"WoT/90_Fins/Autre.md": { content: linked("c1", "x") },
 		});
@@ -443,137 +618,9 @@ describe("syncFolder — resilience", () => {
 
 		const stats = await syncFolder(vault, client, MAPPING, options);
 
-		expect(stats.created).toBe(1);
-		expect(stats.pulled + stats.pushed + stats.skipped).toBe(0);
-	});
-});
-
-describe("syncFolder — deletion safety", () => {
-	test("spares a note whose card merely moved to another list on the board", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Déplacée.md`]: { content: linked("c9", "x") } });
-		const { transport } = routedTransport({
-			"/lists/l1/cards": [],
-			"/boards/board/cards": [card({ id: "c9", name: "Déplacée", idList: "autre" })],
-		});
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true });
-
-		expect(stats.deleted).toBe(0);
-		expect(stats.moved).toBe(1);
-		expect(vault.trashed).toEqual([]);
-	});
-
-	test("still deletes a note whose card left the board entirely", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Disparue.md`]: { content: linked("c9", "x") } });
-		const { transport } = routedTransport({ "/lists/l1/cards": [], "/boards/board/cards": [] });
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true });
-
-		expect(stats.deleted).toBe(1);
-		expect(vault.trashed).toEqual([`${FOLDER}/Disparue.md`]);
-	});
-
-	test("does not spend a board request when deletion is off", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
-		const { transport, requests } = routedTransport({ "/lists/l1/cards": [] });
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		await syncFolder(vault, client, MAPPING, options);
-
-		expect(requests.filter((r) => r.url.includes("/boards/"))).toHaveLength(0);
-	});
-
-	test("spares a note whose card was archived rather than deleted", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
-		const { transport } = routedTransport({
-			"/lists/l1/cards": [],
-			"/boards/board/cards": [card({ id: "c9", name: "Archivée", closed: true })],
-		});
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true });
-
-		expect(stats.deleted).toBe(0);
-		expect(stats.moved).toBe(1);
-		expect(vault.trashed).toEqual([]);
-	});
-
-	test("requests archived cards too so the archive check actually works", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
-		const { transport, requests } = routedTransport({
-			"/lists/l1/cards": [],
-			"/boards/board/cards": [card({ id: "c9", name: "Archivée", closed: true })],
-		});
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true });
-
-		const boardRequest = requests.find((r) => r.url.includes("/boards/"));
-		expect(boardRequest?.url).toContain("filter=all");
-	});
-
-	test("deletes a note outright when protection is off, even though its card just moved elsewhere", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Déplacée.md`]: { content: linked("c9", "x") } });
-		const { transport } = routedTransport({
-			"/lists/l1/cards": [],
-			"/boards/board/cards": [card({ id: "c9", name: "Déplacée", idList: "autre" })],
-		});
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		const stats = await syncFolder(vault, client, MAPPING, {
-			...options,
-			allowDelete: true,
-			protectMovedOrArchivedCards: false,
-		});
-
-		expect(stats.deleted).toBe(1);
-		expect(stats.moved).toBe(0);
-		expect(vault.trashed).toEqual([`${FOLDER}/Déplacée.md`]);
-	});
-
-	test("deletes a note outright when protection is off, even though its card was archived", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "x") } });
-		const { transport } = routedTransport({
-			"/lists/l1/cards": [],
-			"/boards/board/cards": [card({ id: "c9", name: "Archivée", closed: true })],
-		});
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		const stats = await syncFolder(vault, client, MAPPING, {
-			...options,
-			allowDelete: true,
-			protectMovedOrArchivedCards: false,
-		});
-
-		expect(stats.deleted).toBe(1);
-		expect(vault.trashed).toEqual([`${FOLDER}/Archivée.md`]);
-	});
-
-	test("skips the board-wide request entirely when protection is off — a list mismatch is proof enough", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Fantôme.md`]: { content: linked("gone", "x") } });
-		const { transport, requests } = routedTransport({ "/lists/l1/cards": [] });
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		await syncFolder(vault, client, MAPPING, {
-			...options,
-			allowDelete: true,
-			protectMovedOrArchivedCards: false,
-		});
-
-		expect(requests.filter((r) => r.url.includes("/boards/"))).toHaveLength(0);
-	});
-
-	test("accepts a pre-fetched board card list instead of issuing its own request", async () => {
-		const vault = new FakeVault({ [`${FOLDER}/Disparue.md`]: { content: linked("c9", "x") } });
-		const { transport, requests } = routedTransport({ "/lists/l1/cards": [] });
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-
-		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowDelete: true }, undefined, []);
-
-		expect(stats.deleted).toBe(1);
-		expect(requests.filter((r) => r.url.includes("/boards/"))).toHaveLength(0);
+		expect(stats.created).toBe(0);
+		expect(stats.skipped).toBe(1);
+		expect(vault.paths()).toEqual(["WoT/90_Fins/Autre.md"]);
 	});
 });
 
@@ -742,22 +789,6 @@ describe("syncAllMappings", () => {
 		await syncAllMappings(vault, client, [MAPPING_A, MAPPING_B], options, silentReporter);
 
 		expect(vault.listCalls).toBe(1);
-	});
-
-	test("prefetches board cards once when a mapping override forces deletion even though the global setting is off", async () => {
-		const vault = new FakeVault();
-		const { transport, requests } = routedTransport({
-			"/lists/l1/cards": [],
-			"/lists/l2/cards": [],
-			"/boards/board/cards": [],
-		});
-		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
-		const mappingA: FolderMapping = { ...MAPPING_A, allowDeleteOverride: "on" };
-
-		await syncAllMappings(vault, client, [mappingA, MAPPING_B], { ...options, allowDelete: false }, silentReporter);
-
-		const boardFetches = requests.filter((request) => request.url.includes("/boards/board/cards"));
-		expect(boardFetches).toHaveLength(1);
 	});
 });
 

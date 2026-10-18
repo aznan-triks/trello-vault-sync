@@ -1,3 +1,4 @@
+import type { CardFateRules } from "../core/cardFate";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import type { CustomFieldDefinitionLike } from "../core/customFieldRef";
 import { errorMessage } from "../core/errorMessage";
@@ -17,6 +18,7 @@ import {
 import type { TrelloCard, TrelloClient } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
 import { createNoteFromCard } from "./createNoteFromCard";
+import { handleGoneNotes, isUnderAny, moveNoteToFolder } from "./noteFate";
 import {
 	buildCustomFieldDefinitions,
 	buildMemberDirectory,
@@ -33,21 +35,21 @@ export interface FolderMapping {
 	templateName: string;
 	/** Overrides `allowCreate` for this mapping only; `undefined`/missing behaves as "inherit". */
 	allowCreateOverride?: MappingOverride;
-	/** Overrides `allowDelete` for this mapping only; `undefined`/missing behaves as "inherit". */
+	/** `"off"` = never trash a note of this folder, whatever the global choice; `undefined`/missing/"inherit" follows it. */
 	allowDeleteOverride?: MappingOverride;
 }
 
 export interface FolderSyncOptions extends NoteSyncOptions {
 	allowCreate: boolean;
-	/** Move a note to the trash when its card leaves the board. Off by default. */
-	allowDelete: boolean;
-	/**
-	 * Before deleting, checks whether the card was only moved to another list or archived
-	 * elsewhere on the board instead of truly gone. Off by default — missing from the mapped
-	 * list is enough.
-	 */
-	protectMovedOrArchivedCards: boolean;
-	/** Board the list belongs to; consulted only to protect notes before deleting. */
+	/** What a sync does with a note whose card was moved, archived or deleted. */
+	cardFate: CardFateRules;
+	/** Every frontmatter key an "unlink" removes. */
+	trelloPropertyKeys: readonly string[];
+	/** List id -> mapped folder, for every mapping (not just the ones in this run): where a note follows a moved card. */
+	mappedFolderByListId: ReadonlyMap<string, string>;
+	/** Also creates, in the archive folder, a note for every archived card of a mapped list that has none. Needs `cardFate.onCardArchived: "archive-folder"`. */
+	archiveCreateMissing?: boolean;
+	/** Board the list belongs to. */
 	boardId: string;
 	/** `undefined` behaves as `DEFAULT_CARD_REF_KEY`. */
 	cardRefFrontmatterKey?: string;
@@ -64,9 +66,14 @@ export interface FolderSyncStats {
 	renamed: number;
 	conflicts: number;
 	phantoms: number;
-	/** Notes spared because their card is alive elsewhere on the board. */
+	/** Notes left in place although their card moved to another list (rule "keep", or the new list is not mapped). */
 	moved: number;
+	/** Notes moved to the trash because their card was moved, archived or deleted. */
 	deleted: number;
+	/** Notes whose Trello properties were removed because their card was moved, archived or deleted. */
+	detached: number;
+	/** Notes filed into another folder (their card changed list, was archived, or came back from the archive). */
+	relocated: number;
 	/** Extra notes in the folder claiming a card another note already claimed. */
 	duplicates: number;
 	/** Notes in the folder carrying no card id at all. */
@@ -86,6 +93,8 @@ const emptyStats = (): FolderSyncStats => ({
 	phantoms: 0,
 	moved: 0,
 	deleted: 0,
+	detached: 0,
+	relocated: 0,
 	duplicates: 0,
 	unlinked: 0,
 	errors: 0,
@@ -119,7 +128,7 @@ export async function syncFolder(
 	const stats = emptyStats();
 	const cardRefKey = options.cardRefFrontmatterKey ?? DEFAULT_CARD_REF_KEY;
 	const allowCreate = resolveOverride(mapping.allowCreateOverride, options.allowCreate);
-	const allowDelete = resolveOverride(mapping.allowDeleteOverride, options.allowDelete);
+	const trashAllowed = mapping.allowDeleteOverride !== "off";
 	const cards = await client.getListCards(mapping.listId, signal, cardIncludesFor(options));
 	reporter.log("info", `${cards.length} card(s) in the list`);
 
@@ -155,11 +164,7 @@ export async function syncFolder(
 	}
 	stats.unlinked = plan.unlinkedNotes.length;
 
-	reporter.setTotal(
-		plan.pairs.length +
-			(allowCreate ? plan.missingCards.length : 0) +
-			(allowDelete ? plan.phantomNotes.length : 0),
-	);
+	reporter.setTotal(plan.pairs.length + (allowCreate ? plan.missingCards.length : 0) + plan.phantomNotes.length);
 
 	const templateName = mapping.templateName || options.defaultTemplateName || "";
 	const template = templateName ? await vault.readTemplate(templateName) : null;
@@ -210,8 +215,36 @@ export async function syncFolder(
 		}
 	}
 
-	if (allowCreate) {
+	// A card with no note in this folder may already have one elsewhere (its card moved lists, or came back
+	// from the archive): that note follows it here instead of a duplicate being created.
+	let toCreate = plan.missingCards;
+	if (plan.missingCards.length > 0 && !signal?.aborted) {
+		const elsewhere = buildCardIndex(vault, vault.listNotes(""));
+		toCreate = [];
 		for (const card of plan.missingCards) {
+			if (signal?.aborted) break;
+			const existing = elsewhere.get(card.id);
+			if (!existing) {
+				toCreate.push(card);
+				continue;
+			}
+			reporter.step(card.name);
+			try {
+				await adoptNoteFromElsewhere(vault, client, mapping, options, card, existing, stats, reporter, {
+					attachmentsCardIndex,
+					members,
+					customFields,
+					signal,
+				});
+			} catch (error) {
+				stats.errors++;
+				reporter.log("error", `${card.name} — ${errorMessage(error)}`);
+			}
+		}
+	}
+
+	if (allowCreate) {
+		for (const card of toCreate) {
 			if (signal?.aborted) break;
 			reporter.step(card.name);
 			try {
@@ -246,62 +279,91 @@ export async function syncFolder(
 
 	stats.phantoms = plan.phantomNotes.length;
 
-	// A card that left this list has usually just been dragged to another column,
-	// or archived — with protectMovedOrArchivedCards on, only a card gone from the
-	// whole board justifies touching the note. "all" (not the default "visible") is
-	// required here or an archived card would be indistinguishable from a genuinely
-	// deleted one. Off (the default), aliveElsewhere simply stays empty and every
-	// phantom note below is deleted outright.
-	let aliveElsewhere = new Map<string, boolean>(); // cardId -> closed
-	// Protection check itself is network I/O like everything else here — a failure
-	// must not lose the create/pull/push stats already accumulated above it.
-	let protectionCheckFailed = false;
-	if (options.protectMovedOrArchivedCards && allowDelete && plan.phantomNotes.length > 0 && !signal?.aborted) {
-		try {
-			const cards = boardCards ?? (await client.getBoardCards(options.boardId, "all", signal));
-			aliveElsewhere = new Map(cards.map((card) => [card.id, card.closed === true]));
-		} catch (error) {
-			protectionCheckFailed = true;
-			stats.errors++;
-			reporter.log(
-				"error",
-				`Could not verify phantom notes against the board — skipping deletion this pass: ${errorMessage(error)}`,
-			);
-		}
-	}
-
-	for (const phantom of plan.phantomNotes) {
-		if (signal?.aborted) break;
+	// A note already filed in the archive folder is where its (archived) card wants it: nothing to decide, no request to spend.
+	const archiveFolder = options.cardFate.onCardArchived === "archive-folder" ? options.cardFate.archiveFolder : "";
+	const gone = plan.phantomNotes.flatMap((phantom) => {
 		const note = byPath.get(phantom.path);
-		if (!note) continue;
-		if (!allowDelete || protectionCheckFailed) {
-			reporter.log("warn", `Card missing from the list: ${phantom.basename} (kept)`);
-			continue;
-		}
-		if (phantom.cardId !== null && aliveElsewhere.has(phantom.cardId)) {
-			stats.moved++;
-			const archived = aliveElsewhere.get(phantom.cardId);
-			reporter.log(
-				"warn",
-				archived
-					? `Card archived on Trello: ${phantom.basename} (kept)`
-					: `Card moved elsewhere on the board: ${phantom.basename} (kept)`,
-			);
-			continue;
-		}
-		reporter.step(phantom.basename);
-		try {
-			stats.deleted++;
-			reporter.log("delete", phantom.basename);
-			if (!options.dryRun) await vault.trash(note);
-		} catch (error) {
-			stats.deleted--;
-			stats.errors++;
-			reporter.log("error", `${phantom.basename} — ${errorMessage(error)}`);
-		}
-	}
+		if (!note || phantom.cardId === null) return [];
+		return archiveFolder !== "" && isUnderAny(note, [archiveFolder]) ? [] : [{ note, cardId: phantom.cardId }];
+	});
+	await handleGoneNotes(vault, client, gone, {
+		rules: options.cardFate,
+		propertyKeys: options.trelloPropertyKeys,
+		mappedFolderByListId: options.mappedFolderByListId,
+		trashAllowed: () => trashAllowed,
+		aliveMode: "apply",
+		dryRun: options.dryRun,
+		reporter,
+		stats,
+		signal,
+		known: boardCards ? new Map(boardCards.map((boardCard) => [boardCard.id, boardCard])) : undefined,
+	});
 
 	return stats;
+}
+
+/**
+ * A card of this list whose note lives in another folder: moves the note here when the rules say it
+ * follows its card (it sits in another mapped folder, or comes back from the archive folder), then
+ * syncs it like any other pair. Otherwise leaves it where it is - never a second note.
+ */
+async function adoptNoteFromElsewhere(
+	vault: VaultGateway & CardRefStore,
+	client: TrelloClient,
+	mapping: FolderMapping,
+	options: FolderSyncOptions,
+	card: TrelloCard,
+	existing: NoteHandle,
+	stats: FolderSyncStats,
+	reporter: Reporter,
+	shared: {
+		attachmentsCardIndex?: Map<string, NoteHandle>;
+		members?: Map<string, string>;
+		customFields?: Map<string, CustomFieldDefinitionLike>;
+		signal?: AbortSignal;
+	},
+): Promise<void> {
+	let note = existing;
+	if (existing.folder !== mapping.folder) {
+		const { cardFate } = options;
+		const inMappedFolder = isUnderAny(existing, [...options.mappedFolderByListId.values()]);
+		const inArchive = cardFate.archiveFolder !== "" && isUnderAny(existing, [cardFate.archiveFolder]);
+		const follows =
+			(inMappedFolder && cardFate.onCardMoved === "move-note") ||
+			(inArchive && options.archiveRestoreOnUnarchive !== false);
+		const where = existing.folder || "the vault root";
+		if (!follows) {
+			stats.skipped++;
+			reporter.log("skip", `${card.name} — its note lives at ${existing.path}, not created again`);
+			return;
+		}
+		if (options.dryRun) {
+			stats.relocated++;
+			reporter.log("rename", `${card.name} — note would move from ${where} to ${mapping.folder}`);
+			return;
+		}
+		const moved = await moveNoteToFolder(vault, existing, mapping.folder);
+		if (!moved.moved) {
+			stats.skipped++;
+			reporter.log("warn", `${card.name} — note kept at ${existing.path} (${moved.reason})`);
+			return;
+		}
+		note = moved.note;
+		stats.relocated++;
+		reporter.log("rename", `${card.name} — note moved from ${where} to ${mapping.folder}`);
+	}
+	const result = await syncNoteWithCard(
+		vault,
+		client,
+		note,
+		card,
+		options,
+		shared.attachmentsCardIndex,
+		shared.members,
+		shared.customFields,
+		shared.signal,
+	);
+	tallyNoteResult(stats, result, (level, message) => reporter.log(level, message), card.name);
 }
 
 /**
@@ -321,12 +383,12 @@ export async function syncAllMappings(
 	signal?: AbortSignal,
 ): Promise<FolderSyncStats> {
 	const total = emptyStats();
-	const anyMappingNeedsProtectionCheck =
-		options.protectMovedOrArchivedCards &&
-		mappings.some((mapping) => resolveOverride(mapping.allowDeleteOverride, options.allowDelete));
-	const boardCards = anyMappingNeedsProtectionCheck
-		? await client.getBoardCards(options.boardId, "all", signal)
-		: undefined;
+	// One board-wide fetch (archived cards included) only when archived cards are to get a note of their own.
+	const wantsArchivedNotes =
+		options.archiveCreateMissing === true &&
+		options.cardFate.onCardArchived === "archive-folder" &&
+		options.cardFate.archiveFolder !== "";
+	const boardCards = wantsArchivedNotes ? await client.getBoardCards(options.boardId, "all", signal) : undefined;
 	const allNotes = vault.listNotes("");
 	const cardIndex = options.syncAttachments === false ? undefined : buildCardIndex(vault, allNotes);
 	const memberDirectory =
@@ -362,5 +424,56 @@ export async function syncAllMappings(
 		}
 	}
 
+	if (boardCards && !signal?.aborted) {
+		await createArchivedCardNotes(vault, mappings, boardCards, options, total, reporter, signal);
+	}
 	return total;
+}
+
+/** "Also create notes for archived cards": one note in the archive folder per archived card of a mapped list that no note carries yet. */
+async function createArchivedCardNotes(
+	vault: VaultGateway & CardRefStore & TemplateResolver,
+	mappings: FolderMapping[],
+	boardCards: TrelloCard[],
+	options: FolderSyncOptions,
+	total: FolderSyncStats,
+	reporter: Reporter,
+	signal?: AbortSignal,
+): Promise<void> {
+	const linked = buildCardIndex(vault, vault.listNotes(""));
+	const cardRefKey = options.cardRefFrontmatterKey ?? DEFAULT_CARD_REF_KEY;
+	const templates = new Map<string, string | null>();
+	for (const card of boardCards) {
+		if (signal?.aborted) break;
+		const mapping = card.closed === true ? mappings.find((candidate) => candidate.listId === card.idList) : undefined;
+		if (!mapping || linked.has(card.id)) continue;
+		if (!resolveOverride(mapping.allowCreateOverride, options.allowCreate)) continue;
+		reporter.step(card.name);
+		try {
+			const templateName = mapping.templateName || options.defaultTemplateName || "";
+			if (!templates.has(templateName)) {
+				templates.set(templateName, templateName ? await vault.readTemplate(templateName) : null);
+			}
+			total.created++;
+			reporter.log("create", `${card.name} (archived card) → ${options.cardFate.archiveFolder}`);
+			if (options.dryRun) continue;
+			const created = await createNoteFromCard(
+				vault,
+				card,
+				options.cardFate.archiveFolder,
+				templates.get(templateName) ?? null,
+				cardRefKey,
+				options.maxNameLength,
+				options.guard,
+			);
+			if (created === null) {
+				total.created--;
+				total.skipped++;
+			}
+		} catch (error) {
+			total.created--;
+			total.errors++;
+			reporter.log("error", `${card.name} — ${errorMessage(error)}`);
+		}
+	}
 }

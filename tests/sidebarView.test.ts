@@ -196,7 +196,7 @@ import type { CommandContext } from "../src/commands/context";
 import { COMMANDS } from "../src/commands/registry";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
 import { SidebarView, VIEW_TYPE_TVS_SIDEBAR } from "../src/ui/SidebarView";
-import { FakeVault, clientFor } from "./fakes";
+import { FakeVault, clientFor, FATE_OPTIONS } from "./fakes";
 
 function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 	const { client } = clientFor([], [], []);
@@ -234,8 +234,7 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 			syncTitle: true,
 			dryRun: false,
 			allowCreate: true,
-			allowDelete: false,
-			protectMovedOrArchivedCards: false,
+			...FATE_OPTIONS,
 			boardId: "board",
 		}),
 		auditOptions: () => ({ scope: "", boardId: "board", reportPath: "", timestamp: "t", excludedFolders: [] }),

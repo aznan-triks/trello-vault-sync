@@ -32,7 +32,7 @@ import { silentReporter } from "../src/obsidian/gateway";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
 import { TrelloClient } from "../src/trello/client";
 import { ConfirmModal } from "../src/ui/ConfirmModal";
-import { card, FakeVault, routedTransport } from "./fakes";
+import { card, FakeVault, routedTransport, FATE_OPTIONS } from "./fakes";
 import { vi } from "vitest";
 
 const PATH = "note.md";
@@ -88,8 +88,7 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 			syncTitle: true,
 			dryRun: false,
 			allowCreate: true,
-			allowDelete: false,
-			protectMovedOrArchivedCards: false,
+			...FATE_OPTIONS,
 			boardId: "board",
 		}),
 		auditOptions: () => ({ scope: "", boardId: "board", reportPath: "", timestamp: "t", excludedFolders: [] }),

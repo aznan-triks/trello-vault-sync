@@ -38,7 +38,7 @@ import { ConfirmModal } from "../src/ui/ConfirmModal";
 import { ListPickerModal } from "../src/ui/ListPickerModal";
 import { MultiSelectPickerModal } from "../src/ui/MultiSelectPickerModal";
 import { PhantomNotePickerModal, type PhantomNoteChoice } from "../src/ui/PhantomNotePickerModal";
-import { card, FakeVault, recordingReporter } from "./fakes";
+import { card, FakeVault, recordingReporter, FATE_OPTIONS } from "./fakes";
 
 function stubTransport(responses: HttpResponse[]) {
 	const calls: HttpRequest[] = [];
@@ -82,8 +82,7 @@ function fakeContext(
 			syncTitle: true,
 			dryRun: false,
 			allowCreate: true,
-			allowDelete: false,
-			protectMovedOrArchivedCards: false,
+			...FATE_OPTIONS,
 			boardId: "board-1",
 		}),
 		auditOptions: () => ({ scope: "", boardId: "board-1", reportPath: "", timestamp: "t", excludedFolders: [] }),
