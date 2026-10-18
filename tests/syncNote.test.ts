@@ -2269,3 +2269,55 @@ describe("syncNote — the card is archived or deleted", () => {
 		expect(result.direction).toBe("pull");
 	});
 });
+
+describe("syncNoteWithCard — labels to properties", () => {
+	const npc = { labelId: "L1", labelName: "NPC", labelColor: "green", key: "kind", values: ["npc"] };
+	const lp = (direction: "both" | "to-note" | "to-trello" = "both") => ({
+		labelProperties: { direction, removeValues: true, mappings: [npc] },
+		syncLabels: false,
+	});
+	const npcLabel = { id: "L1", name: "NPC", color: "green" };
+
+	test("pull: a label added on Trello writes its property", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", labels: [npcLabel] });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, ...lp() });
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.kind).toBe("npc");
+		expect(requests.filter((r) => r.method !== "GET")).toEqual([]);
+	});
+
+	test("push: a property added in the note puts the label on the card", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER.replace("---\n\n", "kind: npc\n---\n\n") + "same", mtime: at("2026-03-01") } });
+		const { transport, requests } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01", labels: [] });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, ...lp() });
+
+		const put = requests.find((r) => r.method === "PUT");
+		expect(decodeURIComponent(put?.url ?? "") + String(put?.body)).toContain("L1");
+	});
+
+	test("to-note: nothing is ever sent to Trello", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER.replace("---\n\n", "kind: npc\n---\n\n") + "same", mtime: at("2026-03-01") } });
+		const { transport, requests } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01", labels: [] });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, ...lp("to-note") });
+
+		expect(requests.filter((r) => r.method !== "GET")).toEqual([]);
+	});
+
+	test("dry-run writes nothing", async () => {
+		const { vault, client, requests } = setup("same", at("2026-01-01"));
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", labels: [npcLabel] });
+
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, ...lp(), dryRun: true });
+
+		expect(vault.readFrontmatter(vault.note(PATH))?.kind).toBeUndefined();
+		expect(requests).toEqual([]);
+	});
+});

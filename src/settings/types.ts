@@ -1,3 +1,8 @@
+import {
+	LABEL_PROPERTY_DIRECTIONS,
+	type LabelPropertyDirection,
+	type LabelPropertyMapping,
+} from "../core/labelProperty";
 import { ON_LINKED_NOTE_DELETED, type OnLinkedNoteDeleted } from "../core/deletedNotes";
 import {
 	DEFAULT_ATTACHMENTS_KEY,
@@ -60,6 +65,13 @@ export interface TrelloVaultSyncSettings {
 	marginSeconds: number;
 	/** "merge" (default) unions both sides non-destructively; "overwrite" behaves like `policy` for labels. */
 	labelsSyncMode: LabelSyncMode;
+	/** Turns Trello labels into note properties (and back) according to `labelPropertyMappings`. No row filled in = no effect. */
+	labelPropertySync: boolean;
+	/** Which way label-property changes travel. */
+	labelPropertyDirection: LabelPropertyDirection;
+	/** A label taken off the card (or a value taken out of the note) is removed on the other side too. */
+	labelPropertyRemoveValues: boolean;
+	labelPropertyMappings: LabelPropertyMapping[];
 	syncTitle: boolean;
 	syncDescription: boolean;
 	syncDue: boolean;
@@ -245,6 +257,10 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	policy: "newer-wins",
 	marginSeconds: 60,
 	labelsSyncMode: DEFAULT_LABELS_SYNC_MODE,
+	labelPropertySync: true,
+	labelPropertyDirection: "both",
+	labelPropertyRemoveValues: true,
+	labelPropertyMappings: [],
 	syncTitle: true,
 	syncDescription: true,
 	syncDue: true,
@@ -425,6 +441,22 @@ export function normalizeRibbonIconColors(raw: unknown): Record<string, string> 
 	return result;
 }
 
+function normalizeLabelMappings(raw: unknown): LabelPropertyMapping[] {
+	if (!Array.isArray(raw)) return [];
+	return raw.flatMap((row: Partial<LabelPropertyMapping> | null) => {
+		if (typeof row?.labelId !== "string" || row.labelId === "") return [];
+		return [
+			{
+				labelId: row.labelId,
+				labelName: safeString(row.labelName),
+				labelColor: typeof row.labelColor === "string" ? row.labelColor : null,
+				key: safeString(row.key).trim(),
+				values: Array.isArray(row.values) ? row.values.filter((v): v is string => typeof v === "string" && v.trim() !== "").map((v) => v.trim()) : [],
+			},
+		];
+	});
+}
+
 /** Settings merged over the defaults, tolerating a partial or legacy payload. */
 export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 	const input = { ...((raw ?? {}) as Partial<TrelloVaultSyncSettings>) };
@@ -462,6 +494,12 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		changesHtmlPath: normalizeVaultPath(safeString(input.changesHtmlPath, DEFAULT_SETTINGS.changesHtmlPath)),
 		auditChangesCursor: safeString(input.auditChangesCursor, DEFAULT_SETTINGS.auditChangesCursor),
 		marginSeconds: safeNonNegativeNumber(input.marginSeconds, DEFAULT_SETTINGS.marginSeconds),
+		labelPropertySync: input.labelPropertySync !== false,
+		labelPropertyDirection: LABEL_PROPERTY_DIRECTIONS.includes(input.labelPropertyDirection as LabelPropertyDirection)
+			? (input.labelPropertyDirection as LabelPropertyDirection)
+			: DEFAULT_SETTINGS.labelPropertyDirection,
+		labelPropertyRemoveValues: input.labelPropertyRemoveValues !== false,
+		labelPropertyMappings: normalizeLabelMappings(input.labelPropertyMappings),
 		labelsSyncMode: input.labelsSyncMode === "overwrite" ? "overwrite" : DEFAULT_SETTINGS.labelsSyncMode,
 		syncDescription: input.syncDescription !== false,
 		syncDue: input.syncDue !== false,

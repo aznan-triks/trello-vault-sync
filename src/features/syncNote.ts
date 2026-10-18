@@ -52,6 +52,13 @@ import { resolveChecklists } from "./checklistSync";
 import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
 import { applyNoteFate, isUnderAny } from "./noteFate";
 import { decideNoteFate, type CardChange } from "../core/cardFate";
+import {
+	applyLabelsToProperties,
+	labelsFromProperties,
+	mappedLabelIds,
+	type LabelPropertyDirection,
+	type LabelPropertyMapping,
+} from "../core/labelProperty";
 import { NO_CARD_REASON } from "../core/syncTally";
 import {
 	TrelloError,
@@ -96,6 +103,8 @@ export interface NoteSyncOptions {
 	dueFrontmatterKey?: string;
 	/** `undefined` behaves as `DEFAULT_LABELS_KEY`. */
 	labelsFrontmatterKey?: string;
+	/** Label -> property mappings (already narrowed to the active rows); absent = the feature is off. */
+	labelProperties?: { direction: LabelPropertyDirection; removeValues: boolean; mappings: LabelPropertyMapping[] };
 	/** Pull-only, on by default (`undefined` behaves as `true`) — see `DEFAULT_SYNC_ATTACHMENTS` for its request cost. */
 	syncAttachments?: boolean;
 	/** `undefined` behaves as `DEFAULT_ATTACHMENTS_KEY`. */
@@ -269,6 +278,57 @@ async function writeLocalLabels(
 		if (formatted === null) delete frontmatter[labelsKey];
 		else frontmatter[labelsKey] = formatted;
 	});
+}
+
+/**
+ * Keeps mapped note properties and the card's labels in step. The decided direction says who wins removals
+ * (pull: the card, push: the note); otherwise - skip, conflict - the two only ever grow towards each other.
+ * Returns true when it rewrote the note's frontmatter.
+ */
+async function convergeLabelProperties(
+	vault: VaultGateway,
+	client: TrelloClient,
+	note: NoteHandle,
+	card: TrelloCard,
+	config: NonNullable<NoteSyncOptions["labelProperties"]>,
+	direction: string,
+	onTrelloWrite: NoteSyncOptions["onTrelloWrite"],
+	signal?: AbortSignal,
+): Promise<boolean> {
+	const { mappings, removeValues } = config;
+	if (card.labels === undefined) return false; // labels not fetched: absent is not the same as empty
+	const cardIds = new Set((card.labels ?? []).map((label) => label.id));
+	const frontmatter = { ...(vault.readFrontmatter(note) ?? {}) };
+	const toNote = config.direction !== "to-trello";
+	const toTrello = config.direction !== "to-note";
+	let wroteNote = false;
+
+	if (toNote && direction !== "push") {
+		const next = { ...frontmatter };
+		if (applyLabelsToProperties(next, cardIds, mappings, removeValues && direction === "pull")) {
+			await vault.writeFrontmatter(note, (fm) => {
+				applyLabelsToProperties(fm, cardIds, mappings, removeValues && direction === "pull");
+			});
+			wroteNote = true;
+		}
+	}
+	if (toTrello && direction !== "pull" && !signal?.aborted) {
+		const wanted = labelsFromProperties(frontmatter, mappings);
+		const mapped = mappedLabelIds(mappings);
+		const nextIds = [...cardIds].filter((id) => !mapped.has(id) || wanted.has(id) || !(removeValues && direction === "push"));
+		for (const id of wanted) if (!nextIds.includes(id)) nextIds.push(id);
+		if (nextIds.length !== cardIds.size || nextIds.some((id) => !cardIds.has(id))) {
+			await client.updateCard(card.id, { idLabels: nextIds }, signal);
+			onTrelloWrite?.({
+				kind: "trello-card",
+				path: note.path,
+				cardId: card.id,
+				previous: { idLabels: [...cardIds] },
+				written: { idLabels: nextIds },
+			});
+		}
+	}
+	return wroteNote;
 }
 
 /** Resolve a label list to the card's board's ids — one `getBoardLabels` call, shared by every push path. */
@@ -779,6 +839,11 @@ async function syncNoteWithCardUnguarded(
 	let stale = false;
 	if (syncLabels && labelsSyncMode === "merge" && !options.dryRun && !signal?.aborted) {
 		const wrote = await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, options.onTrelloWrite, signal);
+		stale = stale || wrote;
+	}
+
+	if (options.labelProperties && !options.dryRun && !signal?.aborted) {
+		const wrote = await convergeLabelProperties(vault, client, note, card, options.labelProperties, direction, options.onTrelloWrite, signal);
 		stale = stale || wrote;
 	}
 

@@ -11,6 +11,7 @@ import { appendJournalEntry, prefixDryRunMessage, type JournalEntry, type LogLev
 import { OperationGuard } from "./core/operationGuard";
 import { normalizePersistedData } from "./core/pluginData";
 import type { IgnoredCards } from "./core/deletedNotes";
+import { activeMappings } from "./core/labelProperty";
 import { trelloPropertyKeys } from "./core/trelloProperties";
 import { appendSyncRun, type SyncAction, type SyncRun } from "./core/syncHistory";
 import type { AuditOptions } from "./features/auditShared";
@@ -269,6 +270,15 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 					this.attachmentAuthHeaders(),
 				),
 			guard: this.guard,
+			...(this.settings.labelPropertySync && activeMappings(this.settings.labelPropertyMappings).length > 0
+				? {
+						labelProperties: {
+							direction: this.settings.labelPropertyDirection,
+							removeValues: this.settings.labelPropertyRemoveValues,
+							mappings: activeMappings(this.settings.labelPropertyMappings),
+						},
+					}
+				: {}),
 			...this.fateOptions(),
 			trashBlockedFolders: this.settings.mappings
 				.filter((mapping) => mapping.allowDeleteOverride === "off")
