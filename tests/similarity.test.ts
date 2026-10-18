@@ -71,3 +71,13 @@ describe("bestMatch", () => {
 		expect(hit?.score).toBeGreaterThanOrEqual(0.9);
 	});
 });
+
+describe("bestMatch containment score", () => {
+	test("a custom containment score replaces the default 0.9", () => {
+		const cards = [{ name: "Sagondo" }];
+		const label = (c: { name: string }) => c.name;
+		expect(bestMatch("Sagondo (draft)", cards, label, 0.8)?.score).toBe(0.9);
+		expect(bestMatch("Sagondo (draft)", cards, label, 0.8, 0.5)).toBeNull();
+		expect(bestMatch("Sagondo (draft)", cards, label, 0.8, 0.95)?.score).toBe(0.95);
+	});
+});

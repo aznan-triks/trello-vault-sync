@@ -14,7 +14,14 @@ const timers: { setTimeout: (handler: TimerHandler, timeout?: number, ...args: u
 		? window
 		: (typeof global !== "undefined" ? global : ({} as Window));
 
-export async function yieldPeriodically(index: number, everyN = 200): Promise<void> {
+export const DEFAULT_YIELD_EVERY = 200;
+let yieldEvery = DEFAULT_YIELD_EVERY;
+/** Sets how often `yieldPeriodically` yields (setting `yieldEveryNotes`); read on every call, so it applies at once. */
+export function configureYieldEvery(everyN: number): void {
+	yieldEvery = Math.max(1, Math.floor(everyN));
+}
+
+export async function yieldPeriodically(index: number, everyN = yieldEvery): Promise<void> {
 	if (index > 0 && index % everyN === 0) {
 		await new Promise<void>((resolve) => timers.setTimeout(resolve, 0));
 	}

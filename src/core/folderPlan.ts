@@ -51,6 +51,8 @@ export function planFolderMatch(
 	notes: readonly PlannedNote[],
 	folder: string,
 	maxNameLength?: number,
+	/** Adopt an unlinked note whose file name is exactly the card's title. Default true. */
+	adoptByName = true,
 ): FolderPlan {
 	const sorted = [...notes].sort((a, b) => a.path.localeCompare(b.path));
 
@@ -83,7 +85,7 @@ export function planFolderMatch(
 			claimed.add(card.id);
 		} else {
 			const candidate = byPath.get(targetPath);
-			if (candidate && !adoptedPaths.has(candidate.path)) {
+			if (adoptByName && candidate && !adoptedPaths.has(candidate.path)) {
 				note = candidate;
 				adopted = true;
 				adoptedPaths.add(candidate.path);

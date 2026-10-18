@@ -1,6 +1,7 @@
 import { countSeverity } from "../core/countSeverity";
 import type { LogLevel } from "../core/journal";
 import { shouldAutoClosePanel } from "../core/panelAutoClose";
+import { DEFAULT_SETTINGS } from "../settings/types";
 import type { Reporter } from "../obsidian/gateway";
 
 const ICONS: Record<LogLevel, string> = {
@@ -16,8 +17,6 @@ const ICONS: Record<LogLevel, string> = {
 	error: "✕",
 };
 
-/** Default for the `logMaxRows` setting — kept exported for callers with no settings at hand (tests). */
-export const MAX_LOG_ROWS = 60;
 
 /**
  * Renders one log row into `container`, newest first (prepended), trimmed to
@@ -68,7 +67,7 @@ export interface PanelOptions {
 	title: string;
 	/** Delay before a successful panel disappears; 0 keeps it until dismissed. */
 	autoCloseMs: number;
-	/** Lines kept before the oldest is dropped (setting `logMaxRows`). Defaults to `MAX_LOG_ROWS`. */
+	/** Lines kept before the oldest is dropped (setting `logMaxRows`). Defaults to the `logMaxRows` default. */
 	maxLogRows?: number;
 	/** Called once when the user asks to stop the sync this panel is tracking. */
 	onCancel?: () => void;
@@ -175,7 +174,7 @@ export class ProgressPanel implements Reporter {
 
 	log(level: LogLevel, message: string): void {
 		if (level === "error") this.hasErrors = true;
-		renderLogRow(this.logEl, level, message, this.options.maxLogRows ?? MAX_LOG_ROWS);
+		renderLogRow(this.logEl, level, message, this.options.maxLogRows ?? DEFAULT_SETTINGS.logMaxRows);
 	}
 
 	finish(outcome: "done" | "aborted" | "error", summary: string): void {

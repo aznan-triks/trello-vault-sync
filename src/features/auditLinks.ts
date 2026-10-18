@@ -1,6 +1,6 @@
 import { yieldPeriodically } from "../core/asyncUtil";
 import {
-	LINK_REPORT_HEADING,
+	DEFAULT_REPORT_LABELS,
 	buildLinkReport,
 	extractCheckedKeys,
 	mergeReport,
@@ -97,8 +97,9 @@ export async function auditLinks(
 		unlinkedNotes: reportedUnlinked,
 		checked: extractCheckedKeys(existing),
 		filteredByCreationScopes: scopes !== undefined,
+		labels: options.reportLabels,
 	});
-	await vault.write(reportNote, mergeReport(existing, markdown, LINK_REPORT_HEADING));
+	await vault.write(reportNote, mergeReport(existing, markdown, (options.reportLabels ?? DEFAULT_REPORT_LABELS).linkHeading));
 
 	return {
 		orphanCards: orphanCards.length,

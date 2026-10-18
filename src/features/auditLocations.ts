@@ -1,6 +1,6 @@
 import { yieldPeriodically } from "../core/asyncUtil";
 import {
-	LOCATION_REPORT_HEADING,
+	DEFAULT_REPORT_LABELS,
 	buildLocationReport,
 	mergeReport,
 	type LocationRow,
@@ -51,9 +51,10 @@ export async function auditLocations(
 		scope: options.scope,
 		timestamp: options.timestamp,
 		rows,
+		labels: options.reportLabels,
 	});
 	const existing = await vault.read(reportNote);
-	await vault.write(reportNote, mergeReport(existing, markdown, LOCATION_REPORT_HEADING));
+	await vault.write(reportNote, mergeReport(existing, markdown, (options.reportLabels ?? DEFAULT_REPORT_LABELS).locationHeading));
 
 	return { rows: rows.length, markdown };
 }

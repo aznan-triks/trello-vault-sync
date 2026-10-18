@@ -18,7 +18,7 @@ export function appendJournalEntry(entries: readonly JournalEntry[], entry: Jour
 	return next.length > maxEntries ? next.slice(next.length - maxEntries) : next;
 }
 
-const DRY_RUN_PREFIX = "[Dry-run] ";
+export const DEFAULT_DRY_RUN_PREFIX = "[Dry-run] ";
 
 /**
  * The single place that prefixes a log line with `[Dry-run]` — called once,
@@ -27,7 +27,7 @@ const DRY_RUN_PREFIX = "[Dry-run] ";
  * copy of this rule (DRY). Idempotent: a message a command already prefixed
  * itself (e.g. a batch action's own summary text) is never double-prefixed.
  */
-export function prefixDryRunMessage(message: string, dryRun: boolean): string {
-	if (!dryRun || message.startsWith(DRY_RUN_PREFIX)) return message;
-	return `${DRY_RUN_PREFIX}${message}`;
+export function prefixDryRunMessage(message: string, dryRun: boolean, prefix = DEFAULT_DRY_RUN_PREFIX): string {
+	if (!dryRun || prefix === "" || message.startsWith(prefix)) return message;
+	return `${prefix}${message}`;
 }

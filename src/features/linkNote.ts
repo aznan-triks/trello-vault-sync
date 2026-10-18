@@ -6,6 +6,8 @@ export interface LinkOptions {
 	boardId: string;
 	/** Minimum title similarity, 0 to 1, below which nothing is linked. */
 	threshold: number;
+	/** Lowest score given to a title that appears whole inside the other. Default: `DEFAULT_CONTAINMENT_SCORE`. */
+	containmentScore?: number;
 }
 
 export interface LinkResult {
@@ -28,7 +30,7 @@ export async function linkActiveNote(
 	}
 
 	const cards = await client.getBoardCards(options.boardId, undefined, signal);
-	const match = bestMatch(note.basename, cards, (card) => card.name, options.threshold);
+	const match = bestMatch(note.basename, cards, (card) => card.name, options.threshold, options.containmentScore);
 	if (!match) return { linked: false, score: 0, card: null, reason: "no-match" };
 
 	await vault.setCardRef(note, { boardId: match.item.idBoard, cardId: match.item.id });

@@ -50,6 +50,8 @@ export interface FolderSyncOptions extends NoteSyncOptions {
 	mappedFolderByListId: ReadonlyMap<string, string>;
 	/** Also creates, in the archive folder, a note for every archived card of a mapped list that has none. Needs `cardFate.onCardArchived: "archive-folder"`. */
 	archiveCreateMissing?: boolean;
+	/** An unlinked note named exactly like a card is adopted by it. Default true. */
+	adoptUnlinkedByName?: boolean;
 	/** What to do with a card whose note the user deleted; absent = the old behaviour (the note is created again). */
 	deletedNotes?: DeletedNotesContext;
 	/** Board the list belongs to. */
@@ -169,7 +171,7 @@ export async function syncFolder(
 		cardId: vault.getCardRef(note)?.cardId ?? null,
 	}));
 
-	const plan = planFolderMatch(cards, planned, mapping.folder, options.maxNameLength);
+	const plan = planFolderMatch(cards, planned, mapping.folder, options.maxNameLength, options.adoptUnlinkedByName);
 
 	stats.duplicates = plan.duplicateNotes.length;
 	for (const duplicate of plan.duplicateNotes) {

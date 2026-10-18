@@ -94,3 +94,11 @@ describe("planFolderMatch", () => {
 		});
 	});
 });
+
+describe("planFolderMatch — adoptByName", () => {
+	test("off: an unlinked note named like the card is not adopted", () => {
+		const plan = planFolderMatch([card("c1", "Sagondo")], [note(`${FOLDER}/Sagondo.md`, null)], FOLDER, undefined, false);
+		expect(plan.pairs).toEqual([]);
+		expect(plan.missingCards).toHaveLength(1);
+	});
+});

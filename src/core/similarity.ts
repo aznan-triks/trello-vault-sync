@@ -4,7 +4,7 @@
  * linker script relied on ("Sagondo (draft)" should still match "Sagondo").
  */
 
-const CONTAINMENT_SCORE = 0.9;
+export const DEFAULT_CONTAINMENT_SCORE = 0.9;
 
 function levenshtein(a: string, b: string): number {
 	const costs: number[] = new Array<number>(b.length + 1).fill(0);
@@ -49,12 +49,13 @@ export interface Match<T> {
 	score: number;
 }
 
-/** Closest candidate at or above `threshold`, or `null`. */
+/** Closest candidate at or above `threshold`, or `null`. A name that appears whole inside the other scores at least `containmentScore`. */
 export function bestMatch<T>(
 	query: string,
 	candidates: readonly T[],
 	label: (item: T) => string,
 	threshold: number,
+	containmentScore = DEFAULT_CONTAINMENT_SCORE,
 ): Match<T> | null {
 	const needle = query.trim().toLowerCase();
 	let best: Match<T> | null = null;
@@ -63,7 +64,7 @@ export function bestMatch<T>(
 		const name = label(item).trim().toLowerCase();
 		let score = similarity(needle, name);
 		const contained = name !== "" && (containsWholeWord(needle, name) || containsWholeWord(name, needle));
-		if (contained) score = Math.max(score, CONTAINMENT_SCORE);
+		if (contained) score = Math.max(score, containmentScore);
 		if (!best || score > best.score) best = { item, score };
 	}
 

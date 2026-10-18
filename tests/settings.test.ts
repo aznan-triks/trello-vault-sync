@@ -26,12 +26,10 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ marginSeconds: -30 }).marginSeconds).toBe(0);
 	});
 
-	test("clamps maxRetries so a corrupted value cannot hammer the Trello API", () => {
-		expect(normalizeSettings({ maxRetries: 9999 }).maxRetries).toBe(10);
-	});
-
-	test("clamps baseDelayMs to a sane ceiling", () => {
-		expect(normalizeSettings({ baseDelayMs: 10_000_000 }).baseDelayMs).toBe(60_000);
+	test("no arbitrary ceiling on retries or delays: the user's value is kept", () => {
+		expect(normalizeSettings({ maxRetries: 9999 }).maxRetries).toBe(9999);
+		expect(normalizeSettings({ baseDelayMs: 10_000_000 }).baseDelayMs).toBe(10_000_000);
+		expect(normalizeSettings({ maxBackoffDelayMs: 10_000_000 }).maxBackoffDelayMs).toBe(10_000_000);
 	});
 
 	test("falls back to the default when a string field is not a string", () => {
@@ -275,21 +273,22 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ historyEnabled: false }).historyEnabled).toBe(false);
 	});
 
-	test("clamps historyMaxRuns so a corrupted value cannot grow data.json without bound", () => {
-		expect(normalizeSettings({ historyMaxRuns: 999_999 }).historyMaxRuns).toBe(1000);
+	test("historyMaxRuns has no ceiling, only a floor of zero", () => {
+		expect(normalizeSettings({ historyMaxRuns: 999_999 }).historyMaxRuns).toBe(999_999);
+		expect(normalizeSettings({ historyMaxRuns: -3 }).historyMaxRuns).toBe(0);
 	});
 
-	test("maxConcurrentOperations defaults to 3 and is clamped to 1-10, with the default when corrupted", () => {
+	test("maxConcurrentOperations defaults to 3 and has a floor of 1 and no ceiling, with the default when corrupted", () => {
 		expect(normalizeSettings({}).maxConcurrentOperations).toBe(3);
 		expect(normalizeSettings({ maxConcurrentOperations: 0 }).maxConcurrentOperations).toBe(1);
-		expect(normalizeSettings({ maxConcurrentOperations: 99 }).maxConcurrentOperations).toBe(10);
+		expect(normalizeSettings({ maxConcurrentOperations: 99 }).maxConcurrentOperations).toBe(99);
 		expect(normalizeSettings({ maxConcurrentOperations: "x" as unknown as number }).maxConcurrentOperations).toBe(3);
 	});
 
 	test("clamps noteNameMaxLength and logMaxRows into their ranges, with defaults when corrupted", () => {
 		expect(normalizeSettings({}).noteNameMaxLength).toBe(120);
 		expect(normalizeSettings({ noteNameMaxLength: 5 }).noteNameMaxLength).toBe(20);
-		expect(normalizeSettings({ noteNameMaxLength: 9999 }).noteNameMaxLength).toBe(200);
+		expect(normalizeSettings({ noteNameMaxLength: 9999 }).noteNameMaxLength).toBe(255);
 		expect(normalizeSettings({}).logMaxRows).toBe(60);
 		expect(normalizeSettings({ logMaxRows: 1 }).logMaxRows).toBe(10);
 		expect(normalizeSettings({ logMaxRows: "x" as unknown as number }).logMaxRows).toBe(60);
@@ -414,9 +413,9 @@ describe("normalizeSettings", () => {
 		expect(settings.autoSyncScopeVault).toBe(true);
 	});
 
-	test("clamps autoSyncIntervalMinutes and autoSyncMinIdleSeconds to their ceilings", () => {
-		expect(normalizeSettings({ autoSyncIntervalMinutes: 999_999 }).autoSyncIntervalMinutes).toBe(1440);
-		expect(normalizeSettings({ autoSyncMinIdleSeconds: 999_999 }).autoSyncMinIdleSeconds).toBe(3600);
+	test("autoSyncIntervalMinutes and autoSyncMinIdleSeconds have no ceiling", () => {
+		expect(normalizeSettings({ autoSyncIntervalMinutes: 999_999 }).autoSyncIntervalMinutes).toBe(999_999);
+		expect(normalizeSettings({ autoSyncMinIdleSeconds: 999_999 }).autoSyncMinIdleSeconds).toBe(999_999);
 	});
 
 	test("defaults syncMembers to on and membersFrontmatterKey to its historical value", () => {
@@ -472,10 +471,6 @@ describe("normalizeSettings", () => {
 
 	test("keeps an explicit maxBackoffDelayMs", () => {
 		expect(normalizeSettings({ maxBackoffDelayMs: 5_000 }).maxBackoffDelayMs).toBe(5_000);
-	});
-
-	test("clamps maxBackoffDelayMs to its ceiling", () => {
-		expect(normalizeSettings({ maxBackoffDelayMs: 10_000_000 }).maxBackoffDelayMs).toBe(300_000);
 	});
 
 	test("falls back maxBackoffDelayMs to the default when corrupted", () => {
@@ -596,5 +591,34 @@ describe("normalizeSettings — label properties", () => {
 		});
 		expect(s.labelPropertyDirection).toBe("both");
 		expect(s.labelPropertyMappings).toEqual([{ labelId: "L1", labelName: "A", labelColor: null, key: "type", values: ["x"] }]);
+	});
+});
+
+describe("normalizeSettings — formerly hard-coded values", () => {
+	test("defaults equal the old constants", () => {
+		const s = normalizeSettings({});
+		expect([s.autoSyncCheckSeconds, s.ownWriteGraceMs, s.changeLogPageSize, s.yieldEveryNotes, s.nameContainmentScore]).toEqual([30, 1500, 1000, 200, 0.9]);
+		expect(s.retryableStatusCodes).toEqual([408, 429, 500, 502, 503, 504]);
+		expect(s.dryRunLogPrefix).toBe("[Dry-run] ");
+		expect(s.changeLogAvatarSize).toBe("50");
+		expect(s.adoptUnlinkedNotesByName && s.showSuccessNotices && s.showQueueNotices).toBe(true);
+	});
+	test("invalid input is normalized", () => {
+		const s = normalizeSettings({
+			autoSyncCheckSeconds: 0,
+			changeLogPageSize: 99999,
+			nameContainmentScore: 7,
+			retryableStatusCodes: [418, 418, 42, "x", 503.5] as unknown as number[],
+			changeLogAvatarSize: "huge" as never,
+			linkReportHeading: "no hash",
+			orphanCardGroupPrefix: "## X ",
+		});
+		expect(s.autoSyncCheckSeconds).toBe(1);
+		expect(s.changeLogPageSize).toBe(1000);
+		expect(s.nameContainmentScore).toBe(1);
+		expect(s.retryableStatusCodes).toEqual([418]);
+		expect(s.changeLogAvatarSize).toBe("50");
+		expect(s.linkReportHeading).toBe("# 📊 Trello Link Report");
+		expect(s.orphanCardGroupPrefix).toBe("## X ");
 	});
 });

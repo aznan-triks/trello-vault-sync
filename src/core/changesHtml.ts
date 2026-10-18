@@ -9,6 +9,8 @@ export interface ChangesHtmlEntry extends AuditEntry {
 export interface ChangesHtmlInput {
 	timestamp: string;
 	entries: readonly ChangesHtmlEntry[];
+	/** The user's own CSS, appended after the built-in style. */
+	extraCss?: string;
 }
 
 /** Escapes text for safe use inside HTML content and double-quoted attributes — card names/details/author names are untrusted Trello data. */
@@ -50,6 +52,8 @@ const STYLE = `
 
 /** Self-contained HTML page of the Trello change log, avatars embedded as data urls — works offline, one file. */
 export function buildChangesHtml(input: ChangesHtmlInput): string {
+	// The user's CSS must not be able to close the style element and inject markup.
+	const extraCss = input.extraCss ? "\n" + input.extraCss.replace(/<\/style/gi, "<\\/style") : "";
 	const body: string[] = [`<h1>🕘 Trello Change Log</h1>`, `<p class="tvs-meta">${escapeHtml(input.timestamp)} · times in UTC</p>`];
 
 	if (input.entries.length === 0) {
@@ -77,7 +81,7 @@ export function buildChangesHtml(input: ChangesHtmlInput): string {
 		"<head>",
 		'<meta charset="utf-8">',
 		"<title>Trello Change Log</title>",
-		`<style>${STYLE}</style>`,
+		`<style>${STYLE}${extraCss}</style>`,
 		"</head>",
 		"<body>",
 		...body,

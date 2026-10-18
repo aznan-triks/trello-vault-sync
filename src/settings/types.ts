@@ -24,6 +24,12 @@ import {
 	type OnCardDeleted,
 	type OnCardMoved,
 } from "../core/cardFate";
+import { DEFAULT_ACTIONS_PAGE_LIMIT, DEFAULT_RETRYABLE_STATUS_CODES } from "../trello/client";
+import { DEFAULT_YIELD_EVERY } from "../core/asyncUtil";
+import { DEFAULT_REPORT_LABELS } from "../core/auditReport";
+import { DEFAULT_CONTAINMENT_SCORE } from "../core/similarity";
+import { DEFAULT_DRY_RUN_PREFIX } from "../core/journal";
+import { DEFAULT_MAX_BASENAME_LENGTH } from "../core/fileName";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import { DEFAULT_CUSTOM_FIELDS_KEY, DEFAULT_SYNC_CUSTOM_FIELDS } from "../core/customFieldRef";
 import { DEFAULT_MEMBERS_KEY, DEFAULT_SYNC_MEMBERS } from "../core/memberRef";
@@ -38,6 +44,9 @@ import type { ConflictPolicy } from "../core/syncDecision";
 import type { FolderMapping } from "../features/syncFolder";
 
 export type { CoverLocalFormat, OrphanCardScope, PhantomNoteScope };
+
+export type ChangeLogAvatarSize = "30" | "50" | "170" | "original";
+export const CHANGE_LOG_AVATAR_SIZES: readonly ChangeLogAvatarSize[] = ["30", "50", "170", "original"];
 
 export interface TrelloVaultSyncSettings {
 	/** The single Trello credential pair used by every command. */
@@ -159,6 +168,37 @@ export interface TrelloVaultSyncSettings {
 	historyMaxRuns: number;
 	/** Longest note file name (without ".md") created from a card title; longer titles are cut. */
 	noteNameMaxLength: number;
+	/** Seconds between two auto-sync checks. The interval setting decides when a check actually syncs. */
+	autoSyncCheckSeconds: number;
+	/** Milliseconds after a sync during which note edits count as the sync's own writes. */
+	ownWriteGraceMs: number;
+	/** HTTP statuses a request is retried on. */
+	retryableStatusCodes: number[];
+	/** Actions asked per Trello call by the change log (1-1000, Trello's own maximum). */
+	changeLogPageSize: number;
+	/** Notes scanned between two pauses that let Obsidian repaint. */
+	yieldEveryNotes: number;
+	/** Score given to a note title that appears whole inside a card title (or the reverse) when linking by name. */
+	nameContainmentScore: number;
+	/** Text put before every journal line of a dry run. Empty = no prefix. */
+	dryRunLogPrefix: string;
+	/** Avatar size of the HTML change log: Trello serves 30, 50, 170 or the original. */
+	changeLogAvatarSize: ChangeLogAvatarSize;
+	/** CSS appended to the HTML change log's built-in style. */
+	changeLogHtmlExtraCss: string;
+	/** Headings and group prefixes of the three audit reports. A prefix must start with `#`. */
+	linkReportHeading: string;
+	locationReportHeading: string;
+	changesReportHeading: string;
+	orphanCardGroupPrefix: string;
+	phantomNoteGroupPrefix: string;
+	unlinkedNoteGroupPrefix: string;
+	/** An unlinked note named exactly like a card is adopted by that card during a folder sync. */
+	adoptUnlinkedNotesByName: boolean;
+	/** Shows a notice when an operation finishes well (errors are always shown). */
+	showSuccessNotices: boolean;
+	/** Shows a notice when an operation is queued behind others or already running. */
+	showQueueNotices: boolean;
 	/** Lines kept in the progress panel and the sidebar journal before the oldest is dropped. */
 	logMaxRows: number;
 	/** How many operations (syncs, audits, creations…) may run at the same time; one more waits for a free slot. 1 = one at a time. */
@@ -302,7 +342,25 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	checklistHeading: DEFAULT_CHECKLIST_HEADING,
 	historyEnabled: true,
 	historyMaxRuns: 20,
-	noteNameMaxLength: 120,
+	noteNameMaxLength: DEFAULT_MAX_BASENAME_LENGTH,
+	autoSyncCheckSeconds: 30,
+	ownWriteGraceMs: 1500,
+	retryableStatusCodes: [...DEFAULT_RETRYABLE_STATUS_CODES],
+	changeLogPageSize: DEFAULT_ACTIONS_PAGE_LIMIT,
+	yieldEveryNotes: DEFAULT_YIELD_EVERY,
+	nameContainmentScore: DEFAULT_CONTAINMENT_SCORE,
+	dryRunLogPrefix: DEFAULT_DRY_RUN_PREFIX,
+	changeLogAvatarSize: "50",
+	changeLogHtmlExtraCss: "",
+	linkReportHeading: DEFAULT_REPORT_LABELS.linkHeading,
+	locationReportHeading: DEFAULT_REPORT_LABELS.locationHeading,
+	changesReportHeading: DEFAULT_REPORT_LABELS.changesHeading,
+	orphanCardGroupPrefix: DEFAULT_REPORT_LABELS.orphanCardPrefix,
+	phantomNoteGroupPrefix: DEFAULT_REPORT_LABELS.phantomNotePrefix,
+	unlinkedNoteGroupPrefix: DEFAULT_REPORT_LABELS.unlinkedNotePrefix,
+	adoptUnlinkedNotesByName: true,
+	showSuccessNotices: true,
+	showQueueNotices: true,
 	logMaxRows: 60,
 	maxConcurrentOperations: 3,
 	historyRevertTrelloWrites: true,
@@ -346,36 +404,17 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	customFieldsFrontmatterKey: DEFAULT_CUSTOM_FIELDS_KEY,
 };
 
-/** Highest interval, in minutes, `autoSyncIntervalMinutes` will accept before clamping. */
-export const AUTO_SYNC_INTERVAL_MINUTES_CEILING = 1440;
-/** Highest anti-burst floor, in seconds, `autoSyncMinIdleSeconds` will accept before clamping. */
-export const AUTO_SYNC_MIN_IDLE_SECONDS_CEILING = 3600;
-/** Highest `autoSyncPauseAfterFailures` accepted (0 = never pause). */
-export const AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING = 50;
 /** Bounds for `autoSyncNoteChangeDelaySeconds` — under 2 s every keystroke pause would hit Trello. */
 export const AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR = 2;
-export const AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING = 600;
 
-/** Highest number of runs `historyMaxRuns` will accept before clamping — a corrupted setting must not turn into an unbounded `data.json`. */
-export const HISTORY_MAX_RUNS_CEILING = 1000;
-/** Bounds for `noteNameMaxLength` — below the floor names become unreadable, above the ceiling Windows' 260-char path limit bites. */
+/** Bounds for `noteNameMaxLength` — below the floor names become unreadable, 255 is the file-name limit of common file systems. */
 export const NOTE_NAME_MAX_LENGTH_FLOOR = 20;
-export const NOTE_NAME_MAX_LENGTH_CEILING = 200;
+export const NOTE_NAME_MAX_LENGTH_CEILING = 255;
 /** Bounds for `logMaxRows` — the journal is persisted in data.json, so it must stay bounded. */
 export const LOG_MAX_ROWS_FLOOR = 10;
-export const LOG_MAX_ROWS_CEILING = 2000;
 /** Bounds for `maxConcurrentOperations` — the floor is "one at a time"; the ceiling keeps a typo from flooding Trello with parallel requests. */
 export const MAX_CONCURRENT_OPERATIONS_FLOOR = 1;
-export const MAX_CONCURRENT_OPERATIONS_CEILING = 10;
 
-/** Highest retry count normalizeSettings will accept before clamping. */
-export const MAX_RETRIES_CEILING = 10;
-/** Highest backoff delay, in ms, normalizeSettings will accept before clamping. */
-export const BASE_DELAY_MS_CEILING = 60_000;
-/** Highest per-request timeout, in ms, normalizeSettings will accept before clamping. */
-export const REQUEST_TIMEOUT_MS_CEILING = 120_000;
-/** Highest retry-wait ceiling, in ms, normalizeSettings will accept before clamping. */
-export const MAX_BACKOFF_DELAY_MS_CEILING = 300_000;
 /** A similarity score never exceeds 1 (100% match). */
 const SIMILARITY_THRESHOLD_CEILING = 1;
 
@@ -388,6 +427,17 @@ export function safeNonNegativeNumber(value: unknown, fallback: number, ceiling?
 	const usable = typeof value === "number" && Number.isFinite(value) ? value : fallback;
 	const nonNegative = Math.max(0, usable);
 	return ceiling === undefined ? nonNegative : Math.min(nonNegative, ceiling);
+}
+
+/** HTTP status codes (100-599, whole numbers, no duplicates) from a persisted list; the defaults when it is not a list. */
+function normalizeStatusCodes(value: unknown): number[] {
+	if (!Array.isArray(value)) return [...DEFAULT_RETRYABLE_STATUS_CODES];
+	return [...new Set(value.filter((code): code is number => Number.isInteger(code) && code >= 100 && code <= 599))];
+}
+
+/** A report heading or group prefix: must start with `#` (the parser ends a group at the next `#` line), else `fallback`. */
+function safeHeading(value: unknown, fallback: string): string {
+	return typeof value === "string" && value.trimStart().startsWith("#") ? value : fallback;
 }
 
 /** A string, or `fallback` when the raw value is not a string. */
@@ -508,22 +558,18 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		maxRetries: safeNonNegativeNumber(
 			input.maxRetries,
 			DEFAULT_SETTINGS.maxRetries,
-			MAX_RETRIES_CEILING,
 		),
 		baseDelayMs: safeNonNegativeNumber(
 			input.baseDelayMs,
 			DEFAULT_SETTINGS.baseDelayMs,
-			BASE_DELAY_MS_CEILING,
 		),
 		requestTimeoutMs: safeNonNegativeNumber(
 			input.requestTimeoutMs,
 			DEFAULT_SETTINGS.requestTimeoutMs,
-			REQUEST_TIMEOUT_MS_CEILING,
 		),
 		maxBackoffDelayMs: safeNonNegativeNumber(
 			input.maxBackoffDelayMs,
 			DEFAULT_SETTINGS.maxBackoffDelayMs,
-			MAX_BACKOFF_DELAY_MS_CEILING,
 		),
 		panelAutoCloseSeconds: safeNonNegativeNumber(
 			input.panelAutoCloseSeconds,
@@ -539,15 +585,37 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		historyMaxRuns: safeNonNegativeNumber(
 			input.historyMaxRuns,
 			DEFAULT_SETTINGS.historyMaxRuns,
-			HISTORY_MAX_RUNS_CEILING,
 		),
+		autoSyncCheckSeconds: Math.max(1, Math.round(safeNonNegativeNumber(input.autoSyncCheckSeconds, DEFAULT_SETTINGS.autoSyncCheckSeconds))),
+		ownWriteGraceMs: safeNonNegativeNumber(input.ownWriteGraceMs, DEFAULT_SETTINGS.ownWriteGraceMs),
+		retryableStatusCodes: normalizeStatusCodes(input.retryableStatusCodes),
+		changeLogPageSize: Math.min(
+			DEFAULT_ACTIONS_PAGE_LIMIT,
+			Math.max(1, Math.round(safeNonNegativeNumber(input.changeLogPageSize, DEFAULT_SETTINGS.changeLogPageSize))),
+		),
+		yieldEveryNotes: Math.max(1, Math.round(safeNonNegativeNumber(input.yieldEveryNotes, DEFAULT_SETTINGS.yieldEveryNotes))),
+		nameContainmentScore: safeNonNegativeNumber(input.nameContainmentScore, DEFAULT_SETTINGS.nameContainmentScore, 1),
+		dryRunLogPrefix: safeString(input.dryRunLogPrefix, DEFAULT_SETTINGS.dryRunLogPrefix),
+		changeLogAvatarSize: CHANGE_LOG_AVATAR_SIZES.includes(input.changeLogAvatarSize as ChangeLogAvatarSize)
+			? (input.changeLogAvatarSize as ChangeLogAvatarSize)
+			: DEFAULT_SETTINGS.changeLogAvatarSize,
+		changeLogHtmlExtraCss: safeString(input.changeLogHtmlExtraCss),
+		linkReportHeading: safeHeading(input.linkReportHeading, DEFAULT_SETTINGS.linkReportHeading),
+		locationReportHeading: safeHeading(input.locationReportHeading, DEFAULT_SETTINGS.locationReportHeading),
+		changesReportHeading: safeHeading(input.changesReportHeading, DEFAULT_SETTINGS.changesReportHeading),
+		orphanCardGroupPrefix: safeHeading(input.orphanCardGroupPrefix, DEFAULT_SETTINGS.orphanCardGroupPrefix),
+		phantomNoteGroupPrefix: safeHeading(input.phantomNoteGroupPrefix, DEFAULT_SETTINGS.phantomNoteGroupPrefix),
+		unlinkedNoteGroupPrefix: safeHeading(input.unlinkedNoteGroupPrefix, DEFAULT_SETTINGS.unlinkedNoteGroupPrefix),
+		adoptUnlinkedNotesByName: input.adoptUnlinkedNotesByName !== false,
+		showSuccessNotices: input.showSuccessNotices !== false,
+		showQueueNotices: input.showQueueNotices !== false,
 		noteNameMaxLength: Math.max(
 			NOTE_NAME_MAX_LENGTH_FLOOR,
 			Math.round(safeNonNegativeNumber(input.noteNameMaxLength, DEFAULT_SETTINGS.noteNameMaxLength, NOTE_NAME_MAX_LENGTH_CEILING)),
 		),
 		logMaxRows: Math.max(
 			LOG_MAX_ROWS_FLOOR,
-			Math.round(safeNonNegativeNumber(input.logMaxRows, DEFAULT_SETTINGS.logMaxRows, LOG_MAX_ROWS_CEILING)),
+			Math.round(safeNonNegativeNumber(input.logMaxRows, DEFAULT_SETTINGS.logMaxRows)),
 		),
 		maxConcurrentOperations: Math.max(
 			MAX_CONCURRENT_OPERATIONS_FLOOR,
@@ -555,7 +623,6 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 				safeNonNegativeNumber(
 					input.maxConcurrentOperations,
 					DEFAULT_SETTINGS.maxConcurrentOperations,
-					MAX_CONCURRENT_OPERATIONS_CEILING,
 				),
 			),
 		),
@@ -617,18 +684,15 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		autoSyncIntervalMinutes: safeNonNegativeNumber(
 			input.autoSyncIntervalMinutes,
 			DEFAULT_SETTINGS.autoSyncIntervalMinutes,
-			AUTO_SYNC_INTERVAL_MINUTES_CEILING,
 		),
 		autoSyncMinIdleSeconds: safeNonNegativeNumber(
 			input.autoSyncMinIdleSeconds,
 			DEFAULT_SETTINGS.autoSyncMinIdleSeconds,
-			AUTO_SYNC_MIN_IDLE_SECONDS_CEILING,
 		),
 		autoSyncPauseAfterFailures: Math.round(
 			safeNonNegativeNumber(
 				input.autoSyncPauseAfterFailures,
 				DEFAULT_SETTINGS.autoSyncPauseAfterFailures,
-				AUTO_SYNC_PAUSE_AFTER_FAILURES_CEILING,
 			),
 		),
 		autoSyncNoteChangeDelaySeconds: Math.max(
@@ -636,7 +700,6 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			safeNonNegativeNumber(
 				input.autoSyncNoteChangeDelaySeconds,
 				DEFAULT_SETTINGS.autoSyncNoteChangeDelaySeconds,
-				AUTO_SYNC_NOTE_CHANGE_DELAY_CEILING,
 			),
 		),
 		membersFrontmatterKey: safeFrontmatterKey(input.membersFrontmatterKey, DEFAULT_SETTINGS.membersFrontmatterKey),

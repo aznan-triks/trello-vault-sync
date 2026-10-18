@@ -505,3 +505,23 @@ describe("TrelloClient secret leaks", () => {
 		expect(error.message).toContain("«masked»");
 	});
 });
+
+describe("TrelloClient — configurable retry statuses and page size", () => {
+	test("retries only the configured statuses", async () => {
+		const { transport, calls } = stubTransport([{ status: 418, text: "teapot" }, ok({ id: "c1" })]);
+		const api = new TrelloClient(CREDENTIALS, transport, { maxRetries: 2, sleep: async () => {}, retryableStatusCodes: [418] });
+		await api.getCard("c1");
+		expect(calls).toHaveLength(2);
+
+		const second = stubTransport([{ status: 503, text: "x" }, ok({ id: "c1" })]);
+		const strict = new TrelloClient(CREDENTIALS, second.transport, { maxRetries: 2, sleep: async () => {}, retryableStatusCodes: [418] });
+		await expect(strict.getCard("c1")).rejects.toBeInstanceOf(TrelloError);
+		expect(second.calls).toHaveLength(1);
+	});
+
+	test("getActions asks for the configured page size", async () => {
+		const { transport, calls } = stubTransport([ok([])]);
+		await new TrelloClient(CREDENTIALS, transport, { actionsPageLimit: 250 }).getActions("b1");
+		expect(calls[0]?.url).toContain("limit=250");
+	});
+});

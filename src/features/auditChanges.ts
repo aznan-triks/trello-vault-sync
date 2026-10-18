@@ -1,6 +1,6 @@
 import { yieldPeriodically } from "../core/asyncUtil";
 import { describeAction, type AuditEntry } from "../core/auditAction";
-import { CHANGES_REPORT_HEADING, buildChangesReport, mergeReport } from "../core/auditReport";
+import { DEFAULT_REPORT_LABELS, buildChangesReport, type ReportLabels, mergeReport } from "../core/auditReport";
 import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { requireReportNote } from "./auditShared";
@@ -18,6 +18,8 @@ export interface ChangesAuditOptions {
 	since: string;
 	/** Create the report note when missing instead of throwing. */
 	autoCreateReportNote?: boolean;
+	/** Report headings (Settings -> Audit output); absent = the built-in ones. */
+	reportLabels?: ReportLabels;
 }
 
 export interface ChangesAuditResult {
@@ -52,9 +54,9 @@ export async function auditChanges(
 		await yieldPeriodically(i);
 	}
 
-	const markdown = buildChangesReport({ timestamp: options.timestamp, entries });
+	const markdown = buildChangesReport({ timestamp: options.timestamp, entries, labels: options.reportLabels });
 	const existing = await vault.read(reportNote);
-	await vault.write(reportNote, mergeReport(existing, markdown, CHANGES_REPORT_HEADING));
+	await vault.write(reportNote, mergeReport(existing, markdown, (options.reportLabels ?? DEFAULT_REPORT_LABELS).changesHeading));
 
 	return { entries: entries.length, cursor: actions[0]?.id ?? null, markdown };
 }
