@@ -5,7 +5,7 @@ Two-way Trello synchronization, an interactive card sidebar, link auditing, and 
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A51.7.2-7c3aed)
 
-Keep your Obsidian notes and Trello cards perfectly aligned. View and edit cards directly in Obsidian's sidebar, synchronize notes individually or across entire project folders, and rest easy with zero-data-loss safety guarantees, visual conflict resolution, and 100% undoable history.
+A linked note and its Trello card stay in step, in both directions. Read and edit the card in Obsidian's sidebar, sync one note or a whole folder, compare both sides when they diverge, and undo the last run.
 
 ![Trello Card View in Obsidian](docs/media/card-view-preview.svg)
 
@@ -13,7 +13,7 @@ Keep your Obsidian notes and Trello cards perfectly aligned. View and edit cards
 
 ## First 10 minutes
 
-Get up and running in 6 simple steps. **Default settings work out of the box** — you don't need to tweak complex configurations to start syncing.
+Get up and running in five steps. **Default settings work out of the box** — you don't need to tweak complex configurations to start syncing.
 
 1. **Install the plugin**: In Obsidian, open **Settings → Community plugins → Browse**, search for **"Trello Vault Sync"**, install and enable it.
 2. **Connect your Trello board**:
@@ -23,22 +23,23 @@ Get up and running in 6 simple steps. **Default settings work out of the box** �
    - In Obsidian, open **Settings → Trello Vault Sync**, paste your Key and Token, then type your board's name in the **Board id** search field. Click **"Test connection"** to confirm access.
 3. **Link your first note**: Open any note in your vault, open the command palette (`Ctrl+P` or `Cmd+P`), and run **"Link this note to a card I choose"** (or **"Link this note to the card with the same name"** for automatic title matching).
 4. **Run your first sync**: Run **"Sync this note with its card"**. The newest edit automatically updates the other side. *(Tip: Turn on Dry run in the sidebar anytime you want to preview a sync with zero writes).*
+   <!-- PENDING media: replace this comment with ![Step 4](docs/media/step-4-first-sync.gif) once recorded, max 1 MB. -->
 5. **Open the Card View**: Run **"Open the card view"** to open the interactive side panel in Obsidian's right sidebar. You can inspect card covers, toggle checklist items, adjust due dates, add comments, or edit descriptions live.
-6. **(Optional) Sync entire folders**: Under **Settings → Trello list ↔ folder**, pair any vault folder with a Trello list to reconcile all project notes in one click with **"Sync one folder with its list"**.
+   <!-- PENDING media: reuse docs/media/README.md scenario 1, then replace this comment with ![Step 5](docs/media/card-view-demo.gif). -->
+
+Once one note syncs cleanly: **Settings → Mappings → Trello list ↔ folder** pairs a folder with a list, and **"Sync one folder with its list"** reconciles every note in it in one pass.
 
 ---
 
-## The 5 commands you need to know
+## The 5 commands to know
 
-While Trello Vault Sync includes over 30 commands for specialized batch, audit, and recovery operations, everyday work only relies on these five:
+Five commands cover everyday work. The other thirty-odd — vault-wide sweeps, link audits, batch creation, recovery — are in the reference below and in the sidebar.
 
 1. **Open the card view** — Open the interactive sidebar panel showing the open note's Trello card.
 2. **Sync this note with its card** — Reconcile the active note with its card (newest timestamp wins).
-3. **Link this note to a card I choose** — Search your Trello board by name and link the selected card to your note.
+3. **Link this note to the card with the same name** — Match by title; use **"Link this note to a card I choose"** when the title doesn't match.
 4. **Sync one folder with its list** — Reconcile all notes in a folder with their corresponding Trello list in a single pass.
 5. **Undo the last sync** — Revert every write made by the most recent sync run with one click.
-
-*All other commands (vault-wide sweeps, orphan link audits, batch note/card creation, and change-log exports) remain available in the command palette and sidebar when you need advanced workflows.*
 
 ---
 
@@ -57,7 +58,7 @@ While Trello Vault Sync includes over 30 commands for specialized batch, audit, 
 
 Syncing between two systems shouldn't risk your notes. Trello Vault Sync is built with strict safety invariants:
 
-- **100% Undoable History**: Every sync run (active note, folder, or vault-wide) is recorded. The **"Undo the last sync"** command can revert vault writes and matching Trello writes.
+- **Undoable history**: Every sync run (active note, folder, or vault-wide) is recorded, up to the retention limit set in **Sync history**. The **"Undo the last sync"** command can revert vault writes and matching Trello writes.
 - **Visual Conflict Arbitration**: If both a note and its card changed since the last sync, the plugin flags a conflict and opens a side-by-side comparison modal so you can inspect differences and choose the winner.
 - **Timestamp Preservation (`mtime`)**: Note cleanups and non-content metadata updates preserve the file's original modification date, preventing false sync loops or accidental overwrites.
 - **Non-Destructive Trashing**: The plugin never permanently deletes local notes; deleted notes are always moved safely to Obsidian's configured Trash (`.trash` or system trash).
@@ -65,9 +66,10 @@ Syncing between two systems shouldn't risk your notes. Trello Vault Sync is buil
 
 ---
 
-## Features & Command Reference
+## Command reference
 
-Every command below is available both from the right sidebar panel and the command palette.
+You do not need this section to start — it is here when you want a specific operation.
+Every command below is in both the right sidebar panel and the command palette.
 
 ### Active note
 
@@ -141,7 +143,8 @@ Every command below is available both from the right sidebar panel and the comma
 
 ## Configuration
 
-Everything lives in the plugin settings — **never in a vault note**. Section names match the settings tab exactly:
+Nothing here has to be changed to sync a note. All of it lives in the plugin's own
+panel, never in a vault note; each heading below matches a section of the settings tab:
 
 - **Trello connection** — API key and token (stored in the plugin's own `data.json`), board id with a name-search picker, and "Test connection".
 - **Scope** — synced folder for vault-wide commands (empty = whole vault), and excluded folders.
