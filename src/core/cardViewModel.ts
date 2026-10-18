@@ -30,6 +30,22 @@ export const ALL_CARD_VIEW_SECTIONS: readonly CardViewSection[] = [
 
 export type CardViewSections = Record<CardViewSection, boolean>;
 
+/** Section names as the settings and the per-card dialog show them. */
+export const CARD_VIEW_SECTION_LABELS: Record<CardViewSection, string> = {
+	cover: "Cover image",
+	title: "Title",
+	list: "List",
+	due: "Due date",
+	labels: "Labels",
+	members: "Members",
+	description: "Description",
+	checklists: "Checklists",
+	attachments: "Attachments",
+	customFields: "Custom fields",
+	comments: "Comments",
+};
+
+
 /** What the view can change on the card. `archive` is the header button. */
 export type CardViewEditableField =
 	| "title"
@@ -188,6 +204,28 @@ export function visibleSections(
 	perCard: Partial<CardViewSections> | undefined,
 ): CardViewSection[] {
 	return order.filter((section) => perCard?.[section] ?? global[section]);
+}
+
+export type SectionOverride = "default" | "show" | "hide";
+
+/** The card's override for one section: absent from `perCard` means "default". */
+export function sectionOverride(perCard: Record<string, Partial<CardViewSections>>, cardId: string, section: CardViewSection): SectionOverride {
+	const value = perCard[cardId]?.[section];
+	return value === undefined ? "default" : value ? "show" : "hide";
+}
+
+/** Sets one section's override for a card in place; a card left with no override loses its entry. */
+export function setSectionOverride(
+	perCard: Record<string, Partial<CardViewSections>>,
+	cardId: string,
+	section: CardViewSection,
+	state: SectionOverride,
+): void {
+	const entry = { ...perCard[cardId] };
+	if (state === "default") delete entry[section];
+	else entry[section] = state === "show";
+	if (Object.keys(entry).length === 0) Reflect.deleteProperty(perCard, cardId);
+	else perCard[cardId] = entry;
 }
 
 export function checklistProgress(checklist: { checkItems: { state: string }[] }): { done: number; total: number } {
