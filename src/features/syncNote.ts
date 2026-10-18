@@ -43,20 +43,25 @@ import {
 	resolveMemberNames,
 } from "../core/memberRef";
 import { extractBody, insertChecklistSection, replaceBody, splitChecklistSection } from "../core/noteBody";
+import type { CardFateRules } from "../core/cardFate";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
 import type { TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/syncHistory";
 import { buildCardIndex, resolveAttachments } from "./attachmentSync";
 import { downloadAttachments } from "./attachmentDownload";
 import { resolveChecklists } from "./checklistSync";
 import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
-import type {
-	CardIncludes,
-	TrelloCard,
-	TrelloChecklist,
-	TrelloClient,
-	TrelloCustomFieldDefinition,
-	TrelloLabel,
-	TrelloMember,
+import { applyNoteFate, isUnderAny } from "./noteFate";
+import { decideNoteFate, type CardChange } from "../core/cardFate";
+import { NO_CARD_REASON } from "../core/syncTally";
+import {
+	TrelloError,
+	type CardIncludes,
+	type TrelloCard,
+	type TrelloChecklist,
+	type TrelloClient,
+	type TrelloCustomFieldDefinition,
+	type TrelloLabel,
+	type TrelloMember,
 } from "../trello/client";
 
 export interface NoteSyncOptions {
@@ -152,6 +157,16 @@ export interface NoteSyncOptions {
 	 * no locking, exactly as before.
 	 */
 	guard?: OperationGuard;
+	/** What to do with a note whose card was archived or deleted. Absent: the note is left alone, as before the rules existed. */
+	cardFate?: CardFateRules;
+	/** Every frontmatter key an "unlink" removes — see `core/trelloProperties.ts`. */
+	trelloPropertyKeys?: readonly string[];
+	/** List id → folder it is mapped to; where a note follows its card when the card changes list. */
+	mappedFolderByListId?: ReadonlyMap<string, string>;
+	/** Folders whose notes must never be trashed, whatever the global choice ("Never trash notes in this folder"). */
+	trashBlockedFolders?: string[];
+	/** A card taken out of the archive brings its note back from the archive folder into its list's folder. */
+	archiveRestoreOnUnarchive?: boolean;
 }
 
 /**
@@ -939,6 +954,31 @@ async function syncNoteWithCardUnguarded(
 	return { direction, renamed: false, note, reason: decision.reason };
 }
 
+/**
+ * Applies the "card archived / deleted" rule to the open note instead of syncing it.
+ * Reported as `direction: "unlinked"` with the reason, so the caller can tell the user what was done.
+ */
+async function noteWithGoneCard(
+	vault: VaultGateway & CardRefStore,
+	note: NoteHandle,
+	change: CardChange,
+	options: NoteSyncOptions,
+): Promise<NoteSyncResult> {
+	const rules = options.cardFate;
+	if (!rules) return { direction: "skip", renamed: false, note, reason: `card ${change}` };
+	const fate = decideNoteFate(change, rules, {
+		mappedFolderOfNewList: null,
+		trashAllowed: !isUnderAny(note, options.trashBlockedFolders ?? []),
+	});
+	const outcome = await applyNoteFate(vault, note, fate, {
+		change,
+		propertyKeys: options.trelloPropertyKeys ?? [],
+		dryRun: options.dryRun,
+		reporter: { log: () => {} }, // the caller reports `reason`
+	});
+	return { direction: "unlinked", renamed: false, note: outcome.note, reason: outcome.message };
+}
+
 /** Sync one note, fetching its card first. */
 export async function syncNote(
 	vault: VaultGateway & CardRefStore,
@@ -955,8 +995,17 @@ export async function syncNote(
 	}
 	const ref = vault.getCardRef(note);
 	if (!ref) {
-		return { direction: "unlinked", renamed: false, note, reason: "no card id" };
+		return { direction: "unlinked", renamed: false, note, reason: NO_CARD_REASON };
 	}
-	const card = await client.getCard(ref.cardId, signal, cardIncludesFor(options));
+	let card: TrelloCard;
+	try {
+		card = await client.getCard(ref.cardId, signal, cardIncludesFor(options));
+	} catch (error) {
+		if (options.cardFate && error instanceof TrelloError && error.status === 404) {
+			return noteWithGoneCard(vault, note, "deleted", options);
+		}
+		throw error;
+	}
+	if (card.closed === true && options.cardFate) return noteWithGoneCard(vault, note, "archived", options);
 	return syncNoteWithCard(vault, client, note, card, options, undefined, undefined, undefined, signal);
 }

@@ -2202,3 +2202,70 @@ describe("syncNoteWithCard with a guard (operations running at the same time)", 
 		expect(vault.paths().filter((p) => p.startsWith("WoT/85_Idées/Sagondo"))).toEqual(["WoT/85_Idées/Sagondo v2.md"]);
 	});
 });
+
+describe("syncNote — the card is archived or deleted", () => {
+	const fate = {
+		cardFate: { onCardMoved: "move-note", onCardArchived: "unlink", onCardDeleted: "unlink", archiveFolder: "Archive" },
+		trelloPropertyKeys: ["trello_board_card_id", "trello_due"],
+	} as const;
+
+	test("an archived card: the Trello properties are removed instead of syncing", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "corps", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({ "/cards/c1": card({ id: "c1", closed: true }) });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+
+		const result = await syncNote(vault, client, vault.note(PATH), { ...options, ...fate });
+
+		expect(result.direction).toBe("unlinked");
+		expect(result.reason).toContain("Card archived");
+		expect(vault.getCardRef(vault.note(PATH))).toBeNull();
+		expect(vault.contentOf(PATH)).toContain("corps");
+	});
+
+	test("a deleted card (404) goes through the deleted rule", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "corps", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+
+		const result = await syncNote(vault, client, vault.note(PATH), { ...options, ...fate, cardFate: { ...fate.cardFate, onCardDeleted: "keep" } });
+
+		expect(result.direction).toBe("unlinked");
+		expect(result.reason).toContain("Card deleted");
+		expect(vault.getCardRef(vault.note(PATH))?.cardId).toBe("c1");
+	});
+
+	test("archive-folder moves the note and returns its new handle", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "corps", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({ "/cards/c1": card({ id: "c1", closed: true }) });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+
+		const result = await syncNote(vault, client, vault.note(PATH), {
+			...options,
+			...fate,
+			cardFate: { ...fate.cardFate, onCardArchived: "archive-folder" },
+		});
+
+		expect(result.note.path).toBe("Archive/Sagondo.md");
+		expect(vault.paths()).toEqual(["Archive/Sagondo.md"]);
+	});
+
+	test("dry-run reports without writing", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "corps", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({ "/cards/c1": card({ id: "c1", closed: true }) });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+
+		await syncNote(vault, client, vault.note(PATH), { ...options, ...fate, dryRun: true });
+
+		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "corps");
+	});
+
+	test("without rules an archived card keeps syncing like any other", async () => {
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "old", mtime: at("2026-01-01") } });
+		const { transport } = routedTransport({ "/cards/c1": card({ id: "c1", name: "Sagondo", desc: "new", closed: true, dateLastActivity: "2026-02-01" }) });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+
+		const result = await syncNote(vault, client, vault.note(PATH), options);
+
+		expect(result.direction).toBe("pull");
+	});
+});

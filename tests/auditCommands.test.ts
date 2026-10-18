@@ -13,7 +13,7 @@ import { openLinkReport, runChangesHtmlExport } from "../src/commands/auditComma
 import type { CommandContext } from "../src/commands/context";
 import { silentReporter } from "../src/obsidian/gateway";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
-import { FakeVault, clientFor } from "./fakes";
+import { FakeVault, clientFor, FATE_OPTIONS } from "./fakes";
 
 /** Just enough of `CommandContext` for `runChangesHtmlExport` to run — `run()` invokes the body directly, no panel. */
 function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
@@ -41,8 +41,7 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 			syncTitle: true,
 			dryRun: false,
 			allowCreate: true,
-			allowDelete: false,
-			protectMovedOrArchivedCards: false,
+			...FATE_OPTIONS,
 			boardId: "board",
 		}),
 		auditOptions: () => ({ scope: "", boardId: "board", reportPath: "", timestamp: "t", excludedFolders: [] }),

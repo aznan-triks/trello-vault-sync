@@ -1,8 +1,9 @@
 import { errorMessage } from "../core/errorMessage";
 import { tallyNoteResult } from "../core/syncTally";
-import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } from "../obsidian/gateway";
+import { silentReporter, type CardRefStore, type NoteHandle, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
+import { handleGoneNotes, isUnderAny, moveNoteToFolder, type GoneNote } from "./noteFate";
 import {
 	buildCustomFieldDefinitions,
 	buildMemberDirectory,
@@ -25,8 +26,16 @@ export interface VaultSyncStats {
 	skipped: number;
 	renamed: number;
 	conflicts: number;
-	/** Notes pointing at a card the board no longer holds. */
+	/** Notes pointing at a card the board no longer holds (archived, deleted, or on another board). */
 	phantoms: number;
+	/** Notes whose card is on another board and was left alone. */
+	moved: number;
+	/** Notes moved to the trash because their card was archived or deleted. */
+	deleted: number;
+	/** Notes whose Trello properties were removed because their card was archived or deleted. */
+	detached: number;
+	/** Notes filed into another folder (archive folder, or back out of it). */
+	relocated: number;
 	/** Notes with no usable card id — never touched. */
 	unlinked: number;
 	errors: number;
@@ -53,6 +62,10 @@ export async function syncVault(
 		renamed: 0,
 		conflicts: 0,
 		phantoms: 0,
+		moved: 0,
+		deleted: 0,
+		detached: 0,
+		relocated: 0,
 		unlinked: 0,
 		errors: 0,
 	};
@@ -81,17 +94,21 @@ export async function syncVault(
 			? undefined
 			: buildCustomFieldDefinitions(await client.getBoardCustomFields(target.boardId, signal));
 
-	for (const { note, ref } of linked) {
+	const gone: GoneNote[] = [];
+	for (const { note: listed, ref } of linked) {
 		if (signal?.aborted) break;
-		reporter.step(note.basename);
+		reporter.step(listed.basename);
+		let note = listed;
 		const card = byId.get(ref.cardId);
 		if (!card) {
 			stats.phantoms++;
 			reporter.log("warn", `Card not found: ${note.basename}`);
+			gone.push({ note, cardId: ref.cardId });
 			continue;
 		}
 
 		try {
+			note = await restoreFromArchive(vault, note, card.idList, options, stats, reporter);
 			const result = await syncNoteWithCard(
 				vault,
 				client,
@@ -110,5 +127,47 @@ export async function syncVault(
 		}
 	}
 
+	if (options.cardFate && gone.length > 0 && !signal?.aborted) {
+		const blocked = options.trashBlockedFolders ?? [];
+		await handleGoneNotes(vault, client, gone, {
+			rules: options.cardFate,
+			propertyKeys: options.trelloPropertyKeys ?? [],
+			mappedFolderByListId: options.mappedFolderByListId ?? new Map(),
+			trashAllowed: (note) => !isUnderAny(note, blocked),
+			aliveMode: "leave",
+			dryRun: options.dryRun,
+			reporter,
+			stats,
+			signal,
+		});
+	}
 	return stats;
+}
+
+/** A card back from the archive: its note leaves the archive folder for the folder of the card's list. */
+async function restoreFromArchive(
+	vault: VaultGateway,
+	note: NoteHandle,
+	idList: string | undefined,
+	options: NoteSyncOptions,
+	stats: VaultSyncStats,
+	reporter: Reporter,
+): Promise<NoteHandle> {
+	const rules = options.cardFate;
+	if (!rules || options.archiveRestoreOnUnarchive === false || rules.onCardArchived !== "archive-folder") return note;
+	if (rules.archiveFolder === "" || !isUnderAny(note, [rules.archiveFolder])) return note;
+	const folder = idList ? options.mappedFolderByListId?.get(idList) : undefined;
+	if (folder === undefined) return note;
+	if (options.dryRun) {
+		reporter.log("rename", `Card back from the archive: ${note.basename} \u2014 note would move to ${folder}`);
+		return note;
+	}
+	const moved = await moveNoteToFolder(vault, note, folder);
+	if (!moved.moved) {
+		reporter.log("warn", `Card back from the archive: ${note.basename} \u2014 kept (${moved.reason})`);
+		return note;
+	}
+	stats.relocated++;
+	reporter.log("rename", `Card back from the archive: ${note.basename} \u2014 note moved to ${folder}`);
+	return moved.note;
 }

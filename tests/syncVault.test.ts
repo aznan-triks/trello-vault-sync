@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { DEFAULT_LINKED_CARDS_KEY } from "../src/core/attachmentRef";
+import type { CardFateRules } from "../src/core/cardFate";
 import { syncVault } from "../src/features/syncVault";
 import { silentReporter } from "../src/obsidian/gateway";
 import { TrelloClient } from "../src/trello/client";
@@ -315,5 +316,70 @@ describe("syncVault — embedded card details", () => {
 
 		expect(requests).toHaveLength(1);
 		expect(decodeURIComponent(requests[0]?.url ?? "")).toContain("checklists=all");
+	});
+});
+
+describe("syncVault — a card that is no longer on the board", () => {
+	const rules: CardFateRules = { onCardMoved: "move-note", onCardArchived: "unlink", onCardDeleted: "unlink", archiveFolder: "" };
+	const withRules = (cardFate: Partial<CardFateRules>) => ({
+		...options,
+		cardFate: { ...rules, ...cardFate },
+		trelloPropertyKeys: ["trello_board_card_id"],
+		mappedFolderByListId: new Map([["l1", "WoT/A"]]),
+	});
+	function clientWithLookups(lookups: Record<string, unknown>) {
+		const { transport, requests } = routedTransport({ "/boards/board/cards": [], ...lookups });
+		return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 }), requests };
+	}
+
+	test("an archived card: the Trello properties go, the text stays", async () => {
+		const vault = new FakeVault({ "WoT/a.md": { content: linked("c9", "corps") } });
+		const { client } = clientWithLookups({ "/cards/c9": card({ id: "c9", closed: true }) });
+
+		const stats = await syncVault(vault, client, { scope: "WoT", boardId: "board" }, withRules({}));
+
+		expect(stats.detached).toBe(1);
+		expect(vault.readFrontmatter(vault.note("WoT/a.md"))?.trello_board_card_id).toBeUndefined();
+		expect(vault.contentOf("WoT/a.md")).toContain("corps");
+	});
+
+	test("a deleted card (404) can be trashed, and the trash is recoverable", async () => {
+		const vault = new FakeVault({ "WoT/a.md": { content: linked("c9", "x") } });
+		const { client } = clientWithLookups({});
+
+		const stats = await syncVault(vault, client, { scope: "WoT", boardId: "board" }, withRules({ onCardDeleted: "trash" }));
+
+		expect(stats.deleted).toBe(1);
+		expect(vault.trashed).toEqual(["WoT/a.md"]);
+	});
+
+	test("a card that still exists on another board leaves the note intact", async () => {
+		const vault = new FakeVault({ "WoT/a.md": { content: linked("c9", "x") } });
+		const { client } = clientWithLookups({ "/cards/c9": card({ id: "c9", idBoard: "other", idList: "z" }) });
+
+		const stats = await syncVault(vault, client, { scope: "WoT", boardId: "board" }, withRules({ onCardMoved: "trash" }));
+
+		expect(stats.moved).toBe(1);
+		expect(stats.deleted).toBe(0);
+		expect(vault.paths()).toEqual(["WoT/a.md"]);
+	});
+
+	test("without rules the note is only reported, as before", async () => {
+		const vault = new FakeVault({ "WoT/a.md": { content: linked("c9", "x") } });
+		const { client, requests } = clientWithLookups({});
+
+		const stats = await syncVault(vault, client, { scope: "WoT", boardId: "board" }, options);
+
+		expect(stats.phantoms).toBe(1);
+		expect(requests.filter((request) => request.url.includes("/cards/c9"))).toHaveLength(0);
+	});
+
+	test("a card back from the archive pulls its note out of the archive folder", async () => {
+		const vault = new FakeVault({ "Archive/a.md": { content: linked("c1", "same"), mtime: at("2026-01-01") } });
+		const { client } = clientFor([card({ id: "c1", name: "a", desc: "same", idList: "l1" })]);
+
+		await syncVault(vault, client, { scope: "", boardId: "board" }, withRules({ onCardArchived: "archive-folder", archiveFolder: "Archive" }));
+
+		expect(vault.paths()).toEqual(["WoT/A/a.md"]);
 	});
 });

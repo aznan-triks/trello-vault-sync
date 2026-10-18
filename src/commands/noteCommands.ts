@@ -8,6 +8,8 @@ import { parseLabelsRef } from "../core/labelRef";
 import { extractBody } from "../core/noteBody";
 import { describeSyncOutcome, tallyNoteResult } from "../core/syncTally";
 import { linkActiveNote, linkNoteToCard } from "../features/linkNote";
+import { unlinkNote } from "../features/unlinkNote";
+import { confirmIfEnabled } from "./confirmAction";
 import { decideForCard, syncNote } from "../features/syncNote";
 import { CardPickerModal } from "../ui/CardPickerModal";
 import { ConflictModal } from "../ui/ConflictModal";
@@ -79,6 +81,27 @@ export async function linkActive(ctx: CommandContext): Promise<void> {
 		if (!result.linked) return "No card close enough to the note's title.";
 		return `Linked to "${result.card?.name}" (${Math.round(result.score * 100)}%).`;
 	});
+}
+
+export async function unlinkActive(ctx: CommandContext): Promise<void> {
+	const note = ctx.activeNote();
+	if (!ctx.ready() || !note) return;
+	if (!ctx.vault.getCardRef(note)) {
+		new Notice("Not linked to a Trello card.");
+		return;
+	}
+	await confirmIfEnabled(
+		ctx,
+		ctx.settings.confirmUnlink,
+		`Remove the Trello properties from "${note.basename}"? The card is not touched.`,
+		"Unlink",
+		() =>
+			ctx.run(`Unlink — ${note.basename}`, async () => {
+				const keys = ctx.noteOptions().trelloPropertyKeys ?? [];
+				const removed = await withHistoryRecording(ctx, note.path, (vault) => unlinkNote(vault, note, keys, ctx.settings.dryRun));
+				return `${ctx.settings.dryRun ? "[dry-run] " : ""}Removed ${removed.length} Trello propert${removed.length === 1 ? "y" : "ies"}.`;
+			}),
+	);
 }
 
 export async function linkActivePick(ctx: CommandContext): Promise<void> {

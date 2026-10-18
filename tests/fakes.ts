@@ -1,3 +1,4 @@
+import { DEFAULT_CARD_FATE_RULES } from "../src/core/cardFate";
 import { DEFAULT_CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../src/core/cardRef";
 import { excludeFolders } from "../src/core/fileName";
 import { splitFrontmatter } from "../src/core/noteBody";
@@ -276,3 +277,10 @@ export function clientFor(
 	});
 	return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
 }
+
+/** The card-lifecycle options every folder-sync fixture needs, at their defaults. */
+export const FATE_OPTIONS = {
+	cardFate: DEFAULT_CARD_FATE_RULES,
+	trelloPropertyKeys: [] as string[],
+	mappedFolderByListId: new Map<string, string>(),
+};

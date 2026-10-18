@@ -27,7 +27,7 @@ vi.mock("obsidian", () => ({
 
 import { createInFolder, createNoteFromOrphanCard } from "../src/commands/createNoteCommand";
 import type { CommandContext } from "../src/commands/context";
-import { card, FakeVault, recordingReporter, routedTransport } from "./fakes";
+import { card, FakeVault, recordingReporter, routedTransport, FATE_OPTIONS } from "./fakes";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
 import { TrelloClient, type TrelloCard } from "../src/trello/client";
 import { ConfirmModal } from "../src/ui/ConfirmModal";
@@ -59,8 +59,7 @@ function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
 			syncTitle: true,
 			dryRun: false,
 			allowCreate: true,
-			allowDelete: false,
-			protectMovedOrArchivedCards: false,
+			...FATE_OPTIONS,
 			boardId: "board",
 		}),
 		auditOptions: () => ({ scope: "", boardId: "board", reportPath: "", timestamp: "t", excludedFolders: [] }),

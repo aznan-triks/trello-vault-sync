@@ -107,6 +107,15 @@ export const COMMANDS: CommandDescriptor[] = [
 		run: (ctx) => noteCommands.linkActivePick(ctx),
 	},
 	{
+		id: "unlink-active-note",
+		name: "Unlink active note from its card",
+		icon: "unlink",
+		section: "Active note",
+		description: "Remove the Trello properties from the open note. The card and the note's text are left untouched.",
+		tone: "link",
+		run: (ctx) => noteCommands.unlinkActive(ctx),
+	},
+	{
 		id: "resolve-conflict",
 		name: "Resolve conflict (active note), side by side",
 		icon: "git-compare",

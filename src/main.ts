@@ -10,6 +10,7 @@ import { errorMessage } from "./core/errorMessage";
 import { appendJournalEntry, prefixDryRunMessage, type JournalEntry, type LogLevel } from "./core/journal";
 import { OperationGuard } from "./core/operationGuard";
 import { normalizePersistedData } from "./core/pluginData";
+import { trelloPropertyKeys } from "./core/trelloProperties";
 import { appendSyncRun, type SyncAction, type SyncRun } from "./core/syncHistory";
 import type { AuditOptions } from "./features/auditShared";
 import type { FolderSyncOptions } from "./features/syncFolder";
@@ -256,17 +257,43 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 					this.attachmentAuthHeaders(),
 				),
 			guard: this.guard,
+			...this.fateOptions(),
+			trashBlockedFolders: this.settings.mappings
+				.filter((mapping) => mapping.allowDeleteOverride === "off")
+				.map((mapping) => mapping.folder),
+			archiveRestoreOnUnarchive: this.settings.archiveFolderRestoreOnUnarchive,
 			...(force ? { force } : {}),
 			...(bypassConflict ? { bypassConflict } : {}),
+		};
+	}
+
+	/** Every frontmatter key an "unlink" removes. */
+	propertyKeys(): string[] {
+		return trelloPropertyKeys(this.settings);
+	}
+
+	/** What the engines need to decide the fate of a note whose card moved, was archived or deleted. */
+	private fateOptions() {
+		return {
+			cardFate: {
+				onCardMoved: this.settings.onCardMoved,
+				onCardArchived: this.settings.onCardArchived,
+				onCardDeleted: this.settings.onCardDeleted,
+				archiveFolder: this.settings.archiveFolder,
+			},
+			trelloPropertyKeys: this.propertyKeys(),
+			mappedFolderByListId: new Map(
+				this.settings.mappings.filter((mapping) => mapping.listId !== "").map((mapping) => [mapping.listId, mapping.folder]),
+			),
 		};
 	}
 
 	folderOptions(force?: "pull" | "push", bypassConflict?: boolean): FolderSyncOptions {
 		return {
 			...this.noteOptions(force, bypassConflict),
+			...this.fateOptions(),
+			archiveCreateMissing: this.settings.archiveFolderCreateMissing,
 			allowCreate: this.settings.allowCreate,
-			allowDelete: this.settings.allowDelete,
-			protectMovedOrArchivedCards: this.settings.protectMovedOrArchivedCards,
 			boardId: this.settings.boardId,
 			cardRefFrontmatterKey: this.settings.cardRefFrontmatterKey,
 			defaultTemplateName: this.settings.defaultTemplateName,

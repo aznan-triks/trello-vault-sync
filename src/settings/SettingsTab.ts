@@ -9,6 +9,7 @@ import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
+import type { OnCardArchived, OnCardDeleted, OnCardMoved } from "../core/cardFate";
 import type { LabelSyncMode } from "../core/labelMerge";
 import type { MappingOverride } from "../core/mappingOverride";
 import type { ConflictPolicy } from "../core/syncDecision";
@@ -55,6 +56,25 @@ const POLICY_LABELS: Record<ConflictPolicy, string> = {
 const LABELS_SYNC_MODE_LABELS: Record<LabelSyncMode, string> = {
 	merge: "Merge (never lose a label)",
 	overwrite: "Overwrite (the losing side's labels are dropped, decided by \"Arbitration\" above)",
+};
+
+const ON_CARD_MOVED_LABELS: Record<OnCardMoved, string> = {
+	"move-note": "Move the note to the folder of the card's new list (kept if that list has no folder)",
+	keep: "Keep the note where it is",
+	trash: "Move the note to the trash",
+};
+
+const ON_CARD_ARCHIVED_LABELS: Record<OnCardArchived, string> = {
+	unlink: "Remove the Trello properties (the note becomes a plain note)",
+	keep: "Keep the note as it is",
+	"archive-folder": "Move the note to the archive folder (stays linked)",
+	trash: "Move the note to the trash",
+};
+
+const ON_CARD_DELETED_LABELS: Record<OnCardDeleted, string> = {
+	unlink: "Remove the Trello properties (the note becomes a plain note)",
+	keep: "Keep the note as it is",
+	trash: "Move the note to the trash",
 };
 
 const CHANGELOG_RAW_URL = "https://raw.githubusercontent.com/aznan-triks/trello-vault-sync/master/CHANGELOG.md";
@@ -227,6 +247,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			{ id: "audit-output", tab: "general", render: (el) => this.renderAuditOutput(el) },
 			// Tab 2: Sync Rules
 			{ id: "arbitration", tab: "sync-rules", render: (el) => this.renderArbitration(el) },
+			{ id: "card-lifecycle", tab: "sync-rules", render: (el) => this.renderCardLifecycle(el) },
 			{ id: "labels", tab: "sync-rules", render: (el) => this.renderLabels(el) },
 			{ id: "attachments", tab: "sync-rules", render: (el) => this.renderAttachments(el) },
 			{ id: "checklists", tab: "sync-rules", render: (el) => this.renderChecklists(el) },
@@ -694,35 +715,6 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
-			.setName("Delete phantom notes")
-			.setDesc(
-				"⚠️ Destructive: trashes the note whose card left the list. Off by default — " +
-					"such notes are simply reported. If Sync history (below) is on, a run that deletes notes can be " +
-					"undone from \"Undo last sync run\".",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.allowDelete).onChange((value) => {
-					this.plugin.settings.allowDelete = value;
-					void this.save();
-					this.display();
-				}),
-			);
-
-		new Setting(root)
-			.setName("Protect cards moved or archived elsewhere")
-			.setDesc(
-				"Before deleting, checks whether the card was only moved to another list or archived " +
-					"instead of truly gone from the board — an extra Trello request per sync. Off by default: " +
-					"missing from this list is enough, the same way \"gone\" is decided everywhere else here.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.protectMovedOrArchivedCards).onChange((value) => {
-					this.plugin.settings.protectMovedOrArchivedCards = value;
-					void this.save();
-				}),
-			);
-
-		new Setting(root)
 			.setName("Confirm before a forced sync")
 			.setDesc(
 				"Shows a confirmation dialog before a force pull/push at folder or vault scope (destructive by " +
@@ -731,6 +723,94 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.confirmForceSync).onChange((value) => {
 					this.plugin.settings.confirmForceSync = value;
+					void this.save();
+				}),
+			);
+	}
+
+	private renderCardLifecycle(root: HTMLElement): void {
+		new Setting(root).setName("When a card changes on Trello").setHeading();
+		root.createEl("p", {
+			cls: "setting-item-description",
+			text: "What a sync does with a note when its card was moved, archived or deleted on Trello. Every change can be undone from the sync history.",
+		});
+
+		new Setting(root)
+			.setName("Card moved to another list or board")
+			.setDesc("A list sync notices the card is no longer in the list. Moving a note follows the card to the folder mapped to its new list.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(ON_CARD_MOVED_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(this.plugin.settings.onCardMoved).onChange((value) => {
+					this.plugin.settings.onCardMoved = value as OnCardMoved;
+					void this.save();
+				});
+			});
+
+		new Setting(root)
+			.setName("Card archived")
+			.setDesc("The note's own text is never touched. Keeping the link means later syncs keep failing to find the card, so the default removes it.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(ON_CARD_ARCHIVED_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(this.plugin.settings.onCardArchived).onChange((value) => {
+					this.plugin.settings.onCardArchived = value as OnCardArchived;
+					void this.save();
+					this.display();
+				});
+			});
+
+		if (this.plugin.settings.onCardArchived === "archive-folder") {
+			new Setting(root)
+				.setName("Archive folder")
+				.setDesc("Where the notes of archived cards go. Empty keeps them where they are (and says so in the log).")
+				.addText((text) => {
+					text
+						.setPlaceholder("Archive")
+						.setValue(this.plugin.settings.archiveFolder)
+						.onChange((value) => {
+							this.plugin.settings.archiveFolder = normalizeVaultPath(value.trim());
+							void this.save();
+						});
+					new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
+				});
+
+			new Setting(root)
+				.setName("Also create notes for archived cards")
+				.setDesc("A list-to-folder sync creates, in the archive folder, a note for every archived card of a mapped list that has none. Costs one board-wide request per run.")
+				.addToggle((toggle) =>
+					toggle.setValue(this.plugin.settings.archiveFolderCreateMissing).onChange((value) => {
+						this.plugin.settings.archiveFolderCreateMissing = value;
+						void this.save();
+					}),
+				);
+
+			new Setting(root)
+				.setName("Bring a note back when its card is unarchived")
+				.setDesc("A card taken out of the archive sends its note from the archive folder back to the folder of its list.")
+				.addToggle((toggle) =>
+					toggle.setValue(this.plugin.settings.archiveFolderRestoreOnUnarchive).onChange((value) => {
+						this.plugin.settings.archiveFolderRestoreOnUnarchive = value;
+						void this.save();
+					}),
+				);
+		}
+
+		new Setting(root)
+			.setName("Card deleted")
+			.setDesc("A deleted card cannot be recovered on Trello; the note is what is left.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(ON_CARD_DELETED_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(this.plugin.settings.onCardDeleted).onChange((value) => {
+					this.plugin.settings.onCardDeleted = value as OnCardDeleted;
+					void this.save();
+				});
+			});
+
+		new Setting(root)
+			.setName("Confirm before unlinking a note")
+			.setDesc("Asks before the command \"Unlink this note from its card\" removes the card link and every Trello property from the open note.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.confirmUnlink).onChange((value) => {
+					this.plugin.settings.confirmUnlink = value;
 					void this.save();
 				}),
 			);
@@ -1630,18 +1710,17 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				},
 			});
 
-			this.renderMappingOverride(detailsContent, {
-				name: "Delete phantom notes (this folder)",
-				globalName: "Delete phantom notes",
-				globalEnabled: this.plugin.settings.allowDelete,
-				descriptionPrefix: "⚠️ Destructive: overrides",
-				alwaysLabel: "Always delete",
-				neverLabel: "Never delete",
-				value: mapping.allowDeleteOverride ?? "inherit",
-				onChange: (mode) => {
-					mapping.allowDeleteOverride = mode;
-				},
-			});
+			new Setting(detailsContent)
+				.setName("Never trash notes in this folder")
+				.setDesc(
+					"Whatever the choices in \"When a card changes on Trello\" say, a note of this folder is kept instead of being moved to the trash.",
+				)
+				.addToggle((toggle) =>
+					toggle.setValue(mapping.allowDeleteOverride === "off").onChange((value) => {
+						mapping.allowDeleteOverride = value ? "off" : "inherit";
+						void this.save();
+					}),
+				);
 		});
 
 		new Setting(root).addButton((button) =>
