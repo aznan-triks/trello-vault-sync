@@ -85,7 +85,7 @@ export async function runChangesHtmlExport(ctx: CommandContext): Promise<void> {
 export async function openLinkReport(ctx: CommandContext): Promise<void> {
 	const reportPath = ctx.auditOptions("links").reportPath.trim();
 	if (reportPath === "" || !ctx.vault.noteAt(reportPath)) {
-		new Notice(`No link report found${reportPath ? ` in ${reportPath}` : ""}. Run "Audit links (orphan cards and notes)" first.`);
+		new Notice(`No link report found${reportPath ? ` in ${reportPath}` : ""}. Run "Report unlinked cards and notes" first.`);
 		return;
 	}
 	await ctx.app.workspace.openLinkText(reportPath, "", false);

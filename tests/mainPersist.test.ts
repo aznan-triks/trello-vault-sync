@@ -59,11 +59,11 @@ describe("rebuildRibbon", () => {
 		(instance as unknown as { rebuildRibbon: () => void }).rebuildRibbon();
 
 		expect(addedIcons).toHaveLength(2);
-		expect(addedIcons[0]?.title).toBe("Open Trello Vault Sync");
+		expect(addedIcons[0]?.title).toBe("Open the sidebar");
 		expect(addedIcons[0]?.el.style.color).toBe("#ff0000");
 		expect(addedIcons[0]?.el.style.setProperty).toHaveBeenCalledWith("--icon-color", "#ff0000");
 		expect(addedIcons[0]?.el.style.setProperty).toHaveBeenCalledWith("--ribbon-icon-color", "#ff0000");
-		expect(addedIcons[1]?.title).toBe("Sync active note");
+		expect(addedIcons[1]?.title).toBe("Sync this note with its card");
 		expect(addedIcons[1]?.el.style.color).toBe("");
 
 		(instance as unknown as { rebuildRibbon: () => void }).rebuildRibbon();

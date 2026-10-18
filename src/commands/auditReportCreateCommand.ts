@@ -194,7 +194,7 @@ export async function createFromAuditReport(ctx: CommandContext, direction: Audi
 	const groups = reportNote ? parseLinkReportGroups(await ctx.vault.read(reportNote)) : null;
 	if (!groups) {
 		new Notice(
-			`No link report found${reportPath.trim() ? ` in ${reportPath}` : ""}. Run "Audit links (orphan cards and notes)" first.`,
+			`No link report found${reportPath.trim() ? ` in ${reportPath}` : ""}. Run "Report unlinked cards and notes" first.`,
 		);
 		return;
 	}

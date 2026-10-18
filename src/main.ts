@@ -570,7 +570,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 
 		this.addCommand({
 			id: "toggle-dry-run",
-			name: "Toggle dry-run mode",
+			name: "Turn test mode (dry-run) on or off",
 			callback: () => noteCommands.toggleDryRun(this),
 		});
 	}

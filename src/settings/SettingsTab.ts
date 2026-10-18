@@ -572,7 +572,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Link audit report note")
-			.setDesc('Path of the note "Audit links" writes its report into.')
+			.setDesc('Path of the note "Report unlinked cards and notes" writes its report into.')
 			.addText((text) => {
 				text
 					.setPlaceholder("Projects/Trello Link Report.md")
@@ -588,7 +588,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Location audit report note")
-			.setDesc('Path of the note "Compare locations against Trello" writes its report into.')
+			.setDesc('Path of the note "Report notes in the wrong folder" writes its report into.')
 			.addText((text) => {
 				text
 					.setPlaceholder("Projects/Trello Location Report.md")
@@ -931,7 +931,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				"⚠️ Writes binary files into the vault: downloads each uploaded (non-link) attachment to the " +
 					"chosen destination below. Off by default. An attachment already present under the same name " +
 					"and byte size is never re-downloaded. If Sync history (Sync history section) is on, a run " +
-					"that downloads files can be undone from \"Undo last sync run\".",
+					"that downloads files can be undone from \"Undo the last sync\".",
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.downloadAttachments).onChange((value) => {
@@ -1166,7 +1166,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			.setName("Sync history")
 			.setDesc(
 				"Records every write a sync makes — in the vault and on Trello — so it can be undone from " +
-					"\"Undo last sync run\" / \"Undo last sync for the active note\". Neither side is ever " +
+					"\"Undo the last sync\" / \"Undo the last sync of this note\". Neither side is ever " +
 					"overwritten blindly: a note, card field or checklist item that changed since the run is " +
 					"skipped and reported. Cancelling a running sync cannot recall a request already sent to " +
 					"Trello, but undo can put it back.",
@@ -1195,7 +1195,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Confirm before undoing")
 			.setDesc(
-				'On: "Undo last sync run" and "Undo last sync for the active note" ask for confirmation before ' +
+				'On: "Undo the last sync" and "Undo the last sync of this note" ask for confirmation before ' +
 					'writing anything. Off disables the modal for repeated use. "Undo a sync run (pick what to ' +
 					'undo)" already ends on its own explicit confirm button and is unaffected by this setting.',
 			)
@@ -1239,7 +1239,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Orphan card fallback folder")
 			.setDesc(
-				'Destination for "Create note from a Trello card" — checked in this order: (1) the folder mapped ' +
+				'Destination for "Create a note from an unlinked card" — checked in this order: (1) the folder mapped ' +
 					"to the card's list, if any (Mappings tab), (2) this fallback folder, used directly with no " +
 					"prompt, (3) if this is left empty, you're asked for a folder each time instead.",
 			)
@@ -1397,7 +1397,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text:
 				'What "Create from audit report (unchecked items)" does with the link audit report: items you ticked are left ' +
 				"alone, unchecked ones are created (after a preview). Broken-link notes are never included — use " +
-				'"Create Trello cards from phantom notes" for those.',
+				'"Recreate the missing cards of notes" for those.',
 		});
 
 		new Setting(root)
@@ -1540,7 +1540,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Scope — every mapped folder")
-			.setDesc('Runs "Sync every list with its folder" — the only scope that can create a missing note.')
+			.setDesc('Runs "Sync every folder with its list" — the only scope that can create a missing note.')
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.autoSyncScopeMappings).onChange((value) => {
 					this.plugin.settings.autoSyncScopeMappings = value;

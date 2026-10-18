@@ -67,7 +67,7 @@ export function describeSyncOutcome(result: TallyableResult): string {
 			// "unlinked" is also how a note whose card was archived or deleted is reported: its reason says what was done.
 			return result.reason && result.reason !== NO_CARD_REASON
 				? `${result.reason}.`
-				: "Note not linked — use \"Link active note to a card\".";
+				: "Note not linked — use \"Link this note to the card with the same name\".";
 		case "skip":
 			return "Already up to date.";
 		default: {

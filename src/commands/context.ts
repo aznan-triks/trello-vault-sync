@@ -37,11 +37,11 @@ export interface CommandContext {
 	setLastRunConflicts?(count: number): void;
 	/** Cards whose note the user deleted and chose to stop recreating: never offered as orphan cards. */
 	ignoredCardIds?(): ReadonlySet<string>;
-	/** Completed sync runs, oldest first, capped at `settings.historyMaxRuns` — feeds "Show sync history" / "Undo last sync run". */
+	/** Completed sync runs, oldest first, capped at `settings.historyMaxRuns` — feeds "Show the sync history" / "Undo the last sync". */
 	readonly history: readonly SyncRun[];
 	/** Appends a completed run's actions to `history` (a no-op when `actions` is empty) — in memory; the enclosing `run()` persists once when it finishes. */
 	recordSyncRun(scope: string, actions: SyncAction[]): Promise<void>;
-	/** Replaces `history` wholesale — how "Undo last sync run"/"Undo last sync for the active note" consume a run after applying it. */
+	/** Replaces `history` wholesale — how "Undo the last sync"/"Undo the last sync of this note" consume a run after applying it. */
 	setHistory(next: readonly SyncRun[]): Promise<void>;
 	/** Shared by every operation running at the same time — see `OperationGuard`. Optional so test contexts needn't stub it. */
 	readonly guard?: OperationGuard;

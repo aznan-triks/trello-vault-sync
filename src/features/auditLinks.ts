@@ -17,8 +17,8 @@ import { fetchBoardIndex } from "./boardIndex";
 export interface LinkAuditOptions extends AuditOptions {
 	/**
 	 * When set, the report lists only the orphan cards and unlinked notes the
-	 * creation pickers would offer ("Create note from a Trello card" /
-	 * "Create Trello cards from phantom notes"), so its counts match theirs.
+	 * creation pickers would offer ("Create a note from an unlinked card" /
+	 * "Recreate the missing cards of notes"), so its counts match theirs.
 	 * Omitted = every orphan card and unlinked note (the historical behavior).
 	 */
 	creationScopes?: {

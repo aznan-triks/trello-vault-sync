@@ -132,6 +132,6 @@ describe("openLinkReport", () => {
 		notices.length = 0;
 		await openLinkReport(ctxWith(new FakeVault(), "Audit/links.md", opened));
 		expect(opened).toEqual([]);
-		expect(notices[0]).toContain("Run \"Audit links");
+		expect(notices[0]).toContain("Run \"Report unlinked cards and notes");
 	});
 });

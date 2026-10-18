@@ -69,7 +69,7 @@ export interface TrelloCheckItemAction {
 	writtenState: "complete" | "incomplete";
 }
 
-/** A brand-new card created on Trello (e.g. "Create cards from phantom notes"). Undo = archive it, never delete — same "always recoverable" rule as a trashed note (§9). */
+/** A brand-new card created on Trello (e.g. "Recreate the missing cards of notes"). Undo = archive it, never delete — same "always recoverable" rule as a trashed note (§9). */
 export interface TrelloCardCreateAction {
 	kind: "trello-card-create";
 	/** Path of the note the card was created from — lets per-note undo filter on it, exactly like the vault actions. */
@@ -126,7 +126,7 @@ export function lastRun(runs: readonly SyncRun[]): SyncRun | undefined {
 /**
  * Returns `runs` with the run at `index` replaced by `run` — or removed
  * entirely when `run.actions` is empty, since an emptied run is nothing left
- * to undo and clutters "Show sync history" with a dead entry. Pure: the
+ * to undo and clutters "Show the sync history" with a dead entry. Pure: the
  * caller (an undo command) decides what the replacement run looks like after
  * reverting some of its actions; this only knows how to fold it back into the
  * history array.

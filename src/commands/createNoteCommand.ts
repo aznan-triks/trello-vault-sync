@@ -178,7 +178,7 @@ function runBatchCreateNotes(ctx: CommandContext, cards: readonly TrelloCard[]):
 	}
 }
 
-/** "Create note from a Trello card": lets the user adopt a card with no note yet, the inverse of linking an existing note to a card. */
+/** "Create a note from an unlinked card": lets the user adopt a card with no note yet, the inverse of linking an existing note to a card. */
 export async function createNoteFromOrphanCard(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 

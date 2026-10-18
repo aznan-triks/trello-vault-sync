@@ -76,7 +76,7 @@ describe("describeSyncOutcome", () => {
 
 	test("reports unlinked", () => {
 		expect(describeSyncOutcome({ renamed: false, direction: "unlinked" })).toBe(
-			'Note not linked — use "Link active note to a card".',
+			'Note not linked — use "Link this note to the card with the same name".',
 		);
 	});
 });
