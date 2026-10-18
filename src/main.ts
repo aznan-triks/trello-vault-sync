@@ -10,6 +10,7 @@ import { errorMessage } from "./core/errorMessage";
 import { appendJournalEntry, prefixDryRunMessage, type JournalEntry, type LogLevel } from "./core/journal";
 import { OperationGuard } from "./core/operationGuard";
 import { normalizePersistedData } from "./core/pluginData";
+import type { IgnoredCards } from "./core/deletedNotes";
 import { trelloPropertyKeys } from "./core/trelloProperties";
 import { appendSyncRun, type SyncAction, type SyncRun } from "./core/syncHistory";
 import type { AuditOptions } from "./features/auditShared";
@@ -42,6 +43,9 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private readonly pendingTitles = new Set<string>();
 	/** Epoch ms of the last successful sync (manual or auto) — persisted in data.json, so the auto-sync timer survives a restart and a manual sync resets it. */
 	private lastSyncAt: number | null = null;
+	/** See `PersistedData`: how a deleted note is told from a new card. Public so the settings tab can list and clear the ignored cards. */
+	knownLinks: Record<string, string[]> = {};
+	ignoredCards: IgnoredCards = {};
 	/** Auto-syncs that ended in error in a row — `autoSyncPauseAfterFailures` pauses auto-sync when reached. */
 	private autoSyncFailures = 0;
 	/** Paused after too many failures; cleared by re-enabling auto-sync or by any successful sync. In memory: a restart retries. */
@@ -64,8 +68,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	override async onload(): Promise<void> {
 		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
 
-		const { settingsRaw, journal, history, lastSyncAt } = normalizePersistedData(await this.loadData());
+		const { settingsRaw, journal, history, lastSyncAt, knownLinks, ignoredCards } = normalizePersistedData(await this.loadData());
 		this.lastSyncAt = lastSyncAt;
+		this.knownLinks = knownLinks;
+		this.ignoredCards = ignoredCards;
 		this.settings = normalizeSettings(settingsRaw);
 		this.journal = journal;
 		this.history = history;
@@ -100,6 +106,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				journal: this.journal,
 				history: this.history,
 				lastSyncAt: this.lastSyncAt,
+				knownLinks: this.knownLinks,
+				ignoredCards: this.ignoredCards,
 			}),
 		);
 		this.persistQueue = write.catch(() => undefined);
@@ -127,6 +135,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	async clearJournal(): Promise<void> {
 		this.journal = [];
 		await this.persist();
+	}
+
+	ignoredCardIds(): ReadonlySet<string> {
+		return new Set(Object.keys(this.ignoredCards));
 	}
 
 	setLastRunConflicts(count: number): void {
@@ -293,6 +305,16 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			...this.noteOptions(force, bypassConflict),
 			...this.fateOptions(),
 			archiveCreateMissing: this.settings.archiveFolderCreateMissing,
+			deletedNotes: {
+				rule: this.settings.onLinkedNoteDeleted,
+				knownLinks: (listId) => new Set(this.knownLinks[listId] ?? []),
+				ignoredIds: new Set(Object.keys(this.ignoredCards)),
+				record: ({ listId, knownLinks, newlyIgnored, unignored }) => {
+					this.knownLinks[listId] = knownLinks;
+					for (const { id, name } of newlyIgnored) this.ignoredCards[id] = { name, since: new Date().toISOString().slice(0, 10) };
+					for (const id of unignored) Reflect.deleteProperty(this.ignoredCards, id);
+				},
+			},
 			allowCreate: this.settings.allowCreate,
 			boardId: this.settings.boardId,
 			cardRefFrontmatterKey: this.settings.cardRefFrontmatterKey,
@@ -315,6 +337,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			reportPath,
 			timestamp: new Date().toLocaleString("en-CA", { hour12: false }),
 			excludedFolders: this.settings.excludedFolders,
+			ignoredCardIds: this.ignoredCardIds(),
 			autoCreateReportNote: this.settings.autoCreateReportNote,
 		};
 	}

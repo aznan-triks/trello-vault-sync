@@ -579,3 +579,11 @@ describe("normalizeSettings", () => {
 });
 
 
+
+describe("normalizeSettings — onLinkedNoteDeleted", () => {
+	test("defaults to ignore-card and rejects unknown values", () => {
+		expect(normalizeSettings({}).onLinkedNoteDeleted).toBe("ignore-card");
+		expect(normalizeSettings({ onLinkedNoteDeleted: "bogus" }).onLinkedNoteDeleted).toBe("ignore-card");
+		expect(normalizeSettings({ onLinkedNoteDeleted: "recreate" }).onLinkedNoteDeleted).toBe("recreate");
+	});
+});

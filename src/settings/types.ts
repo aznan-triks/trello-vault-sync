@@ -1,3 +1,4 @@
+import { ON_LINKED_NOTE_DELETED, type OnLinkedNoteDeleted } from "../core/deletedNotes";
 import {
 	DEFAULT_ATTACHMENTS_KEY,
 	DEFAULT_COVER_KEY,
@@ -79,6 +80,8 @@ export interface TrelloVaultSyncSettings {
 	archiveFolderCreateMissing: boolean;
 	/** With the archive folder: a card taken out of the archive brings its note back into its list's folder. On by default. */
 	archiveFolderRestoreOnUnarchive: boolean;
+	/** A synced note you delete: `ignore-card` (default) stops the card getting a new one, `archive-card` archives it on Trello, `recreate` brings the note back. */
+	onLinkedNoteDeleted: OnLinkedNoteDeleted;
 	/** On by default — asks before "Unlink this note from its card" removes the Trello properties. */
 	confirmUnlink: boolean;
 
@@ -255,6 +258,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	archiveFolderCreateMissing: false,
 	archiveFolderRestoreOnUnarchive: true,
 	confirmUnlink: true,
+	onLinkedNoteDeleted: "ignore-card",
 	similarityThreshold: 0.45,
 	maxRetries: 3,
 	baseDelayMs: 800,
@@ -435,6 +439,9 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		archiveFolderCreateMissing: input.archiveFolderCreateMissing === true,
 		archiveFolderRestoreOnUnarchive: input.archiveFolderRestoreOnUnarchive !== false,
 		confirmUnlink: input.confirmUnlink !== false,
+		onLinkedNoteDeleted: ON_LINKED_NOTE_DELETED.includes(input.onLinkedNoteDeleted as OnLinkedNoteDeleted)
+			? (input.onLinkedNoteDeleted as OnLinkedNoteDeleted)
+			: DEFAULT_SETTINGS.onLinkedNoteDeleted,
 		apiKey: safeString(input.apiKey, DEFAULT_SETTINGS.apiKey),
 		token: safeString(input.token, DEFAULT_SETTINGS.token),
 		boardId: safeString(input.boardId, DEFAULT_SETTINGS.boardId),

@@ -2,6 +2,7 @@ import type { CardFateRules } from "../core/cardFate";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import type { CustomFieldDefinitionLike } from "../core/customFieldRef";
 import { errorMessage } from "../core/errorMessage";
+import { cardsWithDeletedNotes, nextKnownLinks, type OnLinkedNoteDeleted } from "../core/deletedNotes";
 import { notesInFolder, sanitizeFileName } from "../core/fileName";
 import { planFolderMatch, type PlannedNote } from "../core/folderPlan";
 import { resolveOverride, type MappingOverride } from "../core/mappingOverride";
@@ -49,12 +50,24 @@ export interface FolderSyncOptions extends NoteSyncOptions {
 	mappedFolderByListId: ReadonlyMap<string, string>;
 	/** Also creates, in the archive folder, a note for every archived card of a mapped list that has none. Needs `cardFate.onCardArchived: "archive-folder"`. */
 	archiveCreateMissing?: boolean;
+	/** What to do with a card whose note the user deleted; absent = the old behaviour (the note is created again). */
+	deletedNotes?: DeletedNotesContext;
 	/** Board the list belongs to. */
 	boardId: string;
 	/** `undefined` behaves as `DEFAULT_CARD_REF_KEY`. */
 	cardRefFrontmatterKey?: string;
 	/** Fallback template note used when the mapping doesn't specify one. */
 	defaultTemplateName?: string;
+}
+
+/** The memory a pass needs to tell "the user deleted this note" from "a new card" - persisted by the caller, never by the engine. */
+export interface DeletedNotesContext {
+	rule: OnLinkedNoteDeleted;
+	/** Ids of this list's cards that had a note at the last successful pass. */
+	knownLinks: (listId: string) => ReadonlySet<string>;
+	ignoredIds: ReadonlySet<string>;
+	/** Called once at the end of a complete, non-dry pass over a list. */
+	record: (update: { listId: string; knownLinks: string[]; newlyIgnored: { id: string; name: string }[]; unignored: string[] }) => void;
 }
 
 export interface FolderSyncStats {
@@ -74,6 +87,8 @@ export interface FolderSyncStats {
 	detached: number;
 	/** Notes filed into another folder (their card changed list, was archived, or came back from the archive). */
 	relocated: number;
+	/** Cards left without a note because the user deleted theirs (rule "ignore-card"), or ignored earlier. */
+	ignored: number;
 	/** Extra notes in the folder claiming a card another note already claimed. */
 	duplicates: number;
 	/** Notes in the folder carrying no card id at all. */
@@ -95,6 +110,7 @@ const emptyStats = (): FolderSyncStats => ({
 	deleted: 0,
 	detached: 0,
 	relocated: 0,
+	ignored: 0,
 	duplicates: 0,
 	unlinked: 0,
 	errors: 0,
@@ -218,14 +234,28 @@ export async function syncFolder(
 	// A card with no note in this folder may already have one elsewhere (its card moved lists, or came back
 	// from the archive): that note follows it here instead of a duplicate being created.
 	let toCreate = plan.missingCards;
+	const { deletedNotes } = options;
+	const newlyIgnored: { id: string; name: string }[] = [];
+	let linkedAnywhere: ReadonlySet<string> = new Set();
 	if (plan.missingCards.length > 0 && !signal?.aborted) {
 		const elsewhere = buildCardIndex(vault, vault.listNotes(""));
+		linkedAnywhere = new Set(elsewhere.keys());
+		const deletedIds = deletedNotes
+			? new Set(cardsWithDeletedNotes(plan.missingCards.map((c) => c.id), deletedNotes.knownLinks(mapping.listId), linkedAnywhere))
+			: new Set<string>();
 		toCreate = [];
 		for (const card of plan.missingCards) {
 			if (signal?.aborted) break;
 			const existing = elsewhere.get(card.id);
 			if (!existing) {
-				toCreate.push(card);
+				if (deletedNotes?.ignoredIds.has(card.id)) {
+					stats.ignored++;
+					reporter.log("skip", `${card.name} — ignored card, no note created`);
+				} else if (deletedIds.has(card.id) && deletedNotes?.rule !== "recreate") {
+					await handleDeletedNote(client, card, deletedNotes?.rule ?? "recreate", options, stats, reporter, newlyIgnored, signal);
+				} else {
+					toCreate.push(card);
+				}
 				continue;
 			}
 			reporter.step(card.name);
@@ -243,6 +273,7 @@ export async function syncFolder(
 		}
 	}
 
+	const createdIds = new Set<string>();
 	if (allowCreate) {
 		for (const card of toCreate) {
 			if (signal?.aborted) break;
@@ -268,6 +299,8 @@ export async function syncFolder(
 					stats.created--;
 					stats.skipped++;
 					reporter.log("skip", `${card.name} — already being created by another operation`);
+				} else {
+					createdIds.add(card.id);
 				}
 			} catch (error) {
 				stats.created--;
@@ -278,6 +311,16 @@ export async function syncFolder(
 	}
 
 	stats.phantoms = plan.phantomNotes.length;
+
+	if (deletedNotes && !options.dryRun && !signal?.aborted && stats.errors === 0) {
+		const have = new Set([...linkedAnywhere, ...createdIds, ...plan.pairs.map((pair) => pair.card.id)]);
+		deletedNotes.record({
+			listId: mapping.listId,
+			knownLinks: nextKnownLinks(cards.map((c) => c.id), have),
+			newlyIgnored,
+			unignored: cards.filter((c) => deletedNotes.ignoredIds.has(c.id) && have.has(c.id)).map((c) => c.id),
+		});
+	}
 
 	// A note already filed in the archive folder is where its (archived) card wants it: nothing to decide, no request to spend.
 	const archiveFolder = options.cardFate.onCardArchived === "archive-folder" ? options.cardFate.archiveFolder : "";
@@ -300,6 +343,30 @@ export async function syncFolder(
 	});
 
 	return stats;
+}
+
+/** Applies the user's rule to a card whose note was deleted: remember it as ignored, or archive it on Trello (recoverable). */
+async function handleDeletedNote(
+	client: TrelloClient,
+	card: TrelloCard,
+	rule: OnLinkedNoteDeleted,
+	options: FolderSyncOptions,
+	stats: FolderSyncStats,
+	reporter: Reporter,
+	newlyIgnored: { id: string; name: string }[],
+	signal?: AbortSignal,
+): Promise<void> {
+	if (rule === "archive-card") {
+		reporter.log("push", `${card.name} — its note was deleted, archiving the card`);
+		if (!options.dryRun) {
+			const archive = () => client.updateCard(card.id, { closed: true }, signal);
+			await (options.guard ? options.guard.withKey(`card:${card.id}`, archive) : archive());
+		}
+		return;
+	}
+	stats.ignored++;
+	reporter.log("skip", `${card.name} — its note was deleted, the card is now ignored`);
+	if (!options.dryRun) newlyIgnored.push({ id: card.id, name: card.name });
 }
 
 /**

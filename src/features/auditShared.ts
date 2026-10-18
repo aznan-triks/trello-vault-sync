@@ -9,6 +9,8 @@ export interface AuditOptions {
 	timestamp: string;
 	/** Folders skipped regardless of link state. */
 	excludedFolders?: string[];
+	/** Cards the user chose to stop creating notes for: not reported as orphan cards. */
+	ignoredCardIds?: ReadonlySet<string>;
 	/** Create the report note when missing instead of throwing. */
 	autoCreateReportNote?: boolean;
 }

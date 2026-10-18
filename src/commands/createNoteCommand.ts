@@ -185,7 +185,8 @@ export async function createNoteFromOrphanCard(ctx: CommandContext): Promise<voi
 	await ctx.run("Load Trello cards", async (reporter, signal) => {
 		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId, undefined, signal);
 		const linkedCardIds = new Set(buildCardIndex(ctx.vault, ctx.vault.listNotes("")).keys());
-		const allOrphans = unlinkedCards(cards, linkedCardIds);
+		const ignored = ctx.ignoredCardIds?.();
+		const allOrphans = unlinkedCards(cards, linkedCardIds).filter((card) => !ignored?.has(card.id));
 		const orphanCards = filterOrphanCardsByScope(allOrphans, ctx.settings.mappings, ctx.settings.orphanCardScope);
 
 		if (orphanCards.length === 0) {

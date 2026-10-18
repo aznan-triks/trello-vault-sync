@@ -1,3 +1,4 @@
+import type { IgnoredCards } from "./deletedNotes";
 import type { JournalEntry } from "./journal";
 import type { SyncAction, SyncRun } from "./syncHistory";
 
@@ -8,6 +9,29 @@ export interface PersistedData {
 	history: SyncRun[];
 	/** Epoch ms of the last successful sync (manual or auto) — the auto-sync timer counts from it, across restarts. */
 	lastSyncAt: number | null;
+	/** List id -> ids of its cards that had a note at the last successful pass (how a deleted note is told from a new card). */
+	knownLinks: Record<string, string[]>;
+	/** Cards that must never get a note again, by card id. */
+	ignoredCards: IgnoredCards;
+}
+
+function normalizeKnownLinks(raw: unknown): Record<string, string[]> {
+	const out: Record<string, string[]> = {};
+	if (typeof raw !== "object" || raw === null) return out;
+	for (const [listId, ids] of Object.entries(raw)) {
+		if (Array.isArray(ids)) out[listId] = ids.filter((id): id is string => typeof id === "string");
+	}
+	return out;
+}
+
+function normalizeIgnoredCards(raw: unknown): IgnoredCards {
+	const out: IgnoredCards = {};
+	if (typeof raw !== "object" || raw === null) return out;
+	for (const [cardId, entry] of Object.entries(raw)) {
+		const e = entry as { name?: unknown; since?: unknown } | null;
+		if (typeof e?.name === "string" && typeof e.since === "string") out[cardId] = { name: e.name, since: e.since };
+	}
+	return out;
 }
 
 function isJournalEntry(value: unknown): value is JournalEntry {
@@ -66,16 +90,25 @@ function isSyncRun(value: unknown): value is SyncRun {
  */
 export function normalizePersistedData(raw: unknown): PersistedData {
 	const hasSettingsKey = typeof raw === "object" && raw !== null && "settings" in raw;
-	if (!hasSettingsKey) return { settingsRaw: raw, journal: [], history: [], lastSyncAt: null };
+	if (!hasSettingsKey) return { settingsRaw: raw, journal: [], history: [], lastSyncAt: null, knownLinks: {}, ignoredCards: {} };
 
-	const { settings, journal: rawJournal, history: rawHistory, lastSyncAt: rawLastSyncAt } = raw as {
+	const { settings, journal: rawJournal, history: rawHistory, lastSyncAt: rawLastSyncAt, knownLinks: rawKnown, ignoredCards: rawIgnored } = raw as {
 		settings: unknown;
 		journal?: unknown;
 		history?: unknown;
 		lastSyncAt?: unknown;
+		knownLinks?: unknown;
+		ignoredCards?: unknown;
 	};
 	const journal = Array.isArray(rawJournal) ? rawJournal.filter(isJournalEntry) : [];
 	const history = Array.isArray(rawHistory) ? rawHistory.filter(isSyncRun) : [];
 	const lastSyncAt = typeof rawLastSyncAt === "number" && Number.isFinite(rawLastSyncAt) ? rawLastSyncAt : null;
-	return { settingsRaw: settings, journal, history, lastSyncAt };
+	return {
+		settingsRaw: settings,
+		journal,
+		history,
+		lastSyncAt,
+		knownLinks: normalizeKnownLinks(rawKnown),
+		ignoredCards: normalizeIgnoredCards(rawIgnored),
+	};
 }

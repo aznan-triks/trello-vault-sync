@@ -901,3 +901,66 @@ describe("syncFolder — embedded card details", () => {
 		expect(requests.filter((r) => r.url.includes("/cards/c1/"))).toHaveLength(2);
 	});
 });
+
+describe("syncFolder — a note the user deleted", () => {
+	type Update = Parameters<NonNullable<FolderSyncOptions["deletedNotes"]>["record"]>[0];
+	function run(
+		rule: "ignore-card" | "archive-card" | "recreate",
+		{ known = ["c1"], ignored = [] as string[], dryRun = false, notes = {} as Record<string, { content: string }> } = {},
+	) {
+		const vault = new FakeVault(notes);
+		const updates: Update[] = [];
+		const { transport, requests } = routedTransport({ "/lists/l1/cards": [card({ id: "c1", name: "Sagondo" })], "/boards/board/cards": [] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const deletedNotes = { rule, knownLinks: () => new Set(known), ignoredIds: new Set(ignored), record: (u: Update) => updates.push(u) };
+		const done = syncFolder(vault, client, MAPPING, { ...options, dryRun, deletedNotes });
+		return { vault, updates, requests, done };
+	}
+
+	test("ignore-card: the note is not recreated and the card is remembered as ignored", async () => {
+		const { vault, updates, done } = run("ignore-card");
+		const stats = await done;
+		expect(vault.paths()).toEqual([]);
+		expect(stats.ignored).toBe(1);
+		expect(updates[0]?.newlyIgnored).toEqual([{ id: "c1", name: "Sagondo" }]);
+	});
+
+	test("recreate: the note comes back", async () => {
+		const { vault, done } = run("recreate");
+		await done;
+		expect(vault.paths()).toEqual([`${FOLDER}/Sagondo.md`]);
+	});
+
+	test("archive-card: the card is archived on Trello, no note", async () => {
+		const { vault, requests, done } = run("archive-card");
+		await done;
+		expect(vault.paths()).toEqual([]);
+		const put = requests.find((r) => r.method === "PUT");
+		expect(put?.url).toContain("/cards/c1");
+		expect(put?.url + String(put?.body)).toContain("closed=true");
+	});
+
+	test("a card never seen linked is created as usual", async () => {
+		const { vault, done } = run("ignore-card", { known: [] });
+		await done;
+		expect(vault.paths()).toEqual([`${FOLDER}/Sagondo.md`]);
+	});
+
+	test("an ignored card gets no note, and is released once a note carries it again", async () => {
+		const first = run("ignore-card", { known: [], ignored: ["c1"] });
+		await first.done;
+		expect(first.vault.paths()).toEqual([]);
+
+		const second = run("ignore-card", { known: [], ignored: ["c1"], notes: { "Other/x.md": { content: linked("c1", "b") } } });
+		await second.done;
+		expect(second.updates[0]?.unignored).toEqual(["c1"]);
+	});
+
+	test("dry-run writes nothing and remembers nothing", async () => {
+		const { vault, updates, requests, done } = run("ignore-card", { dryRun: true });
+		await done;
+		expect(vault.paths()).toEqual([]);
+		expect(updates).toEqual([]);
+		expect(requests.filter((r) => r.method !== "GET")).toEqual([]);
+	});
+});

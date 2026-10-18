@@ -56,6 +56,7 @@ const COUNT_LABELS: Record<string, string> = {
 	unlinked: "unlinked",
 	detached: "unlinked (card gone)",
 	relocated: "moved to another folder",
+	ignored: "ignored",
 	errors: "errors",
 	orphanCards: "orphan cards",
 	unlinkedNotes: "unlinked notes",
