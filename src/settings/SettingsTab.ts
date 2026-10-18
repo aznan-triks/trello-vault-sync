@@ -9,6 +9,7 @@ import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
+import { mergeScannedLabels, type LabelPropertyDirection } from "../core/labelProperty";
 import type { OnLinkedNoteDeleted } from "../core/deletedNotes";
 import type { OnCardArchived, OnCardDeleted, OnCardMoved } from "../core/cardFate";
 import type { LabelSyncMode } from "../core/labelMerge";
@@ -84,6 +85,26 @@ const ON_LINKED_NOTE_DELETED_LABELS: Record<OnLinkedNoteDeleted, string> = {
 	recreate: "Create the note again",
 };
 
+const LABEL_PROPERTY_DIRECTION_LABELS: Record<LabelPropertyDirection, string> = {
+	both: "Both ways",
+	"to-note": "Trello labels to note properties only",
+	"to-trello": "Note properties to Trello labels only",
+};
+
+/** Trello's fixed label palette (the part before any "_dark"/"_light" suffix) as CSS colors. */
+const TRELLO_LABEL_COLORS: Record<string, string> = {
+	green: "#4bce97",
+	yellow: "#e2b203",
+	orange: "#fea362",
+	red: "#f87168",
+	purple: "#9f8fef",
+	blue: "#579dff",
+	sky: "#6cc3e0",
+	lime: "#94c748",
+	pink: "#e774bb",
+	black: "#8590a2",
+};
+
 const CHANGELOG_RAW_URL = "https://raw.githubusercontent.com/aznan-triks/trello-vault-sync/master/CHANGELOG.md";
 const CHANGELOG_REPO_URL = "https://github.com/aznan-triks/trello-vault-sync/blob/master/CHANGELOG.md";
 
@@ -106,6 +127,8 @@ const SETTINGS_TABS: TabDefinition[] = [
 
 export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	private listNames = new Map<string, string>();
+	/** Label ids the last scan found deleted on Trello (rows kept for the user to remove). */
+	private goneLabels = new Set<string>();
 	private boardName: string | null = null;
 	private activeTab: SettingsTabId = "general";
 	private searchQuery = "";
@@ -879,6 +902,113 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 				});
 			});
+
+		this.renderLabelProperties(root);
+	}
+
+	/** Property names already used in the vault's notes, for the key field's suggestions - computed once per render. */
+	private propertyKeyCandidates(): string[] {
+		const keys = new Set<string>();
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			for (const key of Object.keys(this.app.metadataCache.getFileCache(file)?.frontmatter ?? {})) keys.add(key);
+		}
+		keys.delete("position");
+		return [...keys].sort();
+	}
+
+	private renderLabelProperties(root: HTMLElement): void {
+		const settings = this.plugin.settings;
+		new Setting(root).setName("Labels to properties").setHeading();
+		root.createEl("p", {
+			cls: "setting-item-description",
+			text: "Turn a Trello label into a note property: label \"NPC\" can write type: npc, label \"Urgent\" priority: high. A label counts as present on the note when all its values are in the property. Rows with an empty key or no value do nothing.",
+		});
+
+		new Setting(root)
+			.setName("Sync labels to properties")
+			.setDesc("Master switch. Without a filled-in row below nothing changes.")
+			.addToggle((toggle) =>
+				toggle.setValue(settings.labelPropertySync).onChange((value) => {
+					settings.labelPropertySync = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Direction")
+			.setDesc("Both ways, only from Trello into the notes, or only from the notes onto the cards.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(LABEL_PROPERTY_DIRECTION_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(settings.labelPropertyDirection).onChange((value) => {
+					settings.labelPropertyDirection = value as LabelPropertyDirection;
+					void this.save();
+				});
+			});
+
+		new Setting(root)
+			.setName("Propagate removals")
+			.setDesc("When a pull takes a label off the card, its values leave the property; when a push finds a mapped value missing, the label leaves the card. Off: values and labels are only ever added.")
+			.addToggle((toggle) =>
+				toggle.setValue(settings.labelPropertyRemoveValues).onChange((value) => {
+					settings.labelPropertyRemoveValues = value;
+					void this.save();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Scan board labels")
+			.setDesc("Adds a row for every label of the board that has none, and refreshes the names and colors of the others.")
+			.addButton((button) =>
+				button.setButtonText("Scan board labels").onClick(() => void this.scanLabels(button)),
+			);
+
+		const keys = this.propertyKeyCandidates();
+		for (const row of settings.labelPropertyMappings) {
+			const setting = new Setting(root);
+			const dot = setting.nameEl.createSpan({ cls: "tvs-label-dot" });
+			dot.setCssProps({ "--tvs-label-color": TRELLO_LABEL_COLORS[(row.labelColor ?? "").split("_")[0] ?? ""] ?? "var(--text-faint)" });
+			setting.nameEl.appendText(row.labelName === "" ? "(no name)" : row.labelName);
+			if (this.goneLabels.has(row.labelId)) setting.setDesc("Deleted on Trello - remove this row.");
+			setting
+				.addText((text) => {
+					text.setPlaceholder("Property").setValue(row.key).onChange((value) => {
+						row.key = value.trim();
+						void this.save();
+					});
+					new VaultPathSuggest(this.app, text.inputEl, () => keys);
+				})
+				.addText((text) =>
+					text.setPlaceholder("Value, value...").setValue(row.values.join(", ")).onChange((value) => {
+						row.values = value.split(",").map((v) => v.trim()).filter((v) => v !== "");
+						void this.save();
+					}),
+				)
+				.addExtraButton((button) =>
+					button.setIcon("trash").setTooltip("Remove this row").onClick(() => {
+						settings.labelPropertyMappings = settings.labelPropertyMappings.filter((r) => r !== row);
+						void this.save();
+						this.display();
+					}),
+				);
+		}
+	}
+
+	private async scanLabels(button: ButtonComponent): Promise<void> {
+		button.setDisabled(true);
+		try {
+			const labels = await this.plugin.client().getBoardLabels(this.plugin.settings.boardId);
+			const { mappings, gone } = mergeScannedLabels(this.plugin.settings.labelPropertyMappings, labels);
+			this.plugin.settings.labelPropertyMappings = mappings;
+			this.goneLabels = gone;
+			await this.save();
+			new Notice(`${labels.length} label(s) on the board.`);
+			this.display();
+		} catch (error) {
+			new Notice(`❌ ${errorMessage(error)}`);
+			console.error("[trello-vault-sync]", error);
+		} finally {
+			button.setDisabled(false);
+		}
 	}
 
 	private renderAttachments(root: HTMLElement): void {

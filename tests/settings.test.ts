@@ -587,3 +587,14 @@ describe("normalizeSettings — onLinkedNoteDeleted", () => {
 		expect(normalizeSettings({ onLinkedNoteDeleted: "recreate" }).onLinkedNoteDeleted).toBe("recreate");
 	});
 });
+
+describe("normalizeSettings — label properties", () => {
+	test("keeps well-formed rows, cleans values, drops rows without a label id", () => {
+		const s = normalizeSettings({
+			labelPropertyDirection: "sideways",
+			labelPropertyMappings: [{ labelId: "L1", labelName: "A", key: " type ", values: [" x ", "", 3] }, { key: "k" }, null],
+		});
+		expect(s.labelPropertyDirection).toBe("both");
+		expect(s.labelPropertyMappings).toEqual([{ labelId: "L1", labelName: "A", labelColor: null, key: "type", values: ["x"] }]);
+	});
+});

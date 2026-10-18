@@ -1654,3 +1654,12 @@
 .tvs-settings__search-jump.is-hidden {
 	display: none;
 }
+
+.tvs-label-dot {
+	display: inline-block;
+	width: 0.7em;
+	height: 0.7em;
+	margin-right: 0.5em;
+	border-radius: 50%;
+	background: var(--tvs-label-color, var(--text-faint));
+}
