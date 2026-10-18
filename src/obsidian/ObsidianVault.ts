@@ -107,6 +107,9 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 
 	async rename(note: NoteHandle, newPath: string): Promise<NoteHandle> {
 		const file = this.toFile(note);
+		// Moving a note to a mapped folder that doesn't exist yet (a new mapping, or a folder the user
+		// typed by hand) failed with ENOENT: `renameFile` doesn't create the parent folder, `create` does.
+		await this.ensureParentFolder(newPath);
 		await this.app.fileManager.renameFile(file, newPath);
 		return this.toHandle(file);
 	}

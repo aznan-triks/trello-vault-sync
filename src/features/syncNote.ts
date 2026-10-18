@@ -841,6 +841,14 @@ async function syncNoteWithCardUnguarded(
 	const syncDue = options.syncDue !== false;
 	const syncLabels = options.syncLabels !== false;
 
+	/**
+	 * Labels-to-properties honours an explicit Pull/Push even when nothing else differs. `direction` is
+	 * "skip" as soon as title, body and due date are identical, and a removal only travels on a push:
+	 * without this, taking a mapped value out of the note was re-added from the card and the label never
+	 * left it, whatever command was run.
+	 */
+	const labelDirection = direction === "skip" ? (options.force ?? "skip") : direction;
+
 	// Independent of the direction decided above for title/body/due — each step
 	// below can write the note, and runs even when that direction ends up "skip"
 	// or "conflict". `stale` tracks whether `content` may no longer match the file:
@@ -854,7 +862,7 @@ async function syncNoteWithCardUnguarded(
 	}
 
 	if (options.labelProperties && !options.dryRun && !signal?.aborted) {
-		const wrote = await convergeLabelProperties(vault, client, note, card, options.labelProperties, direction, options.onTrelloWrite, signal);
+		const wrote = await convergeLabelProperties(vault, client, note, card, options.labelProperties, labelDirection, options.onTrelloWrite, signal);
 		stale = stale || wrote;
 	}
 
