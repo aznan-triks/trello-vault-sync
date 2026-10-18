@@ -136,9 +136,42 @@ export interface TrelloList {
 	name: string;
 }
 
+export interface TrelloComment {
+	id: string;
+	date: string;
+	idMemberCreator: string;
+	data: { text: string };
+	memberCreator?: { fullName: string; avatarUrl?: string | null };
+}
+
+/** A card with everything the card view shows, fetched in one request. */
+export interface TrelloCardView extends TrelloCard {
+	list?: TrelloList;
+	members?: TrelloMember[];
+	/** Comments only (`actions=commentCard`), newest first. */
+	actions?: TrelloComment[];
+	dueComplete?: boolean;
+	start?: string | null;
+}
+
+/** The value of one custom-field item as Trello expects it; `null` clears the field. */
+export type CustomFieldValue =
+	| { text: string }
+	| { number: string }
+	| { date: string }
+	| { checked: "true" | "false" }
+	| { idValue: string }
+	| null;
+
 export interface TrelloBoard {
 	id: string;
 	name: string;
+}
+
+/** Trello wants a "list" choice as `{ idValue }` and any other value wrapped in `{ value }`; both fields empty clears it. */
+function customFieldBody(value: CustomFieldValue): object {
+	if (value === null) return { value: "", idValue: "" };
+	return "idValue" in value ? value : { value };
 }
 
 export class TrelloError extends Error {
@@ -407,10 +440,24 @@ export class TrelloClient {
 	 */
 	async updateCard(
 		cardId: string,
-		fields: { name?: string; desc?: string; due?: string | null; idLabels?: string[]; closed?: boolean },
+		fields: {
+			name?: string;
+			desc?: string;
+			due?: string | null;
+			dueComplete?: boolean;
+			idLabels?: string[];
+			idMembers?: string[];
+			idList?: string;
+			pos?: "top" | "bottom";
+			closed?: boolean;
+		},
 		signal?: AbortSignal,
 	): Promise<void> {
 		const body = new URLSearchParams();
+		if (fields.dueComplete !== undefined) body.append("dueComplete", String(fields.dueComplete));
+		if (fields.idMembers !== undefined) body.append("idMembers", fields.idMembers.join(","));
+		if (fields.idList !== undefined) body.append("idList", fields.idList);
+		if (fields.pos !== undefined) body.append("pos", fields.pos);
 		if (fields.name !== undefined) body.append("name", fields.name);
 		if (fields.desc !== undefined) body.append("desc", fields.desc);
 		if (fields.due !== undefined) body.append("due", fields.due === null ? "null" : fields.due);
@@ -426,6 +473,107 @@ export class TrelloClient {
 				url: this.buildUrl(`/cards/${encodeURIComponent(cardId)}`, {}),
 				method: "PUT",
 				body: body.toString(),
+				contentType: "application/x-www-form-urlencoded",
+			},
+			signal,
+		);
+	}
+
+	/** Everything the card view shows - list, members, checklists, attachments, custom-field values and comments - in a single request. */
+	async getCardView(cardId: string, commentsLimit: number, signal?: AbortSignal): Promise<TrelloCardView> {
+		const params: Record<string, string> = {
+			fields: CARD_FIELDS,
+			...CARD_COVER_PARAMS,
+			...CARD_CUSTOM_FIELD_PARAMS,
+			list: "true",
+			members: "true",
+			checklists: "all",
+			checklist_fields: CHECKLIST_FIELDS,
+			checkItem_fields: CHECK_ITEM_FIELDS,
+			attachments: "true",
+			attachment_fields: ATTACHMENT_FIELDS,
+		};
+		if (commentsLimit > 0) {
+			params.actions = "commentCard";
+			params.actions_limit = String(commentsLimit);
+			params.action_memberCreator_fields = MEMBER_CREATOR_FIELDS;
+		}
+		return this.json<TrelloCardView>(`/cards/${encodeURIComponent(cardId)}`, params, signal);
+	}
+
+	/** The token's owner - tells the card view which comments are theirs to edit. */
+	async getMe(signal?: AbortSignal): Promise<TrelloMember> {
+		return this.json<TrelloMember>("/members/me", { fields: MEMBER_FIELDS }, signal);
+	}
+
+	async addComment(cardId: string, text: string, signal?: AbortSignal): Promise<TrelloComment> {
+		const response = await this.send(
+			{
+				url: this.buildUrl(`/cards/${encodeURIComponent(cardId)}/actions/comments`, {}),
+				method: "POST",
+				body: new URLSearchParams({ text }).toString(),
+				contentType: "application/x-www-form-urlencoded",
+			},
+			signal,
+		);
+		return this.parse<TrelloComment>(response);
+	}
+
+	async updateComment(cardId: string, actionId: string, text: string, signal?: AbortSignal): Promise<void> {
+		await this.send(
+			{
+				url: this.buildUrl(`/cards/${encodeURIComponent(cardId)}/actions/${encodeURIComponent(actionId)}/comments`, {}),
+				method: "PUT",
+				body: new URLSearchParams({ text }).toString(),
+				contentType: "application/x-www-form-urlencoded",
+			},
+			signal,
+		);
+	}
+
+	async addCheckItem(checklistId: string, name: string, signal?: AbortSignal): Promise<void> {
+		await this.send(
+			{
+				url: this.buildUrl(`/checklists/${encodeURIComponent(checklistId)}/checkItems`, {}),
+				method: "POST",
+				body: new URLSearchParams({ name }).toString(),
+				contentType: "application/x-www-form-urlencoded",
+			},
+			signal,
+		);
+	}
+
+	async renameCheckItem(cardId: string, checkItemId: string, name: string, signal?: AbortSignal): Promise<void> {
+		await this.send(
+			{
+				url: this.buildUrl(`/cards/${encodeURIComponent(cardId)}/checkItem/${encodeURIComponent(checkItemId)}`, {}),
+				method: "PUT",
+				body: new URLSearchParams({ name }).toString(),
+				contentType: "application/x-www-form-urlencoded",
+			},
+			signal,
+		);
+	}
+
+	/** Sets (or, with `null`, clears) one custom field on a card. The body is JSON: Trello does not take a nested value as a form field. */
+	async setCustomFieldItem(cardId: string, customFieldId: string, value: CustomFieldValue, signal?: AbortSignal): Promise<void> {
+		await this.send(
+			{
+				url: this.buildUrl(`/cards/${encodeURIComponent(cardId)}/customField/${encodeURIComponent(customFieldId)}/item`, {}),
+				method: "PUT",
+				body: JSON.stringify(customFieldBody(value)),
+				contentType: "application/json",
+			},
+			signal,
+		);
+	}
+
+	async addUrlAttachment(cardId: string, url: string, name: string, signal?: AbortSignal): Promise<void> {
+		await this.send(
+			{
+				url: this.buildUrl(`/cards/${encodeURIComponent(cardId)}/attachments`, {}),
+				method: "POST",
+				body: new URLSearchParams({ url, name }).toString(),
 				contentType: "application/x-www-form-urlencoded",
 			},
 			signal,
@@ -479,6 +627,14 @@ export class TrelloClient {
 			token: this.credentials.token,
 		});
 		return `${API_ROOT}${path}?${query.toString()}`;
+	}
+
+	private parse<T>(response: HttpResponse): T {
+		try {
+			return JSON.parse(response.text) as T;
+		} catch {
+			throw new TrelloError("Unreadable Trello response (invalid JSON).", response.status, false);
+		}
 	}
 
 	private async json<T>(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
