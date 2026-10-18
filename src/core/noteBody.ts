@@ -102,3 +102,96 @@ export function replaceBody(content: string, body: string, checklistHeading?: st
 	const next = frontmatter === null ? `${finalBody}\n` : `${frontmatter}\n\n${finalBody}`;
 	return next === content ? content : next;
 }
+
+/**
+ * Checks whether a note body contains the specified checklist heading.
+ * Ignores frontmatter fences and matches trimmed whole lines in the body.
+ */
+export function hasChecklistSection(content: string, heading: string): boolean {
+	const trimmedHeading = heading.trim();
+	if (!trimmedHeading) return false;
+	const { body } = splitFrontmatter(content);
+	const lines = body.split("\n");
+	return lines.some((line) => line.trim() === trimmedHeading);
+}
+
+/**
+ * Removes the checklist section under `heading` from note `content`.
+ * Preserves frontmatter, preceding body prose, and any trailing user content
+ * below the checklist block, while maintaining original CRLF/LF line endings.
+ */
+export function removeChecklistSection(content: string, heading: string): string {
+	const trimmedHeading = heading.trim();
+	if (!trimmedHeading) return content;
+
+	const isCrlf = content.includes("\r\n");
+	const normalizedContent = isCrlf ? content.replace(/\r\n/g, "\n") : content;
+	const { frontmatter, body } = splitFrontmatter(normalizedContent);
+
+	const lines = body.split("\n");
+	const headingIndex = lines.findLastIndex((line) => line.trim() === trimmedHeading);
+	if (headingIndex === -1) return content;
+
+	const headingMatch = trimmedHeading.match(/^(#+)/);
+	const headingLevel = headingMatch && headingMatch[1] ? headingMatch[1].length : 0;
+
+	let endIndex = lines.length;
+	for (let i = headingIndex + 1; i < lines.length; i++) {
+		const line = lines[i] ?? "";
+		const trimmed = line.trim();
+
+		if (trimmed === "") continue;
+
+		const subMatch = trimmed.match(/^(#+)\s+/);
+		if (subMatch && subMatch[1]) {
+			const subLevel = subMatch[1].length;
+			if (headingLevel > 0 && subLevel > headingLevel) {
+				// Subheading under this checklist section (e.g. ### under ##)
+				continue;
+			} else {
+				// Same or higher level heading -> checklist section ended
+				endIndex = i;
+				break;
+			}
+		}
+
+		if (/^[-*]\s*\[[ xX]\]/.test(trimmed)) continue;
+		if (/^(\s{2,}|\t)/.test(line)) continue;
+
+		// Non-checklist prose encountered -> checklist section ended
+		endIndex = i;
+		break;
+	}
+
+	const beforeLines = lines.slice(0, headingIndex);
+	const afterLines = lines.slice(endIndex);
+
+	while (beforeLines.length > 0 && (beforeLines[beforeLines.length - 1] ?? "").trim() === "") {
+		beforeLines.pop();
+	}
+	while (afterLines.length > 0 && (afterLines[0] ?? "").trim() === "") {
+		afterLines.shift();
+	}
+
+	const beforeText = beforeLines.join("\n").trim();
+	const afterText = afterLines.join("\n").trim();
+
+	let newBody = "";
+	if (beforeText && afterText) {
+		newBody = `${beforeText}\n\n${afterText}`;
+	} else if (beforeText) {
+		newBody = beforeText;
+	} else if (afterText) {
+		newBody = afterText;
+	}
+
+	let next = "";
+	if (frontmatter === null) {
+		next = newBody === "" ? "" : `${newBody}\n`;
+	} else {
+		next = newBody === "" ? `${frontmatter}\n` : `${frontmatter}\n\n${newBody}\n`;
+	}
+
+	return isCrlf ? next.replace(/\n/g, "\r\n") : next;
+}
+

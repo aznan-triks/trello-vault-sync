@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { fingerprint, type BodyOrFrontmatterAction, type SyncAction } from "../src/core/syncHistory";
+import { fingerprint, type BodyOrFrontmatterAction, type SyncAction, type SyncRun } from "../src/core/syncHistory";
+import { undoRun } from "../src/features/rollback";
 import { wrapWithHistoryRecorder } from "../src/features/syncHistoryRecorder";
 import { syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
 import { TrelloClient } from "../src/trello/client";
@@ -102,5 +103,89 @@ describe("wrapWithHistoryRecorder", () => {
 		wrapped.readFrontmatter(vault.note("n.md"));
 		wrapped.getCardRef(vault.note("n.md"));
 		expect(actions).toEqual([]);
+	});
+
+	test("write() with keepMtime: true preserves mtime, records history action, and can be undone", async () => {
+		const initialMtime = 12345;
+		const vault = new FakeVault({ "n.md": { content: "original body", mtime: initialMtime } });
+		const { wrapped, actions } = recorder(vault);
+
+		await wrapped.write(vault.note("n.md"), "updated body", { keepMtime: true });
+
+		// 1. mtime remains identical
+		expect(vault.note("n.md").mtime).toBe(initialMtime);
+		expect(vault.contentOf("n.md")).toBe("updated body");
+
+		// 2. history action is recorded
+		expect(actions).toEqual([
+			{
+				kind: "body",
+				path: "n.md",
+				previousContent: "original body",
+				fingerprint: fingerprint("updated body"),
+			},
+		]);
+
+		// 3. rollback successfully restores previous content
+		const run: SyncRun = {
+			timestamp: "2026-10-18T00:00:00.000Z",
+			scope: "n.md",
+			actions,
+		};
+		const { stats } = await undoRun(vault, run);
+		expect(stats).toEqual({ reverted: 1, revertedRemote: 0, skipped: 0 });
+		expect(vault.contentOf("n.md")).toBe("original body");
+	});
+
+	test("writeFrontmatter() with keepMtime: true preserves mtime, records history action, and can be undone", async () => {
+		const initialContent = '---\ndue: "2026-10-18"\nstatus: "open"\n---\n\nbody text';
+		const initialMtime = 54321;
+		const vault = new FakeVault({ "n.md": { content: initialContent, mtime: initialMtime } });
+		const { wrapped, actions } = recorder(vault);
+
+		await wrapped.writeFrontmatter(
+			vault.note("n.md"),
+			(fm) => {
+				delete fm.due;
+			},
+			{ keepMtime: true },
+		);
+
+		// 1. mtime remains identical
+		expect(vault.note("n.md").mtime).toBe(initialMtime);
+		expect(vault.readFrontmatter(vault.note("n.md"))).toEqual({ status: "open" });
+
+		// 2. history action is recorded
+		expect(actions).toHaveLength(1);
+		expect(actions[0]?.kind).toBe("frontmatter");
+		expect(actions[0]).toMatchObject({
+			path: "n.md",
+			previousContent: initialContent,
+			fingerprint: fingerprint(vault.contentOf("n.md")),
+		});
+
+		// 3. rollback successfully restores previous content
+		const run: SyncRun = {
+			timestamp: "2026-10-18T00:00:00.000Z",
+			scope: "n.md",
+			actions,
+		};
+		const { stats } = await undoRun(vault, run);
+		expect(stats).toEqual({ reverted: 1, revertedRemote: 0, skipped: 0 });
+		expect(vault.contentOf("n.md")).toBe(initialContent);
+	});
+
+	test("write() and writeFrontmatter() without keepMtime bump mtime normally", async () => {
+		const initialMtime = 1000;
+		const vault = new FakeVault({ "n.md": { content: "initial", mtime: initialMtime } });
+		const { wrapped } = recorder(vault);
+
+		await wrapped.write(vault.note("n.md"), "second");
+		expect(vault.note("n.md").mtime).toBe(initialMtime + 1);
+
+		await wrapped.writeFrontmatter(vault.note("n.md"), (fm) => {
+			fm.foo = "bar";
+		});
+		expect(vault.note("n.md").mtime).toBe(initialMtime + 2);
 	});
 });

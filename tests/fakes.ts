@@ -2,7 +2,7 @@ import { DEFAULT_CARD_FATE_RULES } from "../src/core/cardFate";
 import { DEFAULT_CARD_REF_KEY, formatCardRef, parseCardRef, type CardRef } from "../src/core/cardRef";
 import { excludeFolders } from "../src/core/fileName";
 import { splitFrontmatter } from "../src/core/noteBody";
-import type { CardRefStore, NoteHandle, Reporter, TemplateResolver, VaultGateway } from "../src/obsidian/gateway";
+import type { CardRefStore, NoteHandle, Reporter, TemplateResolver, VaultGateway, WriteOptions } from "../src/obsidian/gateway";
 import { TrelloClient, type HttpRequest, type HttpResponse, type TrelloCard } from "../src/trello/client";
 
 /** In-memory vault, faithful enough to exercise the engines end to end. */
@@ -159,14 +159,18 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 		return frontmatter === null ? null : this.parseFrontmatterBlock(frontmatter);
 	}
 
-	async writeFrontmatter(note: NoteHandle, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void> {
+	async writeFrontmatter(
+		note: NoteHandle,
+		mutate: (frontmatter: Record<string, unknown>) => void,
+		options?: WriteOptions,
+	): Promise<void> {
 		const content = this.contentOf(note.path);
 		const { frontmatter, body } = splitFrontmatter(content);
 		const parsed = frontmatter === null ? {} : this.parseFrontmatterBlock(frontmatter);
 		mutate(parsed);
 		const block = this.serializeFrontmatterBlock(parsed);
 		const next = frontmatter === null ? `${block}\n\n${content}` : `${block}${body}`;
-		await this.write(note, next);
+		await this.write(note, next, options);
 	}
 
 	async setCardRef(note: NoteHandle, ref: CardRef): Promise<void> {
@@ -179,9 +183,10 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 		return this.contentOf(note.path);
 	}
 
-	async write(note: NoteHandle, content: string): Promise<void> {
+	async write(note: NoteHandle, content: string, options?: WriteOptions): Promise<void> {
 		const previous = this.files.get(note.path);
-		this.files.set(note.path, { content, mtime: (previous?.mtime ?? 0) + 1 });
+		const mtime = options?.keepMtime ? (previous?.mtime ?? note.mtime) : (previous?.mtime ?? 0) + 1;
+		this.files.set(note.path, { content, mtime });
 	}
 
 	async rename(note: NoteHandle, newPath: string): Promise<NoteHandle> {

@@ -622,3 +622,73 @@ describe("normalizeSettings — formerly hard-coded values", () => {
 		expect(s.orphanCardGroupPrefix).toBe("## X ");
 	});
 });
+
+describe("normalizeSettings — Milestone 5 settings alignment", () => {
+	test("cleanUpDuringSync defaults to true and preserves explicit false", () => {
+		expect(normalizeSettings({}).cleanUpDuringSync).toBe(true);
+		expect(normalizeSettings({ cleanUpDuringSync: false }).cleanUpDuringSync).toBe(false);
+		expect(normalizeSettings({ cleanUpDuringSync: true }).cleanUpDuringSync).toBe(true);
+	});
+
+	test("cleanUpDuringSync falls back to true when corrupted or non-boolean", () => {
+		expect(normalizeSettings({ cleanUpDuringSync: "invalid" as unknown as boolean }).cleanUpDuringSync).toBe(true);
+		expect(normalizeSettings({ cleanUpDuringSync: null as unknown as boolean }).cleanUpDuringSync).toBe(true);
+		expect(normalizeSettings({ cleanUpDuringSync: 42 as unknown as boolean }).cleanUpDuringSync).toBe(true);
+	});
+
+	test("keyMigrations defaults to empty record and preserves valid dictionary", () => {
+		expect(normalizeSettings({}).keyMigrations).toEqual({});
+		expect(
+			normalizeSettings({
+				keyMigrations: {
+					old_due: "trello_due",
+					legacy_labels: "trello_labels",
+				},
+			}).keyMigrations,
+		).toEqual({
+			old_due: "trello_due",
+			legacy_labels: "trello_labels",
+		});
+	});
+
+	test("keyMigrations trims keys/values and drops corrupted or empty entries", () => {
+		const raw = {
+			"  old_key  ": "  new_key  ",
+			"": "empty_source",
+			"empty_target": "",
+			invalid_val: 123 as unknown as string,
+		};
+		expect(normalizeSettings({ keyMigrations: raw }).keyMigrations).toEqual({
+			old_key: "new_key",
+		});
+	});
+
+	test("keyMigrations falls back to empty record when input is not an object", () => {
+		expect(normalizeSettings({ keyMigrations: "not-an-object" as unknown as Record<string, string> }).keyMigrations).toEqual({});
+		expect(normalizeSettings({ keyMigrations: [1, 2, 3] as unknown as Record<string, string> }).keyMigrations).toEqual({});
+		expect(normalizeSettings({ keyMigrations: null as unknown as Record<string, string> }).keyMigrations).toEqual({});
+	});
+
+	test("obsoleteLabelPropertyKeys defaults to empty array and preserves valid string array", () => {
+		expect(normalizeSettings({}).obsoleteLabelPropertyKeys).toEqual([]);
+		expect(
+			normalizeSettings({
+				obsoleteLabelPropertyKeys: ["old_label_prop", "legacy_status"],
+			}).obsoleteLabelPropertyKeys,
+		).toEqual(["old_label_prop", "legacy_status"]);
+	});
+
+	test("obsoleteLabelPropertyKeys trims entries and filters out empty or non-string items", () => {
+		const raw = ["  valid_key  ", "", "   ", 42 as unknown as string, null as unknown as string];
+		expect(normalizeSettings({ obsoleteLabelPropertyKeys: raw }).obsoleteLabelPropertyKeys).toEqual(["valid_key"]);
+	});
+
+	test("obsoleteLabelPropertyKeys falls back to empty array when input is not an array", () => {
+		expect(
+			normalizeSettings({ obsoleteLabelPropertyKeys: "single_key" as unknown as string[] }).obsoleteLabelPropertyKeys,
+		).toEqual([]);
+		expect(
+			normalizeSettings({ obsoleteLabelPropertyKeys: null as unknown as string[] }).obsoleteLabelPropertyKeys,
+		).toEqual([]);
+	});
+});

@@ -1,3 +1,4 @@
+import { alignNotesWithSettings } from "./alignCommand";
 import * as auditCommands from "./auditCommands";
 import { createFromAuditReport } from "./auditReportCreateCommand";
 import type { CommandContext } from "./context";
@@ -251,6 +252,15 @@ export const COMMANDS: CommandDescriptor[] = [
 		description: "Push every linked note in the vault to Trello regardless of which side changed more recently.",
 		tone: "push",
 		run: (ctx) => forceSyncCommands.forcePushVault(ctx),
+	},
+	{
+		id: "clean-up-notes",
+		name: "Clean up notes to match current settings",
+		icon: "eraser",
+		section: "Vault",
+		description: "Prune obsolete frontmatter properties and sync artifacts that are disabled in settings.",
+		tone: "default",
+		run: (ctx) => alignNotesWithSettings(ctx),
 	},
 	{
 		id: "create-note-from-card",

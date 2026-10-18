@@ -306,6 +306,10 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 					(text) => redactSecrets(text, [this.settings.token, this.settings.apiKey]),
 					this.attachmentAuthHeaders(),
 				),
+			cleanUpDuringSync: this.settings.cleanUpDuringSync,
+			writeTrelloPluginNoteId: this.settings.writeTrelloPluginNoteId,
+			obsoleteLabelPropertyKeys: this.settings.obsoleteLabelPropertyKeys,
+			keyMigrations: this.settings.keyMigrations,
 			guard: this.guard,
 			...(this.settings.labelPropertySync && activeMappings(this.settings.labelPropertyMappings).length > 0
 				? {

@@ -284,7 +284,16 @@ export interface TrelloVaultSyncSettings {
 	/** Pull-only — no extra request per note (values ride the card); one extra request per *run* for the field-definition directory. */
 	syncCustomFields: boolean;
 	customFieldsFrontmatterKey: string;
+
+	/** On by default — prunes safe stale frontmatter properties during card syncs with 0 additional Trello requests. */
+	cleanUpDuringSync: boolean;
+	/** Stale property keys left over from removed or disabled labelPropertySync rules. */
+	obsoleteLabelPropertyKeys: string[];
+	/** Configurable key renames/migrations (old frontmatter key -> new target key). */
+	keyMigrations: Record<string, string>;
 }
+
+export const DEFAULT_CLEAN_UP_DURING_SYNC = true;
 
 export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	apiKey: "",
@@ -406,6 +415,9 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	membersFrontmatterKey: DEFAULT_MEMBERS_KEY,
 	syncCustomFields: DEFAULT_SYNC_CUSTOM_FIELDS,
 	customFieldsFrontmatterKey: DEFAULT_CUSTOM_FIELDS_KEY,
+	cleanUpDuringSync: DEFAULT_CLEAN_UP_DURING_SYNC,
+	obsoleteLabelPropertyKeys: [],
+	keyMigrations: {},
 };
 
 /** Bounds for `autoSyncNoteChangeDelaySeconds` — under 2 s every keystroke pause would hit Trello. */
@@ -509,6 +521,29 @@ function normalizeLabelMappings(raw: unknown): LabelPropertyMapping[] {
 			},
 		];
 	});
+}
+
+function normalizeKeyMigrations(raw: unknown): Record<string, string> {
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+	const result: Record<string, string> = {};
+	for (const [key, val] of Object.entries(raw)) {
+		if (typeof key === "string" && typeof val === "string") {
+			const trimmedKey = key.trim();
+			const trimmedVal = val.trim();
+			if (trimmedKey !== "" && trimmedVal !== "") {
+				result[trimmedKey] = trimmedVal;
+			}
+		}
+	}
+	return result;
+}
+
+function normalizeObsoleteLabelPropertyKeys(raw: unknown): string[] {
+	if (!Array.isArray(raw)) return [];
+	return raw
+		.filter((k): k is string => typeof k === "string")
+		.map((k) => k.trim())
+		.filter((k) => k !== "");
 }
 
 /** Settings merged over the defaults, tolerating a partial or legacy payload. */
@@ -712,6 +747,9 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			input.customFieldsFrontmatterKey,
 			DEFAULT_SETTINGS.customFieldsFrontmatterKey,
 		),
+		cleanUpDuringSync: input.cleanUpDuringSync !== false,
+		obsoleteLabelPropertyKeys: normalizeObsoleteLabelPropertyKeys(input.obsoleteLabelPropertyKeys),
+		keyMigrations: normalizeKeyMigrations(input.keyMigrations),
 	};
 	// Retired fields (replaced by the card-change choices) must not linger in data.json.
 	Reflect.deleteProperty(normalized, "allowDelete");
