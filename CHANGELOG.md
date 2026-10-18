@@ -6,6 +6,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.23.0] — 2026-10-18
+
 ### Added
 
 - **Plain**: A **Trello card side panel** ("Open the card view", palette and sidebar) that follows the open note and shows its card: cover, title, list, due date, labels, members, description, checklists, attachments, custom fields and comments. Everything can be edited from it (title, description, due date and done, list, labels, members, checklist items, comments, custom fields, attached links, archive); deleting a comment, a checklist item, an attachment or the card is deliberately not offered (nothing irreversible on Trello). Each card can show or hide sections on its own (gear button). Empty states explain what to do (note not linked, card archived or gone, bad key, rate limit).
