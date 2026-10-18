@@ -43,6 +43,10 @@ CODE_REVIEW_FINDINGS_*.md
 # Tool-specific caches — machine-specific, never versioned.
 .claude/
 .impeccable/
+.agents/
+PROJECT.md
+TEST_INFRA.md
+TEST_READY.md
 
 # Disposable test vault (real credentials for a dedicated test Trello board
 # live in its data.json) — local only, never committed. See NEXT_SESSION.md.

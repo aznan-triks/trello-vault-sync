@@ -49,6 +49,8 @@ import type { TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/sync
 import { buildCardIndex, resolveAttachments } from "./attachmentSync";
 import { downloadAttachments } from "./attachmentDownload";
 import { resolveChecklists } from "./checklistSync";
+import { SAFE_ALIGN_CATEGORIES, type AlignSettings } from "../core/staleProperties";
+import { alignNote } from "./alignNotes";
 import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
 import { applyNoteFate, isUnderAny } from "./noteFate";
 import { decideNoteFate, type CardChange } from "../core/cardFate";
@@ -176,6 +178,13 @@ export interface NoteSyncOptions {
 	trashBlockedFolders?: string[];
 	/** A card taken out of the archive brings its note back from the archive folder into its list's folder. */
 	archiveRestoreOnUnarchive?: boolean;
+	/** On by default — prunes safe stale frontmatter properties during card syncs with 0 additional Trello requests. */
+	cleanUpDuringSync?: boolean;
+	writeTrelloPluginNoteId?: boolean;
+	labelPropertySync?: boolean;
+	labelPropertyMappings?: readonly { key: string; values: readonly string[] }[];
+	obsoleteLabelPropertyKeys?: readonly string[];
+	keyMigrations?: Record<string, string>;
 }
 
 /**
@@ -204,6 +213,8 @@ export interface NoteSyncResult {
 	/** The note after the operation — the path changes on rename. */
 	note: NoteHandle;
 	reason: string;
+	/** Stale property keys pruned or migrated during in-stream alignment. */
+	cleaned?: string[];
 }
 
 /**
@@ -941,18 +952,62 @@ async function syncNoteWithCardUnguarded(
 		stale = stale || wrote;
 	}
 
+	let cleaned: string[] | undefined;
+	const shouldCleanUp = options.cleanUpDuringSync === true;
+	if (shouldCleanUp && !signal?.aborted) {
+		const alignSettings: AlignSettings = {
+			syncDue,
+			dueFrontmatterKey: dueKey,
+			syncLabels,
+			labelsFrontmatterKey: labelsKey,
+			syncMembers: options.syncMembers ?? DEFAULT_SYNC_MEMBERS,
+			membersFrontmatterKey: options.membersFrontmatterKey ?? DEFAULT_MEMBERS_KEY,
+			syncCustomFields: options.syncCustomFields ?? DEFAULT_SYNC_CUSTOM_FIELDS,
+			customFieldsFrontmatterKey: options.customFieldsFrontmatterKey ?? DEFAULT_CUSTOM_FIELDS_KEY,
+			syncAttachments: options.syncAttachments ?? DEFAULT_SYNC_ATTACHMENTS,
+			attachmentsFrontmatterKey: options.attachmentsFrontmatterKey ?? DEFAULT_ATTACHMENTS_KEY,
+			syncLinkedCards: options.syncLinkedCards ?? DEFAULT_SYNC_LINKED_CARDS,
+			linkedCardsFrontmatterKey: options.linkedCardsFrontmatterKey ?? DEFAULT_LINKED_CARDS_KEY,
+			syncCardCover: options.syncCardCover ?? DEFAULT_SYNC_CARD_COVER,
+			coverFrontmatterKey: options.coverFrontmatterKey ?? DEFAULT_COVER_KEY,
+			writeTrelloPluginNoteId: options.writeTrelloPluginNoteId ?? false,
+			syncChecklists,
+			checklistHeading,
+			labelPropertySync: options.labelPropertySync ?? false,
+			labelPropertyMappings: options.labelPropertyMappings ?? [],
+			obsoleteLabelPropertyKeys: options.obsoleteLabelPropertyKeys,
+			keyMigrations: options.keyMigrations,
+		};
+		try {
+			const changes = await alignNote(vault, note, SAFE_ALIGN_CATEGORIES, alignSettings, {
+				dryRun: options.dryRun,
+				keepMtime: true,
+			});
+			if (changes.length > 0) {
+				cleaned = changes.flatMap((c) => c.keys);
+				if (!options.dryRun) {
+					stale = true;
+				}
+			}
+		} catch (error) {
+			if (!signal?.aborted) {
+				console.warn(`[trello-vault-sync] Could not clean up note "${note.path}": ${errorMessage(error)}`);
+			}
+		}
+	}
+
 	if (stale) content = await vault.read(note);
 
 	if (direction === "skip" || direction === "conflict") {
-		return { direction, renamed: false, note, reason: decision.reason };
+		return { direction, renamed: false, note, reason: decision.reason, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
 	}
 
 	if (options.dryRun) {
-		return { direction, renamed: false, note, reason: `${decision.reason} (simulation)` };
+		return { direction, renamed: false, note, reason: `${decision.reason} (simulation)`, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
 	}
 
 	if (signal?.aborted) {
-		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)` };
+		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)`, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
 	}
 
 	if (direction === "pull") {
@@ -991,7 +1046,7 @@ async function syncNoteWithCardUnguarded(
 				renamed = true;
 			}
 		}
-		return { direction, renamed, note: current, reason: decision.reason };
+		return { direction, renamed, note: current, reason: decision.reason, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
 	}
 
 	const fields: { name?: string; desc?: string; due?: string | null; idLabels?: string[] } = {};
@@ -1003,7 +1058,7 @@ async function syncNoteWithCardUnguarded(
 		if (nextRemote !== null) fields.idLabels = await resolveLabelIdsForCard(client, card, nextRemote, signal);
 	}
 	if (signal?.aborted) {
-		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)` };
+		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)`, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
 	}
 	if (Object.keys(fields).length > 0) {
 		await client.updateCard(card.id, fields, signal);
@@ -1016,7 +1071,7 @@ async function syncNoteWithCardUnguarded(
 			options.onTrelloWrite({ kind: "trello-card", path: note.path, cardId: card.id, previous, written: fields });
 		}
 	}
-	return { direction, renamed: false, note, reason: decision.reason };
+	return { direction, renamed: false, note, reason: decision.reason, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
 }
 
 /**

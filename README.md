@@ -61,6 +61,7 @@ command palette.
 | Update every card from its linked note | Push every linked note to its card; a genuine conflict is reported, not overwritten. |
 | Overwrite every linked note with its card | Pull every linked note in the vault from Trello regardless of which side changed more recently. |
 | Overwrite every card with its linked note | Push every linked note in the vault to Trello regardless of which side changed more recently. |
+| Clean up notes to match current settings | Prune obsolete frontmatter properties and sync artifacts that are disabled in settings. |
 
 ### Create
 
@@ -120,6 +121,27 @@ the run. The Cancel button on the progress panel stops a sync between requests,
 but a request already sent to Trello can't be recalled mid-flight; undo can put
 it back afterwards.
 
+### Note cleanup and settings alignment
+
+When you turn off a synchronization toggle (such as due dates, labels, members, custom fields, attachments, or card covers), existing notes in your vault may still hold frontmatter properties written by earlier syncs.
+
+The plugin provides two ways to align your notes with your current settings:
+
+1. **Automatic alignment during sync (`cleanUpDuringSync`)**:
+   Enabled by default (`true`). Whenever a card sync runs (active note, folder, or vault-wide), the plugin automatically checks the note's frontmatter against active settings and prunes safe stale properties in-stream. This check operates entirely locally from cached card and note data and makes **0 extra Trello API requests**.
+
+2. **Manual cleanup command ("Clean up notes to match current settings")**:
+   Available from the command palette, sidebar, and left ribbon. This command scans notes across your configured scope and opens a category selection modal displaying exact affected note counts. You can review categories, choose what to clean, and run the cleanup across all matching notes in a single pass.
+
+3. **Settings helper banners**:
+   When you disable a feature toggle in settings (e.g. "Sync due dates"), an inline helper banner appears directly below the switch showing how many notes still carry that property, along with a button to clean them immediately.
+
+**Safety and non-destructive guarantees:**
+- **Timestamp preservation (`mtime`)**: Both automatic and manual cleanups preserve the file's original modification date. Obsidian and the sync engine will not mistake the cleanup for a user edit, preventing false `local-newer` sync conflicts or accidental overwrites on Trello.
+- **Safe vs. opt-in categories**: Frontmatter keys (`due`, `labels`, `members`, `custom-fields`, `attachments`, `linked-cards`, `cover`, and configurable `key-migration`) are safe to align automatically. Markdown body sections (`Checklists`), third-party plugin note IDs (`trello_plugin_note_id`), and obsolete custom label properties are classified as non-safe user content: they are **never** touched during automatic sync and are left unchecked by default in the manual modal.
+- **Local cover protection**: Turning off cover sync removes remote Trello image URLs while strictly preserving local note covers (vault paths or wikilinks).
+- **100% undoable**: All cleanup mutations are recorded in the sync history and can be completely reverted with **"Undo the last sync"**.
+
 ## Install
 
 Install from Obsidian's **Settings → Community plugins → Browse**, then search
@@ -171,9 +193,11 @@ names below match the settings tab exactly.
   standalone HTML change log page.
 - **Arbitration & safety** — who wins on conflict (newer side, Obsidian always,
   or Trello always), the clock margin before a divergence counts as a real
-  conflict, Sync titles, Dry run, Create missing notes (overridable per
-  mapping), adopting an unlinked note named like a card, and confirmations
-  before a forced sync or an unlink.
+  conflict, Sync titles, Dry run, Clean up notes during sync (automatically
+  prunes safe frontmatter properties of disabled sync features with 0 extra
+  Trello requests), Create missing notes (overridable per mapping), adopting an
+  unlinked note named like a card, and confirmations before a forced sync or an
+  unlink.
 - **When a card changes on Trello** — what a sync does with a note whose card
   was moved to another list (follow it to the matching folder, keep, trash),
   archived (remove the Trello properties — the default —, keep, move to an

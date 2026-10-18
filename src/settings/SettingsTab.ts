@@ -1,14 +1,17 @@
-import { Notice, PluginSettingTab, Setting, requestUrl, type App, type ButtonComponent } from "obsidian";
+import { Notice, PluginSettingTab, Setting, TFile, requestUrl, type App, type ButtonComponent } from "obsidian";
 import type TrelloVaultSyncPlugin from "../main";
 import { ALL_SECTIONS, COMMANDS } from "../commands/registry";
 import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_COVER_KEY, DEFAULT_LINKED_CARDS_KEY } from "../core/attachmentRef";
 import { DEFAULT_CUSTOM_FIELDS_KEY } from "../core/customFieldRef";
 import { DEFAULT_MEMBERS_KEY } from "../core/memberRef";
-import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
+import { DEFAULT_CARD_REF_KEY, DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY, parseCardRef } from "../core/cardRef";
 import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
+import { ALIGN_CATEGORIES, detectStaleChanges, type AlignCategory } from "../core/staleProperties";
+import { alignNotesWithSettings, ALIGN_CATEGORY_LABELS } from "../commands/alignCommand";
+import type { CardRefStore } from "../obsidian/gateway";
 import {
 	ALL_CARD_VIEW_EDITABLE_FIELDS,
 	COMMENTS_LIMIT_CEILING,
@@ -181,6 +184,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	private clTimeEl: HTMLElement | null = null;
 	private clVersionFromSelect: HTMLSelectElement | null = null;
 	private clVersionToSelect: HTMLSelectElement | null = null;
+	private staleCounts: Record<AlignCategory, number> | null = null;
 
 	constructor(
 		app: App,
@@ -190,6 +194,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	override display(): void {
+		this.staleCounts = null;
 		const { containerEl } = this;
 		containerEl.addClass("tvs-settings");
 		// Every action that changes a setting (picking a board/list, adding or
@@ -667,6 +672,142 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		return setting;
 	}
 
+	private getStaleCategoryCounts(): Record<AlignCategory, number> {
+		if (this.staleCounts) return this.staleCounts;
+		const counts = Object.fromEntries(ALIGN_CATEGORIES.map((c) => [c, 0])) as Record<AlignCategory, number>;
+
+		const notes = this.plugin.vault.listNotes(this.plugin.settings.scope, this.plugin.settings.excludedFolders);
+		const shouldCheckChecklist = !this.plugin.settings.syncChecklists && Boolean(this.plugin.settings.checklistHeading);
+		const normChecklistHeading = this.plugin.settings.checklistHeading.replace(/^#+\s*/, "").trim().toLowerCase();
+
+		for (const note of notes) {
+			const frontmatter = this.plugin.vault.readFrontmatter(note);
+			let hasCardRef = false;
+			if ("getCardRef" in this.plugin.vault && typeof (this.plugin.vault as unknown as CardRefStore).getCardRef === "function") {
+				try {
+					hasCardRef = (this.plugin.vault as unknown as CardRefStore).getCardRef(note) !== null;
+				} catch {
+					hasCardRef = false;
+				}
+			}
+			if (!hasCardRef && frontmatter) {
+				hasCardRef = parseCardRef(frontmatter[this.plugin.settings.cardRefFrontmatterKey]) !== null;
+			}
+
+			let hasChecklist = false;
+			if (shouldCheckChecklist) {
+				const file = this.app.vault.getAbstractFileByPath(note.path);
+				if (file instanceof TFile) {
+					const cache = this.app.metadataCache.getFileCache(file);
+					if (cache?.headings) {
+						hasChecklist = cache.headings.some(
+							(h) => h.heading.trim().toLowerCase() === normChecklistHeading,
+						);
+					}
+				}
+			}
+
+			const changes = detectStaleChanges({
+				frontmatter,
+				hasCardRef,
+				hasChecklistSection: hasChecklist,
+				settings: this.plugin.settings,
+			});
+
+			const seen = new Set<AlignCategory>();
+			for (const change of changes) seen.add(change.category);
+			for (const cat of seen) counts[cat] = (counts[cat] ?? 0) + 1;
+		}
+
+		this.staleCounts = counts;
+		return counts;
+	}
+
+	private getCleanupBannerInfo(category: AlignCategory, count: number): { name: string; desc: string } | null {
+		const s = this.plugin.settings;
+		const prefix = count === 1 ? "1 note still has" : `${count} notes still have`;
+		switch (category) {
+			case "due":
+				if (s.syncDue) return null;
+				return {
+					name: `${prefix} ${s.dueFrontmatterKey}`,
+					desc: "Due date sync is disabled, but existing notes retain their due dates until cleaned up.",
+				};
+			case "labels":
+				if (s.syncLabels) return null;
+				return {
+					name: `${prefix} ${s.labelsFrontmatterKey}`,
+					desc: "Label sync is disabled, but existing notes retain their label properties until cleaned up.",
+				};
+			case "members":
+				if (s.syncMembers) return null;
+				return {
+					name: `${prefix} ${s.membersFrontmatterKey}`,
+					desc: "Member sync is disabled, but existing notes retain their member properties until cleaned up.",
+				};
+			case "custom-fields":
+				if (s.syncCustomFields) return null;
+				return {
+					name: `${prefix} ${s.customFieldsFrontmatterKey}`,
+					desc: "Custom field sync is disabled, but existing notes retain their custom field properties.",
+				};
+			case "attachments":
+				if (s.syncAttachments) return null;
+				return {
+					name: `${prefix} attachment properties`,
+					desc: `Attachment sync is disabled, but existing notes retain ${s.attachmentsFrontmatterKey} or ${s.linkedCardsFrontmatterKey}.`,
+				};
+			case "linked-cards":
+				if (!s.syncAttachments || s.syncLinkedCards) return null;
+				return {
+					name: `${prefix} ${s.linkedCardsFrontmatterKey}`,
+					desc: "Linked card sync is disabled, but existing notes retain linked card properties.",
+				};
+			case "cover":
+				if (s.syncCardCover) return null;
+				return {
+					name: `${prefix} remote Trello cover URLs`,
+					desc: `Card cover sync is disabled. Cleaning up removes remote Trello URLs in ${s.coverFrontmatterKey} while preserving local banners.`,
+				};
+			case "checklist-section":
+				if (s.syncChecklists) return null;
+				return {
+					name: `${prefix} checklist sections`,
+					desc: "Checklist sync is disabled. Note markdown body sections can only be removed through manual clean-up.",
+				};
+			case "plugin-note-id":
+				if (s.writeTrelloPluginNoteId) return null;
+				return {
+					name: `${prefix} ${DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY}`,
+					desc: "Plugin note ID writing is disabled. Clean up notes if you no longer use the third-party Trello plugin.",
+				};
+			default:
+				return null;
+		}
+	}
+
+	private renderCleanupHelper(root: HTMLElement, category: AlignCategory): void {
+		const count = this.getStaleCategoryCounts()[category] ?? 0;
+		if (count <= 0) return;
+
+		const info = this.getCleanupBannerInfo(category, count);
+		if (!info) return;
+
+		new Setting(root)
+			.setClass("tvs-settings__cleanup-banner")
+			.setName(info.name)
+			.setDesc(info.desc)
+			.addButton((button) => {
+				const catLabel = ALIGN_CATEGORY_LABELS[category] ?? "properties";
+				button
+					.setButtonText("Clean up...")
+					.setTooltip(`Clean up ${catLabel} across ${count} note${count === 1 ? "" : "s"}`)
+					.onClick(() => {
+						void alignNotesWithSettings(this.plugin, category);
+					});
+			});
+	}
+
 	/** A block of settings that only apply while a parent switch is on: hidden when it is off (still found by the search). */
 	private group(root: HTMLElement, on: boolean): HTMLElement {
 		return root.createDiv({ cls: on ? "tvs-settings__dependent" : "tvs-settings__dependent is-off" });
@@ -1026,8 +1167,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.syncDue).onChange((value) => {
 					this.plugin.settings.syncDue = value;
 					void this.save();
+					this.display();
 				}),
 			), "syncDue");
+		this.renderCleanupHelper(root, "due");
 
 		this.track(new Setting(root)
 			.setName("Dry run")
@@ -1038,6 +1181,16 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 				}),
 			), "dryRun");
+
+		this.track(new Setting(root)
+			.setName("Clean up notes during sync")
+			.setDesc("Automatically prune stale frontmatter properties when syncing cards according to active settings.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.cleanUpDuringSync).onChange((value) => {
+					this.plugin.settings.cleanUpDuringSync = value;
+					void this.save();
+				}),
+			), "cleanUpDuringSync");
 
 		this.track(new Setting(root)
 			.setName("Create missing notes")
@@ -1203,8 +1356,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.syncLabels).onChange((value) => {
 					this.plugin.settings.syncLabels = value;
 					void this.save();
+					this.display();
 				}),
 			), "syncLabels");
+		this.renderCleanupHelper(root, "labels");
 
 		this.track(new Setting(root)
 			.setName("Labels sync")
@@ -1352,6 +1507,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.display();
 				}),
 			), "syncAttachments");
+		this.renderCleanupHelper(root, "attachments");
 
 		if (this.plugin.settings.syncAttachments) {
 			this.track(new Setting(root)
@@ -1365,8 +1521,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					toggle.setValue(this.plugin.settings.syncLinkedCards).onChange((value) => {
 						this.plugin.settings.syncLinkedCards = value;
 						void this.save();
+						this.display();
 					}),
 				), "syncLinkedCards");
+			this.renderCleanupHelper(root, "linked-cards");
 		}
 
 		// Topic 2: downloading the files themselves into the vault.
@@ -1450,6 +1608,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.display();
 				}),
 			), "syncCardCover");
+		this.renderCleanupHelper(root, "cover");
 
 		if (this.plugin.settings.syncCardCover) {
 			this.track(new Setting(root)
@@ -1519,6 +1678,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.display();
 				}),
 			), "syncChecklists");
+		this.renderCleanupHelper(root, "checklist-section");
 
 		const holder = this.group(root, this.plugin.settings.syncChecklists);
 				this.track(new Setting(holder)
@@ -1559,6 +1719,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.display();
 				}),
 			), "syncMembers");
+		this.renderCleanupHelper(root, "members");
 
 		const holder = this.group(root, this.plugin.settings.syncMembers);
 				this.track(new Setting(holder)
@@ -1594,6 +1755,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.display();
 				}),
 			), "syncCustomFields");
+		this.renderCleanupHelper(root, "custom-fields");
 
 		const holder = this.group(root, this.plugin.settings.syncCustomFields);
 				this.track(new Setting(holder)
@@ -2574,8 +2736,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.writeTrelloPluginNoteId).onChange((value) => {
 					this.plugin.settings.writeTrelloPluginNoteId = value;
 					void this.save();
+					this.display();
 				}),
 			), "writeTrelloPluginNoteId");
+		this.renderCleanupHelper(root, "plugin-note-id");
 
 		this.renderTuning(expert);
 		this.renderReportLabels(expert);

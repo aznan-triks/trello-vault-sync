@@ -6,6 +6,18 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Plain words:** Clean up Obsidian notes to strictly reflect your active sync settings — automatically during syncs or on demand with a dedicated command. When features like due dates, labels, members, custom fields, attachments, or card covers are turned off, leftover frontmatter properties are pruned without touching note modification dates (`mtime`).
+  **Technical:**
+  - Pure decision logic engine in `src/core/staleProperties.ts` detecting stale frontmatter properties and content across 12 categories (`due`, `labels`, `members`, `custom-fields`, `attachments`, `linked-cards`, `cover`, `plugin-note-id`, `missing-plugin-note-id`, `checklist-section`, `obsolete-label-property`, `key-migration`).
+  - Safe batch and single-note execution in `src/features/alignNotes.ts` with atomic single-pass frontmatter updates, `card:<id>` locking via `OperationGuard`, dry-run simulation mode, and full recording in sync history for 100% undoability.
+  - Filesystem modification timestamp preservation (`keepMtime: true`) in `VaultGateway`, `ObsidianVault`, and `FakeVault` so cleanups never falsely trigger sync conflicts or push local overwrites to Trello.
+  - Automatic background alignment during card sync via `cleanUpDuringSync` setting (enabled by default, `true`) with zero extra Trello network API calls (`SAFE_ALIGN_CATEGORIES`).
+  - Interactive command "Clean up notes to match current settings" (`clean-up-notes`) in command palette, ribbon, and sidebar with category selection modal and live note counts (`src/commands/alignCommand.ts`, `src/ui/MultiSelectPickerModal.ts`).
+  - Dynamic helper banners in `SettingsTab` under disabled feature toggles showing detected stale note counts and one-click cleanup triggers.
+  - New settings in `src/settings/types.ts`: `cleanUpDuringSync` (boolean, default `true`), `keyMigrations` (Record<string, string>, default `{}`), and `obsoleteLabelPropertyKeys` (string[], default `[]`).
+
 ## [1.23.1] — 2026-10-18
 
 ### Fixed

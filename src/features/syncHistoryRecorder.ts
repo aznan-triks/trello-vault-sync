@@ -1,6 +1,6 @@
 import type { CardRef } from "../core/cardRef";
 import { fingerprint, type SyncAction } from "../core/syncHistory";
-import type { CardRefStore, TemplateResolver, VaultGateway } from "../obsidian/gateway";
+import type { CardRefStore, TemplateResolver, VaultGateway, WriteOptions } from "../obsidian/gateway";
 
 /**
  * Wraps a vault so every mutating call also emits the `SyncAction` needed to
@@ -28,15 +28,15 @@ export function wrapWithHistoryRecorder(
 		// already makes a repeat download a no-op, so there's nothing to invert.
 		writeBinary: (path, data) => vault.writeBinary(path, data),
 
-		write: async (note, content) => {
+		write: async (note, content, options?: WriteOptions) => {
 			const previousContent = await vault.read(note);
-			await vault.write(note, content);
+			await vault.write(note, content, options);
 			onAction({ kind: "body", path: note.path, previousContent, fingerprint: fingerprint(content) });
 		},
 
-		writeFrontmatter: async (note, mutate) => {
+		writeFrontmatter: async (note, mutate, options?: WriteOptions) => {
 			const previousContent = await vault.read(note);
-			await vault.writeFrontmatter(note, mutate);
+			await vault.writeFrontmatter(note, mutate, options);
 			const nextContent = await vault.read(note);
 			onAction({ kind: "frontmatter", path: note.path, previousContent, fingerprint: fingerprint(nextContent) });
 		},

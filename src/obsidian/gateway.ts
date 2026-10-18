@@ -11,6 +11,16 @@ export interface NoteHandle {
 	mtime: number;
 }
 
+/** Options passed to mutating file write operations. */
+export interface WriteOptions {
+	/**
+	 * When true, preserves the note's filesystem modification time (`mtime`)
+	 * rather than letting the write bump it. Used by cleanups so notes don't look
+	 * freshly edited to sync engines.
+	 */
+	keepMtime?: boolean;
+}
+
 /**
  * Generic file IO the engines are allowed to do to the vault, plus generic
  * frontmatter access — independent of any Trello concept or template concern.
@@ -24,7 +34,7 @@ export interface VaultGateway {
 	/** Handle for a single known path, without walking the whole vault. `null` if missing. */
 	noteAt(path: string): NoteHandle | null;
 	read(note: NoteHandle): Promise<string>;
-	write(note: NoteHandle, content: string): Promise<void>;
+	write(note: NoteHandle, content: string, options?: WriteOptions): Promise<void>;
 	rename(note: NoteHandle, newPath: string): Promise<NoteHandle>;
 	create(path: string, content: string): Promise<NoteHandle>;
 	trash(note: NoteHandle): Promise<void>;
@@ -32,7 +42,11 @@ export interface VaultGateway {
 	/** The note's frontmatter fields, or `null` when it has none. */
 	readFrontmatter(note: NoteHandle): Record<string, unknown> | null;
 	/** Mutate the note's frontmatter in place; created if missing. */
-	writeFrontmatter(note: NoteHandle, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void>;
+	writeFrontmatter(
+		note: NoteHandle,
+		mutate: (frontmatter: Record<string, unknown>) => void,
+		options?: WriteOptions,
+	): Promise<void>;
 
 	/** Byte size of a binary file (an attachment, not a note) at `path`, or `null` if missing — cheap enough to call once per attachment to decide whether a download is a no-op. */
 	binarySize(path: string): number | null;

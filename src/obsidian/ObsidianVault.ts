@@ -1,4 +1,4 @@
-import { TFile, getFrontMatterInfo, parseYaml, type App } from "obsidian";
+import { TFile, getFrontMatterInfo, parseYaml, type App, type DataWriteOptions } from "obsidian";
 import {
 	DEFAULT_CARD_REF_KEY,
 	DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY,
@@ -8,7 +8,7 @@ import {
 	type CardRef,
 } from "../core/cardRef";
 import { excludeFolders, notesInFolder } from "../core/fileName";
-import type { CardRefStore, NoteHandle, TemplateResolver, VaultGateway } from "./gateway";
+import type { CardRefStore, NoteHandle, TemplateResolver, VaultGateway, WriteOptions } from "./gateway";
 
 /** The real vault, behind the interfaces the engines depend on. */
 export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolver {
@@ -57,13 +57,23 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 		return cache?.frontmatter ?? null;
 	}
 
-	async writeFrontmatter(note: NoteHandle, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void> {
+	async writeFrontmatter(
+		note: NoteHandle,
+		mutate: (frontmatter: Record<string, unknown>) => void,
+		options?: WriteOptions,
+	): Promise<void> {
 		// processFrontMatter round-trips the YAML properly — no string surgery.
 		// Obsidian types the callback parameter as `any`; it always hands over the
 		// parsed YAML mapping, so the conversion happens once, here, explicitly.
-		await this.app.fileManager.processFrontMatter(this.toFile(note), (frontmatter: unknown) => {
-			mutate(frontmatter as Record<string, unknown>);
-		});
+		const file = this.toFile(note);
+		const writeOptions: DataWriteOptions | undefined = options?.keepMtime ? { mtime: file.stat.mtime } : undefined;
+		await this.app.fileManager.processFrontMatter(
+			file,
+			(frontmatter: unknown) => {
+				mutate(frontmatter as Record<string, unknown>);
+			},
+			writeOptions,
+		);
 	}
 
 	getCardRef(note: NoteHandle): CardRef | null {
@@ -89,8 +99,10 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 		return this.app.vault.read(this.toFile(note));
 	}
 
-	async write(note: NoteHandle, content: string): Promise<void> {
-		await this.app.vault.modify(this.toFile(note), content);
+	async write(note: NoteHandle, content: string, options?: WriteOptions): Promise<void> {
+		const file = this.toFile(note);
+		const writeOptions: DataWriteOptions | undefined = options?.keepMtime ? { mtime: file.stat.mtime } : undefined;
+		await this.app.vault.modify(file, content, writeOptions);
 	}
 
 	async rename(note: NoteHandle, newPath: string): Promise<NoteHandle> {
