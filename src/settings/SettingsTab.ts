@@ -16,6 +16,7 @@ import {
 	type CardViewEditableField,
 } from "../core/cardViewModel";
 import { mergeScannedLabels, type LabelPropertyDirection } from "../core/labelProperty";
+import { sameSettingValue, setSettingAt, settingAt } from "../core/settingValue";
 import type { OnLinkedNoteDeleted } from "../core/deletedNotes";
 import type { OnCardArchived, OnCardDeleted, OnCardMoved } from "../core/cardFate";
 import type { LabelSyncMode } from "../core/labelMerge";
@@ -129,6 +130,17 @@ interface TabDefinition {
 	label: string;
 }
 
+/** One or two lines at the top of each tab: what it controls. */
+const TAB_INTROS: Partial<Record<SettingsTabId, string>> = {
+	general: "Connect to Trello, choose which part of the vault the plugin works on, and where the reports go.",
+	"sync-rules": "How a note and its card are kept equal: who wins, what is copied, and what happens when a card moves, is archived or deleted.",
+	mappings: "Which Trello list fills which vault folder.",
+	creation: "How notes are made from cards that have none, and cards from notes that have none.",
+	"card-view": "The side panel that shows, and can edit, the Trello card of the open note.",
+	automation: "Syncs that run without you clicking, and the history that lets you undo a sync.",
+	advanced: "Matching tolerance, the progress panel and the property names written into notes. Rarely needed.",
+};
+
 const SETTINGS_TABS: TabDefinition[] = [
 	{ id: "general", label: "General & Scope" },
 	{ id: "sync-rules", label: "Sync Rules" },
@@ -147,6 +159,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	private boardName: string | null = null;
 	private activeTab: SettingsTabId = "general";
 	private searchQuery = "";
+	/** "Show only changed": display filter, not saved. */
+	private onlyChanged = false;
+	private summaryEl: HTMLElement | null = null;
 	private tokenRevealed = false;
 	private searchCountEl: HTMLElement | null = null;
 	private navEl: HTMLElement | null = null;
@@ -186,6 +201,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		this.renderHeader(containerEl);
 		this.renderSearchBar(containerEl);
+		this.renderSummary(containerEl);
 		this.renderNav(containerEl);
 
 		const contentContainer = containerEl.createDiv({ cls: "tvs-settings__content" });
@@ -263,6 +279,25 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		this.searchCountEl = searchContainer.createDiv({ cls: "tvs-settings__search-count is-hidden" });
 	}
 
+	/** "N settings changed from default" with a filter that shows only those. */
+	private renderSummary(root: HTMLElement): void {
+		this.summaryEl = root.createDiv({ cls: "tvs-settings__summary" });
+	}
+
+	private updateSummary(): void {
+		const bar = this.summaryEl;
+		if (!bar) return;
+		const count = this.containerEl.querySelectorAll(".tvs-setting--modified").length;
+		bar.empty();
+		bar.createSpan({ text: count === 0 ? "Every setting has its default value." : `${count} setting${count === 1 ? "" : "s"} changed from default.` });
+		if (count === 0 && !this.onlyChanged) return;
+		const toggle = bar.createEl("button", { text: this.onlyChanged ? "Show all settings" : "Show only changed" });
+		toggle.addEventListener("click", () => {
+			this.onlyChanged = !this.onlyChanged;
+			this.updateVisibility();
+		});
+	}
+
 	private renderNav(root: HTMLElement): void {
 		this.navEl = root.createDiv({ cls: "tvs-settings__nav" });
 		for (const tab of SETTINGS_TABS) {
@@ -290,7 +325,6 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			{ id: "scope", tab: "general", render: (el) => this.renderScope(el) },
 			{ id: "ribbon", tab: "general", render: (el) => this.renderRibbon(el) },
 			{ id: "audit-output", tab: "general", render: (el) => this.renderAuditOutput(el) },
-			{ id: "report-labels", tab: "general", render: (el) => this.renderReportLabels(el) },
 			// Tab 2: Sync Rules
 			{ id: "arbitration", tab: "sync-rules", render: (el) => this.renderArbitration(el) },
 			{ id: "card-lifecycle", tab: "sync-rules", render: (el) => this.renderCardLifecycle(el) },
@@ -313,7 +347,15 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			{ id: "changelog", tab: "changelog", render: (el) => this.renderChangelog(el) },
 		];
 
+		const introduced = new Set<SettingsTabId>();
 		for (const sec of sections) {
+			const intro = TAB_INTROS[sec.tab];
+			if (intro && !introduced.has(sec.tab)) {
+				introduced.add(sec.tab);
+				const introEl = container.createDiv({ cls: "tvs-settings__section" });
+				introEl.dataset.tab = sec.tab;
+				introEl.createEl("p", { cls: "tvs-settings__intro", text: intro });
+			}
 			const secEl = container.createDiv({
 				cls: `tvs-settings__section tvs-settings__section--${sec.id}`,
 			});
@@ -336,7 +378,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	}
 
 	private updateVisibility(): void {
-		const isSearching = this.searchQuery.length > 0;
+		const isSearching = this.searchQuery.length > 0 || this.onlyChanged;
+		this.containerEl.toggleClass("tvs-settings--searching", isSearching);
 		const allSections = this.containerEl.querySelectorAll<HTMLElement>(".tvs-settings__section");
 		let matchCount = 0;
 
@@ -388,6 +431,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		if (this.navEl) {
 			this.navEl.toggleClass("is-hidden", isSearching);
 		}
+		this.updateSummary();
 	}
 
 	private save(): Promise<void> {
@@ -533,7 +577,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Which part of the vault the vault-wide commands (\"Sync all linked notes\", the audits) touch, and what's always left alone regardless of link state.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Synced folder")
 			.setDesc("Restricts the vault-wide commands to this folder. Empty = the whole vault.")
 			.addText((text) => {
@@ -545,7 +589,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						void this.save();
 					});
 				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
-			});
+			}), "scope");
 
 		new Setting(root)
 			.setName("Excluded folders")
@@ -591,8 +635,52 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 	}
 
-	private toggleField(root: HTMLElement, name: string, desc: string, get: () => boolean, set: (value: boolean) => void): void {
-		new Setting(root)
+	/**
+	 * Adds, under a setting's description, its default value, and - once the value differs from it - a marker
+	 * and a reset button. `path` is the key in the settings ("a.b" for a nested one). Stays in step as the
+	 * control changes, without redrawing the tab.
+	 */
+	private track(setting: Setting, path: string): Setting {
+		const settings = this.plugin.settings as unknown as Record<string, unknown>;
+		const initial = settingAt(DEFAULT_SETTINGS, path);
+		const select = setting.controlEl.querySelector("select");
+		const option = select ? Array.from(select.options).find((candidate) => candidate.value === String(initial)) : undefined;
+		const shown = option?.text ?? (typeof initial === "boolean" ? (initial ? "on" : "off") : initial === "" ? "empty" : String(initial));
+		setting.descEl.createDiv({ cls: "tvs-setting__default", text: `Default: ${shown}` });
+		let reset: HTMLElement | null = null;
+		setting.addExtraButton((button) => {
+			button.setIcon("rotate-ccw").setTooltip("Reset to default").onClick(() => {
+				setSettingAt(settings, path, structuredClone(initial));
+				void this.save();
+				this.display();
+			});
+			reset = button.extraSettingsEl;
+		});
+		const refresh = (notify = true) => {
+			const modified = !sameSettingValue(settingAt(settings, path), initial);
+			setting.settingEl.toggleClass("tvs-setting--modified", modified);
+			(reset as HTMLElement | null)?.toggleClass("is-hidden", !modified);
+			if (notify) this.updateSummary();
+		};
+		for (const event of ["click", "input", "change"]) setting.controlEl.addEventListener(event, () => refresh());
+		refresh(false);
+		return setting;
+	}
+
+	/** A block of settings that only apply while a parent switch is on: hidden when it is off (still found by the search). */
+	private group(root: HTMLElement, on: boolean): HTMLElement {
+		return root.createDiv({ cls: on ? "tvs-settings__dependent" : "tvs-settings__dependent is-off" });
+	}
+
+	/** Under a hidden group: says how many settings the parent switch would reveal. */
+	private groupHint(root: HTMLElement, holder: HTMLElement): void {
+		if (!holder.hasClass("is-off")) return;
+		const count = holder.querySelectorAll(".setting-item:not(.setting-item-heading)").length;
+		if (count > 0) root.createDiv({ cls: "tvs-settings__more", text: `${count} more setting${count === 1 ? "" : "s"} when this is on.` });
+	}
+
+	private toggleField(root: HTMLElement, name: string, desc: string, get: () => boolean, set: (value: boolean) => void): Setting {
+		return new Setting(root)
 			.setName(name)
 			.setDesc(desc)
 			.addToggle((toggle) =>
@@ -612,8 +700,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		set: (value: number) => void,
 		min: number,
 		max = Number.POSITIVE_INFINITY,
-	): void {
-		new Setting(root)
+	): Setting {
+		return new Setting(root)
 			.setName(name)
 			.setDesc(desc)
 			.addText((text) =>
@@ -633,8 +721,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		get: () => string,
 		set: (value: string) => void,
 		placeholder = "",
-	): void {
-		new Setting(root)
+	): Setting {
+		return new Setting(root)
 			.setName(name)
 			.setDesc(desc)
 			.addText((text) =>
@@ -657,11 +745,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		heading("Link report heading", "linkReportHeading", "Title line of the link report.");
 		heading("Location report heading", "locationReportHeading", "Title line of the location report.");
 		heading("Change log report heading", "changesReportHeading", "Title line of the change log report.");
-		heading("Orphan cards group prefix", "orphanCardGroupPrefix", "Starts each list's group of cards without a note, in the link report.");
-		heading("Phantom notes group prefix", "phantomNoteGroupPrefix", "Starts each folder's group of notes whose card is gone.");
-		heading("Unlinked notes group prefix", "unlinkedNoteGroupPrefix", "Starts each folder's group of notes with no card.");
+		heading("Heading prefix: cards without a note", "orphanCardGroupPrefix", "Starts each list's group of cards without a note, in the link report.");
+		heading("Heading prefix: notes whose card is gone", "phantomNoteGroupPrefix", "Starts each folder's group of notes whose card is gone.");
+		heading("Heading prefix: notes without a card", "unlinkedNoteGroupPrefix", "Starts each folder's group of notes with no card.");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Change log avatar size")
 			.setDesc("Size of the avatars embedded in the HTML change log. Trello serves these sizes only; a larger one makes the page heavier.")
 			.addDropdown((dropdown) => {
@@ -670,8 +758,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					s.changeLogAvatarSize = value as ChangeLogAvatarSize;
 					void this.save();
 				});
-			});
-		new Setting(root)
+			}), "changeLogAvatarSize");
+		this.track(new Setting(root)
 			.setName("Change log extra CSS")
 			.setDesc("Appended to the HTML change log's own style, after it, so your rules win. Applied the next time the page is exported.")
 			.addTextArea((area) =>
@@ -679,7 +767,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					s.changeLogHtmlExtraCss = value;
 					void this.save();
 				}),
-			);
+			), "changeLogHtmlExtraCss");
 	}
 
 	private renderCardView(root: HTMLElement): void {
@@ -689,9 +777,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			cls: "setting-item-description",
 			text: "A side panel that shows the Trello card of the open note, loaded with a single request, and lets you edit it. Each part below can be hidden or made read-only.",
 		});
-		this.toggleField(root, "Enable the card view", "Off: the view is not registered at the next start and nothing is requested. Takes effect after restarting Obsidian.", () => v.enabled, (x) => (v.enabled = x));
-		this.toggleField(root, "Open at startup", "Open the card view when Obsidian starts.", () => v.openOnStartup, (x) => (v.openOnStartup = x));
-		new Setting(root)
+		this.track(this.toggleField(root, "Enable the card view", "Off: the view is not registered at the next start and nothing is requested. Takes effect after restarting Obsidian.", () => v.enabled, (x) => (v.enabled = x)), "cardView.enabled");
+		this.track(this.toggleField(root, "Open at startup", "Open the card view when Obsidian starts.", () => v.openOnStartup, (x) => (v.openOnStartup = x)), "cardView.openOnStartup");
+		this.track(new Setting(root)
 			.setName("Side")
 			.setDesc("Which side panel the view opens in.")
 			.addDropdown((d) =>
@@ -699,9 +787,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					v.side = x as "left" | "right";
 					void this.save();
 				}),
-			);
-		this.toggleField(root, "Refresh while hidden", "Off: no request is made while the view is not visible; it reloads when shown.", () => v.refreshWhenHidden, (x) => (v.refreshWhenHidden = x));
-		this.numberField(root, "Follow delay (ms)", "Wait after you switch note before the view follows. Minimum 0, default 250.", () => v.followDelayMs, (x) => (v.followDelayMs = x), 0);
+			), "cardView.side");
+		this.track(this.toggleField(root, "Refresh while hidden", "Off: no request is made while the view is not visible; it reloads when shown.", () => v.refreshWhenHidden, (x) => (v.refreshWhenHidden = x)), "cardView.refreshWhenHidden");
+		this.track(this.numberField(root, "Follow delay (ms)", "Wait after you switch note before the view follows. Minimum 0.", () => v.followDelayMs, (x) => (v.followDelayMs = x), 0), "cardView.followDelayMs");
 
 		new Setting(root).setName("What the view shows").setHeading();
 		root.createEl("p", { cls: "setting-item-description", text: "Order and visibility, for every card. A single card can differ: use the gear in the view's header." });
@@ -721,11 +809,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					b.setIcon("arrow-down").setTooltip("Move down").setDisabled(index === v.sectionOrder.length - 1).onClick(() => this.moveCardViewSection(index, 1)),
 				);
 		});
-		this.toggleField(root, "Show empty sections", "On: a section with nothing in it says so (\"No labels\"). Off: it is hidden.", () => v.showEmptySections, (x) => (v.showEmptySections = x));
-		this.toggleField(root, "Render Markdown", "Show the description and the comments as formatted Markdown.", () => v.renderMarkdown, (x) => (v.renderMarkdown = x));
-		this.textField(root, "Date format", "A moment.js format such as DD/MM/YYYY HH:mm. Empty uses your system's format.", () => v.dateFormat, (x) => (v.dateFormat = x), "DD/MM/YYYY HH:mm");
-		this.numberField(root, "Due soon within (hours)", "A due date closer than this is highlighted as soon. Minimum 0, default 24.", () => v.dueSoonHours, (x) => (v.dueSoonHours = x), 0);
-		new Setting(root)
+		this.track(this.toggleField(root, "Show empty sections", "On: a section with nothing in it says so (\"No labels\"). Off: it is hidden.", () => v.showEmptySections, (x) => (v.showEmptySections = x)), "cardView.showEmptySections");
+		this.track(this.toggleField(root, "Render Markdown", "Show the description and the comments as formatted Markdown.", () => v.renderMarkdown, (x) => (v.renderMarkdown = x)), "cardView.renderMarkdown");
+		this.track(this.textField(root, "Date format", "A moment.js format such as DD/MM/YYYY HH:mm. Empty uses your system's format.", () => v.dateFormat, (x) => (v.dateFormat = x), "DD/MM/YYYY HH:mm"), "cardView.dateFormat");
+		this.track(this.numberField(root, "Due soon within (hours)", "A due date closer than this is highlighted as soon. Minimum 0.", () => v.dueSoonHours, (x) => (v.dueSoonHours = x), 0), "cardView.dueSoonHours");
+		this.track(new Setting(root)
 			.setName("Open links in")
 			.setDesc("Where \"Open on Trello\" and card links go.")
 			.addDropdown((d) =>
@@ -733,19 +821,23 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					v.openLinksIn = x as "browser" | "desktop-app";
 					void this.save();
 				}),
-			);
+			), "cardView.openLinksIn");
 
 		new Setting(root).setName("Loading").setHeading();
-		this.numberField(root, "Card cache (seconds)", "A loaded card is reused for this long. 0 reloads at every display. Default 60.", () => v.cacheSeconds, (x) => (v.cacheSeconds = x), 0);
-		this.numberField(root, "Board data cache (seconds)", "The board's lists, labels, members and field definitions, loaded when you first edit. Default 600.", () => v.boardCacheSeconds, (x) => (v.boardCacheSeconds = x), 0);
-		this.numberField(root, "Comments loaded", `Comments fetched with the card. 0 loads none. At most ${COMMENTS_LIMIT_CEILING} (Trello's own limit). Default 20.`, () => v.commentsLimit, (x) => (v.commentsLimit = Math.round(x)), 0, COMMENTS_LIMIT_CEILING);
+		this.track(this.numberField(root, "Card cache (seconds)", "A loaded card is reused for this long. 0 reloads at every display.", () => v.cacheSeconds, (x) => (v.cacheSeconds = x), 0), "cardView.cacheSeconds");
+		this.track(this.numberField(root, "Board data cache (seconds)", "The board's lists, labels, members and field definitions, loaded when you first edit.", () => v.boardCacheSeconds, (x) => (v.boardCacheSeconds = x), 0), "cardView.boardCacheSeconds");
+		this.track(this.numberField(root, "Comments loaded", `Comments fetched with the card. 0 loads none. At most ${COMMENTS_LIMIT_CEILING} (Trello's own limit).`, () => v.commentsLimit, (x) => (v.commentsLimit = Math.round(x)), 0, COMMENTS_LIMIT_CEILING), "cardView.commentsLimit");
 
 		new Setting(root).setName("Editing").setHeading();
-		this.toggleField(root, "Allow editing", "Off: the view is read-only whatever the switches below say.", () => v.allowEditing, (x) => (v.allowEditing = x));
+		this.track(this.toggleField(root, "Allow editing", "Off: the view is read-only whatever the switches below say.", () => v.allowEditing, (x) => {
+			v.allowEditing = x;
+			this.display();
+		}), "cardView.allowEditing");
+		const holder = this.group(root, v.allowEditing);
 		for (const field of ALL_CARD_VIEW_EDITABLE_FIELDS) {
-			this.toggleField(root, `Edit ${CARD_VIEW_EDITABLE_LABELS[field]}`, "", () => v.editable[field], (x) => (v.editable[field] = x));
+			this.toggleField(holder, `Edit ${CARD_VIEW_EDITABLE_LABELS[field]}`, "", () => v.editable[field], (x) => (v.editable[field] = x));
 		}
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Moved card goes to")
 			.setDesc("Where a card lands in its new list.")
 			.addDropdown((d) =>
@@ -753,9 +845,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					v.movedCardPosition = x as "top" | "bottom";
 					void this.save();
 				}),
-			);
-		this.toggleField(root, "Confirm before archiving", "Ask before the Archive button archives the card.", () => v.confirmArchive, (x) => (v.confirmArchive = x));
-		this.toggleField(root, "Update the note after an edit", "After an edit, run \"Update this note from its card\" so the note follows.", () => v.pullAfterEdit, (x) => (v.pullAfterEdit = x));
+			), "cardView.movedCardPosition");
+		this.track(this.toggleField(holder, "Confirm before archiving", "Ask before the Archive button archives the card.", () => v.confirmArchive, (x) => (v.confirmArchive = x)), "cardView.confirmArchive");
+		this.track(this.toggleField(holder, "Update the note after an edit", "After an edit, run \"Update this note from its card\" so the note follows.", () => v.pullAfterEdit, (x) => (v.pullAfterEdit = x)), "cardView.pullAfterEdit");
+		this.groupHint(root, holder);
 		root.createEl("p", { cls: "setting-item-description", text: "Deleting a comment, a checklist item, an attachment or the card is deliberately not offered: those cannot be undone on Trello." });
 	}
 
@@ -774,17 +867,17 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	private renderTuning(root: HTMLElement): void {
 		const s = this.plugin.settings;
 		new Setting(root).setName("Tuning").setHeading();
-		this.numberField(root, "Auto-sync check every (seconds)", "How often auto-sync looks at whether it is time to sync. The interval above still decides when it actually syncs. Minimum 1, default 30.", () => s.autoSyncCheckSeconds, (v) => (s.autoSyncCheckSeconds = Math.round(v)), 1);
-		this.numberField(root, "Own-write grace (ms)", "After a sync, note edits within this time count as the sync's own writes and do not trigger a sync. Minimum 0, default 1500.", () => s.ownWriteGraceMs, (v) => (s.ownWriteGraceMs = v), 0);
+		this.track(this.numberField(root, "Auto-sync check every (seconds)", "How often auto-sync looks at whether it is time to sync. The interval above still decides when it actually syncs. Minimum 1.", () => s.autoSyncCheckSeconds, (v) => (s.autoSyncCheckSeconds = Math.round(v)), 1), "autoSyncCheckSeconds");
+		this.track(this.numberField(root, "Own-write grace (ms)", "After a sync, note edits within this time count as the sync's own writes and do not trigger a sync. Minimum 0.", () => s.ownWriteGraceMs, (v) => (s.ownWriteGraceMs = v), 0), "ownWriteGraceMs");
 		this.textField(root, "Retry on these HTTP statuses", "Comma-separated codes (100-599) that a failed request is retried on.", () => s.retryableStatusCodes.join(", "), (value) => {
 			s.retryableStatusCodes = [...new Set(value.split(",").map((part) => Number(part.trim())).filter((code) => Number.isInteger(code) && code >= 100 && code <= 599))];
 		}, DEFAULT_RETRYABLE_STATUS_CODES.join(", "));
-		this.numberField(root, "Change log page size", `Actions requested per Trello call by the change log. 1 to ${DEFAULT_ACTIONS_PAGE_LIMIT} (Trello's own maximum), default ${DEFAULT_ACTIONS_PAGE_LIMIT}.`, () => s.changeLogPageSize, (v) => (s.changeLogPageSize = Math.round(v)), 1, DEFAULT_ACTIONS_PAGE_LIMIT);
-		this.numberField(root, "Notes between UI pauses", "A scan over many notes pauses once every this many notes so Obsidian can repaint. Minimum 1, default 200.", () => s.yieldEveryNotes, (v) => (s.yieldEveryNotes = Math.round(v)), 1);
-		this.numberField(root, "Title containment score", "Score (0 to 1) given when a note's name appears whole inside a card's title, or the reverse, when linking by name. Default 0.9.", () => s.nameContainmentScore, (v) => (s.nameContainmentScore = v), 0, 1);
-		this.textField(root, "Dry-run log prefix", "Put before every journal line of a dry run. Empty for none.", () => s.dryRunLogPrefix, (v) => (s.dryRunLogPrefix = v), DEFAULT_DRY_RUN_PREFIX);
-		this.toggleField(root, "Success notices", "Show a notice when an operation finishes well. Errors are always shown.", () => s.showSuccessNotices, (v) => (s.showSuccessNotices = v));
-		this.toggleField(root, "Queue notices", "Show a notice when an operation waits behind others or is already running.", () => s.showQueueNotices, (v) => (s.showQueueNotices = v));
+		this.track(this.numberField(root, "Change log page size", `Actions requested per Trello call by the change log. 1 to ${DEFAULT_ACTIONS_PAGE_LIMIT} (Trello's own maximum).`, () => s.changeLogPageSize, (v) => (s.changeLogPageSize = Math.round(v)), 1, DEFAULT_ACTIONS_PAGE_LIMIT), "changeLogPageSize");
+		this.track(this.numberField(root, "Notes between UI pauses", "A scan over many notes pauses once every this many notes so Obsidian can repaint. Minimum 1.", () => s.yieldEveryNotes, (v) => (s.yieldEveryNotes = Math.round(v)), 1), "yieldEveryNotes");
+		this.track(this.numberField(root, "Title containment score", "Score (0 to 1) given when a note's name appears whole inside a card's title, or the reverse, when linking by name.", () => s.nameContainmentScore, (v) => (s.nameContainmentScore = v), 0, 1), "nameContainmentScore");
+		this.track(this.textField(root, "Dry-run log prefix", "Put before every journal line of a dry run. Empty for none.", () => s.dryRunLogPrefix, (v) => (s.dryRunLogPrefix = v), DEFAULT_DRY_RUN_PREFIX), "dryRunLogPrefix");
+		this.track(this.toggleField(root, "Success notices", "Show a notice when an operation finishes well. Errors are always shown.", () => s.showSuccessNotices, (v) => (s.showSuccessNotices = v)), "showSuccessNotices");
+		this.track(this.toggleField(root, "Queue notices", "Show a notice when an operation waits behind others or is already running.", () => s.showQueueNotices, (v) => (s.showQueueNotices = v)), "showQueueNotices");
 	}
 
 	private renderAuditOutput(root: HTMLElement): void {
@@ -794,7 +887,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Where the report-producing commands write their results.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Auto-create report notes")
 			.setDesc(
 				"Create the report note below when it doesn't exist yet, instead of blocking the audit with an error.",
@@ -804,9 +897,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoCreateReportNote = value;
 					void this.save();
 				}),
-			);
+			), "autoCreateReportNote");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Link audit report note")
 			.setDesc('Path of the note "Report unlinked cards and notes" writes its report into.')
 			.addText((text) => {
@@ -820,9 +913,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				new VaultPathSuggest(this.app, text.inputEl, () =>
 					this.app.vault.getMarkdownFiles().map((file) => file.path),
 				);
-			});
+			}), "linkAuditReportPath");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Location audit report note")
 			.setDesc('Path of the note "Report notes in the wrong folder" writes its report into.')
 			.addText((text) => {
@@ -836,9 +929,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				new VaultPathSuggest(this.app, text.inputEl, () =>
 					this.app.vault.getMarkdownFiles().map((file) => file.path),
 				);
-			});
+			}), "locationAuditReportPath");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Change log report note")
 			.setDesc('Path of the markdown note "Audit changes" writes its log into.')
 			.addText((text) => {
@@ -852,9 +945,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				new VaultPathSuggest(this.app, text.inputEl, () =>
 					this.app.vault.getMarkdownFiles().map((file) => file.path),
 				);
-			});
+			}), "changesReportPath");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Change log HTML page")
 			.setDesc(
 				'Path of the standalone HTML page "Export change log as HTML" writes into — ' +
@@ -871,7 +964,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				// Suggests folders, not markdown-file list above — this page
 				// is machine-generated and usually doesn't exist yet on first setup.
 				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
-			});
+			}), "changesHtmlPath");
 	}
 
 	private renderArbitration(root: HTMLElement): void {
@@ -881,7 +974,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Core rules every sync respects: who wins when both sides changed, and the switches that guard against an unwanted write or deletion.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Arbitration")
 			.setDesc("Who wins when both the note and the card changed.")
 			.addDropdown((dropdown) => {
@@ -890,9 +983,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.policy = value as ConflictPolicy;
 					void this.save();
 				});
-			});
+			}), "policy");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Clock margin (seconds)")
 			.setDesc(
 				"Below this gap, both sides are considered simultaneous: the divergence is " +
@@ -904,9 +997,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.marginSeconds = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 					void this.save();
 				}),
-			);
+			), "marginSeconds");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync titles")
 			.setDesc("Renames the note from the card's title, and vice versa.")
 			.addToggle((toggle) =>
@@ -914,9 +1007,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.syncTitle = value;
 					void this.save();
 				}),
-			);
+			), "syncTitle");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync descriptions")
 			.setDesc("Synchronizes the note body and the card description. Off keeps both sides intact and syncs only metadata.")
 			.addToggle((toggle) =>
@@ -924,9 +1017,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.syncDescription = value;
 					void this.save();
 				}),
-			);
+			), "syncDescription");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync due dates")
 			.setDesc("Synchronizes the card due date with the note frontmatter (Due date key, in Frontmatter keys below).")
 			.addToggle((toggle) =>
@@ -934,9 +1027,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.syncDue = value;
 					void this.save();
 				}),
-			);
+			), "syncDue");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Dry run")
 			.setDesc("Computes and shows everything that would be done, without writing anything.")
 			.addToggle((toggle) =>
@@ -944,9 +1037,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.dryRun = value;
 					void this.save();
 				}),
-			);
+			), "dryRun");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Create missing notes")
 			.setDesc("Creates a note for every card with no local match, during a list sync.")
 			.addToggle((toggle) =>
@@ -955,9 +1048,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 					this.display();
 				}),
-			);
+			), "allowCreate");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Confirm before a forced sync")
 			.setDesc(
 				"Shows a confirmation dialog before a force pull/push at folder or vault scope (destructive by " +
@@ -968,15 +1061,15 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.confirmForceSync = value;
 					void this.save();
 				}),
-			);
+			), "confirmForceSync");
 
-		this.toggleField(
+		this.track(this.toggleField(
 			root,
 			"Adopt a note named like a card",
 			"During a folder sync, an unlinked note whose file name is exactly a card's title takes that card as its own instead of the card getting a second note. Off: such a note is only reported as unlinked.",
 			() => this.plugin.settings.adoptUnlinkedNotesByName,
 			(value) => (this.plugin.settings.adoptUnlinkedNotesByName = value),
-		);
+		), "adoptUnlinkedNotesByName");
 	}
 
 	private renderCardLifecycle(root: HTMLElement): void {
@@ -986,7 +1079,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "What a sync does with a note when its card was moved, archived or deleted on Trello. Every change can be undone from the sync history.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Card moved to another list or board")
 			.setDesc("A list sync notices the card is no longer in the list. Moving a note follows the card to the folder mapped to its new list.")
 			.addDropdown((dropdown) => {
@@ -995,9 +1088,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.onCardMoved = value as OnCardMoved;
 					void this.save();
 				});
-			});
+			}), "onCardMoved");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Card archived")
 			.setDesc("The note's own text is never touched. Keeping the link means later syncs keep failing to find the card, so the default removes it.")
 			.addDropdown((dropdown) => {
@@ -1007,10 +1100,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 					this.display();
 				});
-			});
+			}), "onCardArchived");
 
 		if (this.plugin.settings.onCardArchived === "archive-folder") {
-			new Setting(root)
+			this.track(new Setting(root)
 				.setName("Archive folder")
 				.setDesc("Where the notes of archived cards go. Empty keeps them where they are (and says so in the log).")
 				.addText((text) => {
@@ -1022,9 +1115,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							void this.save();
 						});
 					new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
-				});
+				}), "archiveFolder");
 
-			new Setting(root)
+			this.track(new Setting(root)
 				.setName("Also create notes for archived cards")
 				.setDesc("A list-to-folder sync creates, in the archive folder, a note for every archived card of a mapped list that has none. Costs one board-wide request per run.")
 				.addToggle((toggle) =>
@@ -1032,9 +1125,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.archiveFolderCreateMissing = value;
 						void this.save();
 					}),
-				);
+				), "archiveFolderCreateMissing");
 
-			new Setting(root)
+			this.track(new Setting(root)
 				.setName("Bring a note back when its card is unarchived")
 				.setDesc("A card taken out of the archive sends its note from the archive folder back to the folder of its list.")
 				.addToggle((toggle) =>
@@ -1042,10 +1135,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.archiveFolderRestoreOnUnarchive = value;
 						void this.save();
 					}),
-				);
+				), "archiveFolderRestoreOnUnarchive");
 		}
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Card deleted")
 			.setDesc("A deleted card cannot be recovered on Trello; the note is what is left.")
 			.addDropdown((dropdown) => {
@@ -1054,10 +1147,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.onCardDeleted = value as OnCardDeleted;
 					void this.save();
 				});
-			});
+			}), "onCardDeleted");
 
 		new Setting(root).setName("When you delete a synced note").setHeading();
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Note deleted, card still on Trello")
 			.setDesc("Told apart from a new card by remembering which cards had a note at the previous sync, so nothing is detected on the very first sync after updating.")
 			.addDropdown((dropdown) => {
@@ -1067,10 +1160,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 					this.display();
 				});
-			});
+			}), "onLinkedNoteDeleted");
 		if (this.plugin.settings.onLinkedNoteDeleted === "ignore-card") this.renderIgnoredCards(root);
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Confirm before unlinking a note")
 			.setDesc("Asks before the command \"Unlink active note from its card\" removes the card link and every Trello property from the open note.")
 			.addToggle((toggle) =>
@@ -1078,7 +1171,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.confirmUnlink = value;
 					void this.save();
 				}),
-			);
+			), "confirmUnlink");
 	}
 
 	private renderIgnoredCards(root: HTMLElement): void {
@@ -1103,7 +1196,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 	private renderLabels(root: HTMLElement): void {
 		new Setting(root).setName("Labels").setHeading();
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync labels")
 			.setDesc("Whether labels are synchronized between Trello cards and notes.")
 			.addToggle((toggle) =>
@@ -1111,9 +1204,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.syncLabels = value;
 					void this.save();
 				}),
-			);
+			), "syncLabels");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Labels sync")
 			.setDesc("How the note's labels (Labels key, below) and the card's assigned labels reconcile when they diverge.")
 			.addDropdown((dropdown) => {
@@ -1122,7 +1215,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.labelsSyncMode = value as LabelSyncMode;
 					void this.save();
 				});
-			});
+			}), "labelsSyncMode");
 
 		this.renderLabelProperties(root);
 	}
@@ -1152,10 +1245,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(settings.labelPropertySync).onChange((value) => {
 					settings.labelPropertySync = value;
 					void this.save();
+					this.display();
 				}),
 			);
 
-		new Setting(root)
+		const holder = this.group(root, settings.labelPropertySync);
+				new Setting(holder)
 			.setName("Direction")
 			.setDesc("Both ways, only from Trello into the notes, or only from the notes onto the cards.")
 			.addDropdown((dropdown) => {
@@ -1166,7 +1261,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				});
 			});
 
-		new Setting(root)
+		new Setting(holder)
 			.setName("Propagate removals")
 			.setDesc("When a pull takes a label off the card, its values leave the property; when a push finds a mapped value missing, the label leaves the card. Off: values and labels are only ever added.")
 			.addToggle((toggle) =>
@@ -1176,7 +1271,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				}),
 			);
 
-		new Setting(root)
+		new Setting(holder)
 			.setName("Scan board labels")
 			.setDesc("Adds a row for every label of the board that has none, and refreshes the names and colors of the others.")
 			.addButton((button) =>
@@ -1185,7 +1280,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		const keys = this.propertyKeyCandidates();
 		for (const row of settings.labelPropertyMappings) {
-			const setting = new Setting(root);
+			const setting = new Setting(holder);
 			const dot = setting.nameEl.createSpan({ cls: "tvs-label-dot" });
 			dot.setCssProps({ "--tvs-label-color": TRELLO_LABEL_COLORS[(row.labelColor ?? "").split("_")[0] ?? ""] ?? "var(--text-faint)" });
 			setting.nameEl.appendText(row.labelName === "" ? "(no name)" : row.labelName);
@@ -1212,6 +1307,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					}),
 				);
 		}
+		this.groupHint(root, holder);
 	}
 
 	private async scanLabels(button: ButtonComponent): Promise<void> {
@@ -1242,7 +1338,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		// Topic 1: attachments as frontmatter links (no download).
 		new Setting(root).setName("As frontmatter links").setHeading();
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync attachments")
 			.setDesc(
 				"Pulls the card's attachments into the note's frontmatter (Attachments key/Linked cards key, " +
@@ -1255,10 +1351,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 					this.display();
 				}),
-			);
+			), "syncAttachments");
 
 		if (this.plugin.settings.syncAttachments) {
-			new Setting(root)
+			this.track(new Setting(root)
 				.setName("Sync linked cards")
 				.setDesc(
 					"Resolves a card-link attachment to a wikilink in the Linked cards key (below). Off writes " +
@@ -1270,13 +1366,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.syncLinkedCards = value;
 						void this.save();
 					}),
-				);
+				), "syncLinkedCards");
 		}
 
 		// Topic 2: downloading the files themselves into the vault.
 		new Setting(root).setName("Download to vault").setHeading();
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Download attachments")
 			.setDesc(
 				"⚠️ Writes binary files into the vault: downloads each uploaded (non-link) attachment to the " +
@@ -1290,10 +1386,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 					this.display();
 				}),
-			);
+			), "downloadAttachments");
 
 		if (this.plugin.settings.downloadAttachments) {
-			new Setting(root)
+			this.track(new Setting(root)
 				.setName("Attachment download scope")
 				.setDesc('What "Download attachments" (above) actually fetches — every uploaded attachment, or just the one set as the card\'s cover.')
 				.addDropdown((dropdown) => {
@@ -1303,9 +1399,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.attachmentsDownloadScope = value === "cover-only" ? "cover-only" : "all";
 						void this.save();
 					});
-				});
+				}), "attachmentsDownloadScope");
 
-			new Setting(root)
+			this.track(new Setting(root)
 				.setName("Attachment download destination")
 				.setDesc("Where a downloaded attachment is written.")
 				.addDropdown((dropdown) => {
@@ -1316,10 +1412,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						void this.save();
 						this.display();
 					});
-				});
+				}), "attachmentsDestination");
 
 			if (this.plugin.settings.attachmentsDestination === "global-folder") {
-				new Setting(root)
+				this.track(new Setting(root)
 					.setName("Attachment download folder")
 					.setDesc(
 						"Required in this mode — left empty, every download is skipped and reported as an " +
@@ -1334,14 +1430,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 								void this.save();
 							});
 						new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
-					});
+					}), "attachmentsFolder");
 			}
 		}
 
 		// Topic 3: the card's cover as the note's banner image.
 		new Setting(root).setName("Cover image").setHeading();
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync card cover")
 			.setDesc(
 				"Writes the card's cover image url into the note's frontmatter (Cover key, below) — readable by " +
@@ -1353,10 +1449,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 					this.display();
 				}),
-			);
+			), "syncCardCover");
 
 		if (this.plugin.settings.syncCardCover) {
-			new Setting(root)
+			this.track(new Setting(root)
 				.setName("Cover key")
 				.setDesc(
 					'The frontmatter key holding the cover image url — "banner" is what Pixelbanner itself reads. ' +
@@ -1367,9 +1463,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.coverFrontmatterKey = safeFrontmatterKey(value, DEFAULT_COVER_KEY);
 						void this.save();
 					}),
-				);
+				), "coverFrontmatterKey");
 
-			new Setting(root)
+			this.track(new Setting(root)
 				.setName("Prefer local cover")
 				.setDesc(
 					"When a downloaded cover image exists in the vault (needs \"Download attachments\" above), " +
@@ -1382,10 +1478,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						void this.save();
 						this.display();
 					}),
-				);
+				), "preferLocalCover");
 
 			if (this.plugin.settings.preferLocalCover) {
-				new Setting(root)
+				this.track(new Setting(root)
 					.setName("Local cover format")
 					.setDesc("Link format written into the frontmatter when using a local cover.")
 					.addDropdown((dropdown) => {
@@ -1395,7 +1491,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							this.plugin.settings.coverLocalFormat = value === "wikilink" ? "wikilink" : "vault-path";
 							void this.save();
 						});
-					});
+					}), "coverLocalFormat");
 			}
 		}
 	}
@@ -1407,7 +1503,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Whether a card's checklists mirror into the note's body as Markdown tasks.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync checklists")
 			.setDesc(
 				"Mirrors the card's checklists as Markdown tasks under the checklist section (Checklist section " +
@@ -1420,10 +1516,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.syncChecklists).onChange((value) => {
 					this.plugin.settings.syncChecklists = value;
 					void this.save();
+					this.display();
 				}),
-			);
+			), "syncChecklists");
 
-		new Setting(root)
+		const holder = this.group(root, this.plugin.settings.syncChecklists);
+				this.track(new Setting(holder)
 			.setName("Checklist section heading")
 			.setDesc(
 				"The exact line marking where the checklist section starts in a note's body — must be the last " +
@@ -1436,7 +1534,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.checklistHeading = safeFrontmatterKey(value, DEFAULT_CHECKLIST_HEADING);
 					void this.save();
 				}),
-			);
+			), "checklistHeading");
+		this.groupHint(root, holder);
 	}
 
 	private renderMembers(root: HTMLElement): void {
@@ -1446,7 +1545,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Whether a card's assigned people show up in the note's frontmatter, as readable names.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync members")
 			.setDesc(
 				"Writes the card's assigned members as readable names into the note's frontmatter (Members key, " +
@@ -1457,10 +1556,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.syncMembers).onChange((value) => {
 					this.plugin.settings.syncMembers = value;
 					void this.save();
+					this.display();
 				}),
-			);
+			), "syncMembers");
 
-		new Setting(root)
+		const holder = this.group(root, this.plugin.settings.syncMembers);
+				this.track(new Setting(holder)
 			.setName("Members key")
 			.setDesc("The frontmatter key holding the card's assigned members. Empty resets it to the default key.")
 			.addText((text) =>
@@ -1468,7 +1569,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.membersFrontmatterKey = safeFrontmatterKey(value, DEFAULT_MEMBERS_KEY);
 					void this.save();
 				}),
-			);
+			), "membersFrontmatterKey");
+		this.groupHint(root, holder);
 	}
 
 	private renderCustomFields(root: HTMLElement): void {
@@ -1478,7 +1580,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Whether a card's custom fields (text, number, date, checkbox, dropdown) show up in the note's frontmatter.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync custom fields")
 			.setDesc(
 				"Writes the card's custom fields into a single frontmatter object (Custom fields key, below), " +
@@ -1489,10 +1591,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.syncCustomFields).onChange((value) => {
 					this.plugin.settings.syncCustomFields = value;
 					void this.save();
+					this.display();
 				}),
-			);
+			), "syncCustomFields");
 
-		new Setting(root)
+		const holder = this.group(root, this.plugin.settings.syncCustomFields);
+				this.track(new Setting(holder)
 			.setName("Custom fields key")
 			.setDesc(
 				"The frontmatter key holding the card's custom fields, grouped under one object. Empty resets " +
@@ -1503,7 +1607,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.customFieldsFrontmatterKey = safeFrontmatterKey(value, DEFAULT_CUSTOM_FIELDS_KEY);
 					void this.save();
 				}),
-			);
+			), "customFieldsFrontmatterKey");
+		this.groupHint(root, holder);
 	}
 
 	private renderSyncHistory(root: HTMLElement): void {
@@ -1513,7 +1618,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Keeps a record of what each sync changed, so a bad run can be undone from the sidebar or command palette.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sync history")
 			.setDesc(
 				"Records every write a sync makes — in the vault and on Trello — so it can be undone from " +
@@ -1526,10 +1631,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.historyEnabled).onChange((value) => {
 					this.plugin.settings.historyEnabled = value;
 					void this.save();
+					this.display();
 				}),
-			);
+			), "historyEnabled");
 
-		new Setting(root)
+		const holder = this.group(root, this.plugin.settings.historyEnabled);
+				this.track(new Setting(holder)
 			.setName("Revert Trello writes on undo")
 			.setDesc(
 				"On: undoing a run also reverts the Trello-side writes it made (a card's fields, a checklist " +
@@ -1541,9 +1648,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.historyRevertTrelloWrites = value;
 					void this.save();
 				}),
-			);
+			), "historyRevertTrelloWrites");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Confirm before undoing")
 			.setDesc(
 				'On: "Undo the last sync" and "Undo the last sync of this note" ask for confirmation before ' +
@@ -1555,12 +1662,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.confirmUndo = value;
 					void this.save();
 				}),
-			);
+			), "confirmUndo");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Sync history — runs kept")
 			.setDesc(
-				"Oldest run is dropped once this many are recorded. Minimum 0, default 20 (a very large value makes data.json heavy). 0 keeps no history " +
+				"Oldest run is dropped once this many are recorded. Minimum 0 (a very large value makes data.json heavy). 0 keeps no history " +
 					"at all — every run is dropped right after it completes, and undo has nothing to work with.",
 			)
 			.addText((text) =>
@@ -1569,7 +1676,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.historyMaxRuns = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
-			);
+			), "historyMaxRuns");
+		this.groupHint(root, holder);
 	}
 
 	private renderOrphanCards(root: HTMLElement): void {
@@ -1587,8 +1695,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Fallback settings when creating a note from a card — fallback destination folder for unmapped lists, and fallback note template when no mapping template is specified.",
 		});
 
-		new Setting(root)
-			.setName("Orphan card fallback folder")
+		this.track(new Setting(root)
+			.setName("Folder for cards without a note (fallback)")
 			.setDesc(
 				'Destination for "Create a note from an unlinked card" — checked in this order: (1) the folder mapped ' +
 					"to the card's list, if any (Mappings tab), (2) this fallback folder, used directly with no " +
@@ -1603,9 +1711,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						void this.save();
 					});
 				new VaultPathSuggest(this.app, text.inputEl, () => this.folderCandidates());
-			});
+			}), "orphanCardFolder");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Default note template")
 			.setDesc(
 				"Fallback note template when creating a note from a card whose list has no mapping template. " +
@@ -1622,10 +1730,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				new VaultPathSuggest(this.app, text.inputEl, () =>
 					this.app.vault.getMarkdownFiles().map((file) => file.basename),
 				);
-			});
+			}), "defaultTemplateName");
 
-		new Setting(root)
-			.setName('Offer "create all" for orphan cards')
+		this.track(new Setting(root)
+			.setName('Offer "create all" for cards without a note')
 			.setDesc("When multiple orphan cards are detected, show an option at the top of the picker to create notes for all of them at once.")
 			.addToggle((toggle) => {
 				toggle
@@ -1634,9 +1742,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.orphanCardBatchCreate = value;
 						void this.save();
 					});
-			});
+			}), "orphanCardBatchCreate");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName('Confirm "create all"')
 			.setDesc(
 				'On by default — shows a confirmation dialog with the count before "Create for ALL" runs, in both the orphan-card and phantom-note pickers. Off skips straight to creating.',
@@ -1648,10 +1756,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.confirmBatchCreate = value;
 						void this.save();
 					});
-			});
+			}), "confirmBatchCreate");
 
-		new Setting(root)
-			.setName("Orphan cards detection scope")
+		this.track(new Setting(root)
+			.setName("Where to look for cards without a note")
 			.setDesc("Which orphan cards are considered candidates when creating notes.")
 			.addDropdown((dropdown) => {
 				dropdown
@@ -1662,9 +1770,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.orphanCardScope = value as OrphanCardScope;
 						void this.save();
 					});
-			});
+			}), "orphanCardScope");
 
-		new Setting(root).setName("Card creation from phantom notes").setHeading();
+		new Setting(root).setName("Cards for notes whose card is gone").setHeading();
 		root.createEl("p", {
 			cls: "setting-item-description",
 			text: "Destination list and options when creating Trello cards from phantom or unlinked notes.",
@@ -1672,7 +1780,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 		const phantomListName = this.listNames.get(this.plugin.settings.phantomCardListId);
 		new Setting(root)
-			.setName("Phantom notes destination list")
+			.setName("List for the recreated cards")
 			.setDesc(
 				(phantomListName ? `→ ${phantomListName}. ` : "") +
 					'Default Trello list where phantom and unlinked notes are created as cards (e.g. "Inbox" or ' +
@@ -1708,7 +1816,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				);
 			});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Prefer folder mapping")
 			.setDesc(
 				'Decides the order of priority for the destination list above. On: (1) the note\'s folder mapped ' +
@@ -1722,10 +1830,10 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.phantomNotePreferFolderMapping = value;
 						void this.save();
 					});
-			});
+			}), "phantomNotePreferFolderMapping");
 
-		new Setting(root)
-			.setName("Phantom notes detection scope")
+		this.track(new Setting(root)
+			.setName("Where to look for notes whose card is gone")
 			.setDesc(
 				"Which notes are considered candidates when scanning for phantom and unlinked notes " +
 					"(see the definitions above).",
@@ -1740,7 +1848,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.phantomNoteScope = value as PhantomNoteScope;
 						void this.save();
 					});
-			});
+			}), "phantomNoteScope");
 
 		new Setting(root).setName("Create from audit report").setHeading();
 		root.createEl("p", {
@@ -1751,18 +1859,18 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				'"Recreate the missing cards of notes" for those.',
 		});
 
-		new Setting(root)
-			.setName("Unchecked orphan cards → notes")
+		this.track(new Setting(root)
+			.setName("Unchecked cards without a note → notes")
 			.setDesc("Create a note for each orphan card left unchecked in the report (same folder rules as above).")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.auditReportCreateNotes).onChange((value) => {
 					this.plugin.settings.auditReportCreateNotes = value;
 					void this.save();
 				}),
-			);
+			), "auditReportCreateNotes");
 
-		new Setting(root)
-			.setName("Unchecked unlinked notes → cards")
+		this.track(new Setting(root)
+			.setName("Unchecked notes without a card → cards")
 			.setDesc(
 				"Create a Trello card for each unlinked note left unchecked in the report (same list rules as above). " +
 					"With both toggles off, the command does nothing.",
@@ -1772,9 +1880,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.auditReportCreateCards = value;
 					void this.save();
 				}),
-			);
+			), "auditReportCreateCards");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Apply creation scopes to the audit report")
 			.setDesc(
 				'On by default — the link audit report lists only the orphan cards and unlinked notes allowed by the two ' +
@@ -1785,7 +1893,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.auditReportApplyCreationScopes = value;
 					void this.save();
 				}),
-			);
+			), "auditReportApplyCreationScopes");
 	}
 
 	private renderAutoSync(root: HTMLElement): void {
@@ -1795,7 +1903,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "Runs a sync on its own instead of only when you click a command — pick what starts it (any combination) and what it runs (any combination) below.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Enable auto-sync")
 			.setDesc(
 				"⚠️ Runs a sync without you clicking anything. Off by default. Respects Dry run, Create missing " +
@@ -1805,10 +1913,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.autoSyncEnabled).onChange((value) => {
 					this.plugin.settings.autoSyncEnabled = value;
 					void this.save();
+					this.display();
 				}),
-			);
+			), "autoSyncEnabled");
 
-		new Setting(root)
+		const holder = this.group(root, this.plugin.settings.autoSyncEnabled);
+				this.track(new Setting(holder)
 			.setName("Trigger — on a timer")
 			.setDesc("Checks periodically (interval below) whether it's time to sync.")
 			.addToggle((toggle) =>
@@ -1816,9 +1926,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncOnInterval = value;
 					void this.save();
 				}),
-			);
+			), "autoSyncOnInterval");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Trigger — when Obsidian regains focus")
 			.setDesc("Syncs when you switch back to the Obsidian window (still subject to the minimum gap below).")
 			.addToggle((toggle) =>
@@ -1826,9 +1936,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncOnFocus = value;
 					void this.save();
 				}),
-			);
+			), "autoSyncOnFocus");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Trigger — at startup")
 			.setDesc("Syncs once, shortly after Obsidian finishes loading this vault.")
 			.addToggle((toggle) =>
@@ -1836,9 +1946,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncOnStartup = value;
 					void this.save();
 				}),
-			);
+			), "autoSyncOnStartup");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Trigger — after I edit a linked note")
 			.setDesc(
 				"Syncs just that note once you stop typing for the delay below. Only notes linked to a card, " +
@@ -1849,12 +1959,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncOnNoteChange = value;
 					void this.save();
 				}),
-			);
+			), "autoSyncOnNoteChange");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Delay after the last edit (seconds)")
 			.setDesc(
-				`Quiet time before an edited note is synced. Minimum ${AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR}, default 10.`,
+				`Quiet time before an edited note is synced. Minimum ${AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR}.`,
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.autoSyncNoteChangeDelaySeconds)).onChange((value) => {
@@ -1863,14 +1973,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncNoteChangeDelaySeconds = Math.max(AUTO_SYNC_NOTE_CHANGE_DELAY_FLOOR, parsed);
 					void this.save();
 				}),
-			);
+			), "autoSyncNoteChangeDelaySeconds");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Interval (minutes)")
 			.setDesc(
 				'Minimum wait before "On a timer" syncs again, counted from the last successful sync — manual ' +
 					"syncs included, and remembered across restarts (it checks every 30 seconds, but " +
-					"only actually syncs once this many minutes have passed). Minimum 0, default 15. 0 " +
+					"only actually syncs once this many minutes have passed). Minimum 0. 0 " +
 					"removes this wait — every 30-second check can sync, still subject to the minimum gap below.",
 			)
 			.addText((text) =>
@@ -1879,9 +1989,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncIntervalMinutes = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
-			);
+			), "autoSyncIntervalMinutes");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Scope — every mapped folder")
 			.setDesc('Runs "Sync every folder with its list" — the only scope that can create a missing note.')
 			.addToggle((toggle) =>
@@ -1889,9 +1999,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncScopeMappings = value;
 					void this.save();
 				}),
-			);
+			), "autoSyncScopeMappings");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Scope — the whole vault")
 			.setDesc('Runs "Sync all linked notes" — every note already linked to a card, anywhere in scope.')
 			.addToggle((toggle) =>
@@ -1899,13 +2009,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncScopeVault = value;
 					void this.save();
 				}),
-			);
+			), "autoSyncScopeVault");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Minimum gap between auto-syncs (seconds)")
 			.setDesc(
 				"However it was triggered, an auto-sync never starts less than this long after the previous " +
-					"one. Range 0-3600 (1h), default 60. 0 removes this floor — a focus/startup trigger can fire " +
+					"one. Range 0-3600 (1h). 0 removes this floor — a focus/startup trigger can fire " +
 					"right after the previous run.",
 			)
 			.addText((text) =>
@@ -1914,9 +2024,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncMinIdleSeconds = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
-			);
+			), "autoSyncMinIdleSeconds");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Only when Obsidian is visible")
 			.setDesc("Skip timer-triggered auto-syncs while the Obsidian window is minimized or hidden. Off by default.")
 			.addToggle((toggle) =>
@@ -1924,9 +2034,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncOnlyWhenVisible = value;
 					void this.save();
 				}),
-			);
+			), "autoSyncOnlyWhenVisible");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Show the progress panel for auto-syncs")
 			.setDesc(
 				"Off (default): automatic syncs run quietly — no panel, no success notice; errors still show a " +
@@ -1937,14 +2047,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncShowPanel = value;
 					void this.save();
 				}),
-			);
+			), "autoSyncShowPanel");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Pause after failed runs in a row")
 			.setDesc(
 				`Auto-sync pauses itself after this many consecutive failures (a notice says so), instead of ` +
 					`failing on every trigger. A successful manual sync or switching auto-sync off and on resumes it. ` +
-					`Minimum 0, default 3. 0 never pauses. ` +
+					`Minimum 0. 0 never pauses. ` +
 					`Being offline is skipped, not counted as a failure.`,
 			)
 			.addText((text) =>
@@ -1954,7 +2064,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncPauseAfterFailures = Math.max(0, parsed);
 					void this.save();
 				}),
-			);
+			), "autoSyncPauseAfterFailures");
+		this.groupHint(root, holder);
 	}
 
 	private renderMappings(root: HTMLElement): void {
@@ -2153,7 +2264,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			"Choose which commands get a button in Obsidian's left ribbon, and optionally customize their colors individually.",
 		);
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Sidebar conflict indicator")
 			.setDesc(
 				"Show a badge in the sidebar with the unresolved-conflict count from the last sync run. Resets when Obsidian reloads.",
@@ -2163,7 +2274,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.showConflictIndicator = value;
 					void this.save();
 				}),
-			);
+			), "showConflictIndicator");
 
 		for (const section of ALL_SECTIONS) {
 			const sectionCommands = COMMANDS.filter((c) => c.section === section);
@@ -2229,10 +2340,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		new Setting(root).setName("Advanced").setHeading();
 		root.createEl("p", {
 			cls: "setting-item-description",
-			text: "Matching tolerance, network retry tuning, and the progress panel — settings you're unlikely to need until something needs adjusting.",
+			text: "Matching tolerance, the progress panel, frontmatter key names. Rarely changed values (network retries, timings, report wording) are in \"Expert settings\" at the bottom.",
 		});
+		// Built here, shown last (moved to the end below): the settings that only matter when something needs adjusting.
+		const expert = root.createEl("details", { cls: "tvs-settings__expert" });
+		expert.createEl("summary", { text: "Expert settings - network retries, timings, report wording" });
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Similarity threshold")
 			.setDesc("Minimum score (0 to 1) to automatically match a note to a card.")
 			.addSlider((slider) =>
@@ -2243,9 +2357,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.plugin.settings.similarityThreshold = value;
 						void this.save();
 					}),
-			);
+			), "similarityThreshold");
 
-		new Setting(root)
+		this.track(new Setting(expert)
 			.setName("Retries")
 			.setDesc("Number of retries after a 429 response or a server error.")
 			.addText((text) =>
@@ -2254,9 +2368,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.maxRetries = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
-			);
+			), "maxRetries");
 
-		new Setting(root)
+		this.track(new Setting(expert)
 			.setName("Initial delay (ms)")
 			.setDesc("Wait before the first retry; it doubles on every subsequent attempt.")
 			.addText((text) =>
@@ -2265,9 +2379,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.baseDelayMs = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
-			);
+			), "baseDelayMs");
 
-		new Setting(root)
+		this.track(new Setting(expert)
 			.setName("Request timeout (ms)")
 			.setDesc("How long to wait for a single Trello response before treating it as a failed attempt.")
 			.addText((text) =>
@@ -2276,9 +2390,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.requestTimeoutMs = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
-			);
+			), "requestTimeoutMs");
 
-		new Setting(root)
+		this.track(new Setting(expert)
 			.setName("Max retry wait (ms)")
 			.setDesc("Ceiling on a single retry wait, regardless of how many attempts have already doubled the delay.")
 			.addText((text) =>
@@ -2287,9 +2401,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.maxBackoffDelayMs = safeNonNegativeNumber(parsed, 0);
 					void this.save();
 				}),
-			);
+			), "maxBackoffDelayMs");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Fetch attachments and checklists with the cards")
 			.setDesc(
 				"Gets every card's attachments and checklists in the same request as the cards — much faster. Off: one extra request per note for each, which keeps each response smaller on very heavy boards.",
@@ -2299,19 +2413,21 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.fetchCardDetailsWithCards = value;
 					void this.save();
 				}),
-			);
+			), "fetchCardDetailsWithCards");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Show the progress panel")
 			.setDesc("Floating panel with live progress while a sync runs. Off: the sync still runs, just silently.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.showPanel).onChange((value) => {
 					this.plugin.settings.showPanel = value;
 					void this.save();
+					this.display();
 				}),
-			);
+			), "showPanel");
 
-		new Setting(root)
+		const holder = this.group(root, this.plugin.settings.showPanel);
+				this.track(new Setting(holder)
 			.setName("Auto-close (seconds)")
 			.setDesc("0 keeps the panel open until closed manually.")
 			.addText((text) =>
@@ -2323,9 +2439,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 						void this.save();
 					}),
-			);
+			), "panelAutoCloseSeconds");
 
-		new Setting(root)
+		this.track(new Setting(holder)
 			.setName("Keep panel open on error")
 			.setDesc("A run that logged at least one error never auto-closes, even when auto-close above is > 0. Off: auto-close always applies, errors included.")
 			.addToggle((toggle) =>
@@ -2333,13 +2449,13 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.keepPanelOpenOnError = value;
 					void this.save();
 				}),
-			);
-
-		new Setting(root)
+			), "keepPanelOpenOnError");
+		this.groupHint(root, holder);
+		this.track(new Setting(root)
 			.setName("Journal lines kept")
 			.setDesc(
 				`Lines shown in the progress panel and the sidebar journal before the oldest is dropped. ` +
-					`Minimum ${LOG_MAX_ROWS_FLOOR}, default 60. Every line is kept in data.json, so a very large value makes it heavy.`,
+					`Minimum ${LOG_MAX_ROWS_FLOOR}. Every line is kept in data.json, so a very large value makes it heavy.`,
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.logMaxRows)).onChange((value) => {
@@ -2348,14 +2464,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.logMaxRows = Math.max(LOG_MAX_ROWS_FLOOR, parsed);
 					void this.save();
 				}),
-			);
+			), "logMaxRows");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Operations at the same time")
 			.setDesc(
 				`How many operations (syncs, audits, creations…) may run together, each with its own progress panel. ` +
 					`One more waits for a free slot. 1 = one at a time. ` +
-					`Minimum ${MAX_CONCURRENT_OPERATIONS_FLOOR}, default 3. A high value can hit Trello's rate limits.`,
+					`Minimum ${MAX_CONCURRENT_OPERATIONS_FLOOR}. A high value can hit Trello's rate limits.`,
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.maxConcurrentOperations)).onChange((value) => {
@@ -2364,14 +2480,14 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.maxConcurrentOperations = Math.max(MAX_CONCURRENT_OPERATIONS_FLOOR, parsed);
 					void this.save();
 				}),
-			);
+			), "maxConcurrentOperations");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Note name max length")
 			.setDesc(
 				`Longest note file name (without ".md") made from a card title — longer titles are cut. Applies to ` +
 					`new notes and to renames when titles sync. Range ${NOTE_NAME_MAX_LENGTH_FLOOR}-` +
-					`${NOTE_NAME_MAX_LENGTH_CEILING}, default 120. Changing it renames already-cut notes on their next sync.`,
+					`${NOTE_NAME_MAX_LENGTH_CEILING}. Changing it renames already-cut notes on their next sync.`,
 			)
 			.addText((text) =>
 				text.setValue(String(this.plugin.settings.noteNameMaxLength)).onChange((value) => {
@@ -2383,7 +2499,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					);
 					void this.save();
 				}),
-			);
+			), "noteNameMaxLength");
 
 		new Setting(root).setName("Frontmatter keys").setHeading();
 		root.createEl("p", {
@@ -2391,7 +2507,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			text: "The property name each synced value is written under. Change one only if it collides with something else already in your notes — the note that already exists under the old key needs updating by hand, this plugin never renames it for you. Leaving any of these fields empty resets it to its built-in default name on save.",
 		});
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Due date key")
 			.setDesc("Frontmatter property that carries the card's due date.")
 			.addText((text) =>
@@ -2399,9 +2515,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.dueFrontmatterKey = safeFrontmatterKey(value, DEFAULT_DUE_KEY);
 					void this.save();
 				}),
-			);
+			), "dueFrontmatterKey");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Labels key")
 			.setDesc("Frontmatter property that carries the card's labels.")
 			.addText((text) =>
@@ -2409,9 +2525,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.labelsFrontmatterKey = safeFrontmatterKey(value, DEFAULT_LABELS_KEY);
 					void this.save();
 				}),
-			);
+			), "labelsFrontmatterKey");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Attachments key")
 			.setDesc("Frontmatter property that carries the card's plain attachment urls.")
 			.addText((text) =>
@@ -2419,9 +2535,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.attachmentsFrontmatterKey = safeFrontmatterKey(value, DEFAULT_ATTACHMENTS_KEY);
 					void this.save();
 				}),
-			);
+			), "attachmentsFrontmatterKey");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Linked cards key")
 			.setDesc("Frontmatter property that carries a wikilink for each attachment pointing to another Trello card.")
 			.addText((text) =>
@@ -2432,9 +2548,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					);
 					void this.save();
 				}),
-			);
+			), "linkedCardsFrontmatterKey");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Card link key")
 			.setDesc(
 				"Frontmatter property that links a note to its card — every command depends on it. " +
@@ -2446,9 +2562,9 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.cardRefFrontmatterKey = safeFrontmatterKey(value, DEFAULT_CARD_REF_KEY);
 					void this.save();
 				}),
-			);
+			), "cardRefFrontmatterKey");
 
-		new Setting(root)
+		this.track(new Setting(root)
 			.setName("Write the \"Trello\" plugin's note id")
 			.setDesc(
 				"Also adds trello_plugin_note_id to every note this plugin links or creates, for people who still use " +
@@ -2459,9 +2575,11 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.plugin.settings.writeTrelloPluginNoteId = value;
 					void this.save();
 				}),
-			);
+			), "writeTrelloPluginNoteId");
 
-		this.renderTuning(root);
+		this.renderTuning(expert);
+		this.renderReportLabels(expert);
+		root.appendChild(expert);
 	}
 
 	private renderChangelog(root: HTMLElement): void {

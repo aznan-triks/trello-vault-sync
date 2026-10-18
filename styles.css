@@ -1818,3 +1818,48 @@ textarea.tvs-card-view__input {
 	gap: 6px;
 	margin-bottom: 4px;
 }
+
+/* Settings: defaults, modified marker, summary */
+.tvs-setting__default {
+	margin-top: 2px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+.tvs-setting--modified {
+	border-left: 3px solid var(--interactive-accent);
+	padding-left: 8px;
+}
+.tvs-settings__summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin: 8px 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+.tvs-settings__summary button {
+	flex-shrink: 0;
+}
+.tvs-settings__intro {
+	margin: 0 0 12px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+.tvs-settings__expert > summary {
+	cursor: pointer;
+	font-weight: var(--font-semibold);
+	padding: 8px 0;
+}
+.tvs-settings__more {
+	margin-top: 2px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+.tvs-settings__dependent.is-off,
+.tvs-settings--searching .tvs-settings__more {
+	display: none;
+}
+.tvs-settings--searching .tvs-settings__dependent.is-off {
+	display: block;
+}
