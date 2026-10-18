@@ -525,3 +525,75 @@ describe("TrelloClient — configurable retry statuses and page size", () => {
 		expect(calls[0]?.url).toContain("limit=250");
 	});
 });
+
+describe("TrelloClient — card view endpoints", () => {
+	const lastCall = (calls: HttpRequest[]) => calls[calls.length - 1];
+
+	test("getCardView fetches everything the card view needs in one request", async () => {
+		const { transport, calls } = stubTransport([ok({ id: "c1", name: "A", actions: [] })]);
+		await new TrelloClient(CREDENTIALS, transport).getCardView("c1", 20);
+		expect(calls).toHaveLength(1);
+		const url = new URL(calls[0]?.url ?? "");
+		for (const [k, v] of [["list", "true"], ["members", "true"], ["checklists", "all"], ["attachments", "true"], ["customFieldItems", "true"], ["actions", "commentCard"], ["actions_limit", "20"]]) {
+			expect(url.searchParams.get(k), k).toBe(v);
+		}
+	});
+
+	test("getCardView asks for no comments at all when the limit is 0", async () => {
+		const { transport, calls } = stubTransport([ok({ id: "c1" })]);
+		await new TrelloClient(CREDENTIALS, transport).getCardView("c1", 0);
+		expect(new URL(calls[0]?.url ?? "").searchParams.has("actions")).toBe(false);
+	});
+
+	test("updateCard sends the extended fields", async () => {
+		const { transport, calls } = stubTransport([ok({})]);
+		await new TrelloClient(CREDENTIALS, transport).updateCard("c1", { idList: "l2", pos: "top", idMembers: ["m1", "m2"], dueComplete: true });
+		const body = new URLSearchParams(calls[0]?.body);
+		expect([body.get("idList"), body.get("pos"), body.get("idMembers"), body.get("dueComplete")]).toEqual(["l2", "top", "m1,m2", "true"]);
+		expect(calls[0]?.method).toBe("PUT");
+	});
+
+	test("comments: add posts, update puts on the action", async () => {
+		const { transport, calls } = stubTransport([ok({ id: "a1", date: "d", idMemberCreator: "m", data: { text: "hi" } }), ok({})]);
+		const api = new TrelloClient(CREDENTIALS, transport);
+		expect((await api.addComment("c1", "hi")).id).toBe("a1");
+		expect(calls[0]?.url).toContain("/cards/c1/actions/comments");
+		expect(new URLSearchParams(calls[0]?.body).get("text")).toBe("hi");
+		await api.updateComment("c1", "a1", "edited");
+		expect(lastCall(calls)?.url).toContain("/cards/c1/actions/a1/comments");
+		expect(lastCall(calls)?.method).toBe("PUT");
+	});
+
+	test("checklist items: add and rename", async () => {
+		const { transport, calls } = stubTransport([ok({}), ok({})]);
+		const api = new TrelloClient(CREDENTIALS, transport);
+		await api.addCheckItem("cl1", "Step");
+		expect(calls[0]?.url).toContain("/checklists/cl1/checkItems");
+		expect(calls[0]?.method).toBe("POST");
+		await api.renameCheckItem("c1", "i1", "New");
+		expect(lastCall(calls)?.url).toContain("/cards/c1/checkItem/i1");
+		expect(new URLSearchParams(lastCall(calls)?.body).get("name")).toBe("New");
+	});
+
+	test("custom field item: JSON body, wrapped value, list choice, and clearing", async () => {
+		const { transport, calls } = stubTransport([ok({}), ok({}), ok({})]);
+		const api = new TrelloClient(CREDENTIALS, transport);
+		await api.setCustomFieldItem("c1", "f1", { text: "x" });
+		expect(calls[0]?.contentType).toBe("application/json");
+		expect(calls[0]?.url).toContain("/cards/c1/customField/f1/item");
+		expect(JSON.parse(calls[0]?.body ?? "")).toEqual({ value: { text: "x" } });
+		await api.setCustomFieldItem("c1", "f1", { idValue: "o1" });
+		expect(JSON.parse(calls[1]?.body ?? "")).toEqual({ idValue: "o1" });
+		await api.setCustomFieldItem("c1", "f1", null);
+		expect(JSON.parse(calls[2]?.body ?? "")).toEqual({ value: "", idValue: "" });
+	});
+
+	test("link attachment and getMe", async () => {
+		const { transport, calls } = stubTransport([ok({}), ok({ id: "me", fullName: "Me", username: "me" })]);
+		const api = new TrelloClient(CREDENTIALS, transport);
+		await api.addUrlAttachment("c1", "https://x.test", "X");
+		expect(calls[0]?.url).toContain("/cards/c1/attachments");
+		expect(new URLSearchParams(calls[0]?.body).get("url")).toBe("https://x.test");
+		expect((await api.getMe()).id).toBe("me");
+	});
+});
