@@ -18,7 +18,7 @@ vi.mock("obsidian", () => ({
 	},
 }));
 
-import { syncActive } from "../src/commands/noteCommands";
+import { syncActive, unlinkActive } from "../src/commands/noteCommands";
 import type { CommandContext } from "../src/commands/context";
 import { silentReporter } from "../src/obsidian/gateway";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
@@ -99,5 +99,24 @@ describe("syncActive", () => {
 		await syncActive(ctx);
 
 		expect(requests.length).toBeGreaterThan(0);
+	});
+});
+
+describe("unlinkActive", () => {
+	const keys = ["trello_board_card_id"];
+	const linked = () => fakeContext({ noteOptions: () => ({ policy: "newer-wins", marginMs: 0, syncTitle: true, dryRun: false, trelloPropertyKeys: keys }) });
+
+	test("removes the Trello properties and keeps the body", async () => {
+		const ctx = linked();
+		await unlinkActive({ ...ctx, settings: { ...ctx.settings, confirmUnlink: false } });
+		const vault = ctx.vault as FakeVault;
+		expect(vault.readFrontmatter(vault.note(PATH))?.trello_board_card_id).toBeUndefined();
+		expect(vault.contentOf(PATH)).toContain("old body");
+	});
+
+	test("a note that is not linked is left alone", async () => {
+		const ctx = fakeContext({ vault: new FakeVault({ [PATH]: { content: "no link" } }) });
+		await unlinkActive({ ...ctx, settings: { ...ctx.settings, confirmUnlink: false } });
+		expect((ctx.vault as FakeVault).contentOf(PATH)).toBe("no link");
 	});
 });
