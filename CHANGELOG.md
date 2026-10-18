@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Plain**: Optional `trello_plugin_note_id` property (off by default). A note can be unlinked from its card with a new command (confirmation switch `confirmUnlink`).
+- **Plain**: You choose what happens to a note when its card is moved, archived or deleted (move the note, unlink it, send it to an archive folder, keep it, or trash it). Optional creation/restoration of notes for the archive folder.
+  **Technical**: pure decision `core/cardFate.ts` shared by the note, folder and vault engines; `features/noteFate.ts`, `goneCards.ts`, `unlinkNote.ts`.
+- **Plain**: Trello labels can be mapped to note properties (scan board labels, choose key and values, both directions).
+  **Technical**: `core/labelProperty.ts`, `labelProperties` options in `syncNote`.
+- **Plain**: New settings tab for the future card view (sections, order, display options), and Trello client calls for it (one request per card, comments, check items, custom fields, members).
+  **Technical**: `core/cardViewModel.ts`, `TrelloClient.getCardView/getMe/addComment/updateComment/addCheckItem`, `updateCard` accepts `closed`, `dueComplete`, `idMembers`, `idList`, `pos`.
+- Groundwork for "a note you delete is not recreated": `OnLinkedNoteDeleted`, `knownLinks`, `ignoredCards` (persisted, not yet wired into the sync engines).
+
+### Changed
+
+- **Plain**: Command names are clearer (ids unchanged).
+- **Plain**: Many hardcoded values and always-on behaviours are now settings; arbitrary maximums were removed (only minimums remain).
+
 ## [1.22.0] — 2026-09-30
 
 ### Added
