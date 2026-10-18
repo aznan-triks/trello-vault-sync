@@ -72,7 +72,7 @@ export async function auditLinks(
 	}
 
 	const scopes = options.creationScopes;
-	const allOrphans = cards.filter((card) => !linkedCardIds.has(card.id) && !card.closed);
+	const allOrphans = cards.filter((card) => !linkedCardIds.has(card.id) && !card.closed && !options.ignoredCardIds?.has(card.id));
 	const orphanCards: ReportCard[] = (
 		scopes ? filterOrphanCardsByScope(allOrphans, scopes.mappings, scopes.orphanCardScope) : allOrphans
 	).map((card) => ({

@@ -35,6 +35,8 @@ export interface CommandContext {
 	readonly lastRunConflicts?: number | null;
 	/** Records the last run's conflict count — optional, called from `syncCommands.ts` after each vault/mapping sync. */
 	setLastRunConflicts?(count: number): void;
+	/** Cards whose note the user deleted and chose to stop recreating: never offered as orphan cards. */
+	ignoredCardIds?(): ReadonlySet<string>;
 	/** Completed sync runs, oldest first, capped at `settings.historyMaxRuns` — feeds "Show sync history" / "Undo last sync run". */
 	readonly history: readonly SyncRun[];
 	/** Appends a completed run's actions to `history` (a no-op when `actions` is empty) — in memory; the enclosing `run()` persists once when it finishes. */

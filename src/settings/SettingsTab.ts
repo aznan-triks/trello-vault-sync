@@ -9,6 +9,7 @@ import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
+import type { OnLinkedNoteDeleted } from "../core/deletedNotes";
 import type { OnCardArchived, OnCardDeleted, OnCardMoved } from "../core/cardFate";
 import type { LabelSyncMode } from "../core/labelMerge";
 import type { MappingOverride } from "../core/mappingOverride";
@@ -75,6 +76,12 @@ const ON_CARD_DELETED_LABELS: Record<OnCardDeleted, string> = {
 	unlink: "Remove the Trello properties (the note becomes a plain note)",
 	keep: "Keep the note as it is",
 	trash: "Move the note to the trash",
+};
+
+const ON_LINKED_NOTE_DELETED_LABELS: Record<OnLinkedNoteDeleted, string> = {
+	"ignore-card": "Stop creating a note for the card (it moves to the ignored list below)",
+	"archive-card": "Archive the card on Trello (recoverable from Trello's archive)",
+	recreate: "Create the note again",
 };
 
 const CHANGELOG_RAW_URL = "https://raw.githubusercontent.com/aznan-triks/trello-vault-sync/master/CHANGELOG.md";
@@ -805,15 +812,48 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				});
 			});
 
+		new Setting(root).setName("When you delete a synced note").setHeading();
+		new Setting(root)
+			.setName("Note deleted, card still on Trello")
+			.setDesc("Told apart from a new card by remembering which cards had a note at the previous sync, so nothing is detected on the very first sync after updating.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(ON_LINKED_NOTE_DELETED_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(this.plugin.settings.onLinkedNoteDeleted).onChange((value) => {
+					this.plugin.settings.onLinkedNoteDeleted = value as OnLinkedNoteDeleted;
+					void this.save();
+					this.display();
+				});
+			});
+		if (this.plugin.settings.onLinkedNoteDeleted === "ignore-card") this.renderIgnoredCards(root);
+
 		new Setting(root)
 			.setName("Confirm before unlinking a note")
-			.setDesc("Asks before the command \"Unlink this note from its card\" removes the card link and every Trello property from the open note.")
+			.setDesc("Asks before the command \"Unlink active note from its card\" removes the card link and every Trello property from the open note.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.confirmUnlink).onChange((value) => {
 					this.plugin.settings.confirmUnlink = value;
 					void this.save();
 				}),
 			);
+	}
+
+	private renderIgnoredCards(root: HTMLElement): void {
+		const entries = Object.entries(this.plugin.ignoredCards);
+		new Setting(root)
+			.setName("Ignored cards")
+			.setDesc(entries.length === 0 ? "None. A card lands here when you delete its note." : "These cards never get a note again. A note linked to one of them brings it back automatically.");
+		for (const [cardId, { name, since }] of entries) {
+			new Setting(root)
+				.setName(name)
+				.setDesc(`Ignored since ${since}`)
+				.addButton((button) =>
+					button.setButtonText("Stop ignoring").onClick(() => {
+						Reflect.deleteProperty(this.plugin.ignoredCards, cardId);
+						void this.save();
+						this.display();
+					}),
+				);
+		}
 	}
 
 	private renderLabels(root: HTMLElement): void {
