@@ -1663,3 +1663,120 @@
 	border-radius: 50%;
 	background: var(--tvs-label-color, var(--text-faint));
 }
+
+/* Card view */
+.tvs-card-view {
+	--tvs-trello-green: #4bce97;
+	--tvs-trello-yellow: #e2b203;
+	--tvs-trello-orange: #fea362;
+	--tvs-trello-red: #f87168;
+	--tvs-trello-purple: #9f8fef;
+	--tvs-trello-blue: #579dff;
+	--tvs-trello-sky: #6cc3e0;
+	--tvs-trello-lime: #94c748;
+	--tvs-trello-pink: #e774bb;
+	--tvs-trello-black: #8590a2;
+	--tvs-trello-none: var(--background-modifier-border);
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.tvs-card-view__header {
+	display: flex;
+	gap: 2px;
+	flex-wrap: wrap;
+}
+.tvs-card-view__banner,
+.tvs-card-view__empty {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 8px 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+	color: var(--text-muted);
+}
+.tvs-card-view__empty button,
+.tvs-card-view__banner button {
+	align-self: flex-start;
+}
+.tvs-card-view__section-title {
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--text-muted);
+	margin-bottom: 4px;
+}
+.tvs-card-view__none {
+	color: var(--text-faint);
+	font-style: italic;
+}
+.tvs-card-view__cover img {
+	width: 100%;
+	border-radius: var(--radius-m);
+}
+.tvs-card-view__title h3 {
+	margin: 0;
+}
+.tvs-card-view__label,
+.tvs-card-view__member,
+.tvs-card-view__due {
+	display: inline-block;
+	margin: 0 4px 4px 0;
+	padding: 1px 8px;
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-small);
+}
+.tvs-card-view__label {
+	background: var(--tvs-trello-none);
+	color: var(--text-normal);
+}
+.tvs-card-view__label--green { background: var(--tvs-trello-green); color: #000; }
+.tvs-card-view__label--yellow { background: var(--tvs-trello-yellow); color: #000; }
+.tvs-card-view__label--orange { background: var(--tvs-trello-orange); color: #000; }
+.tvs-card-view__label--red { background: var(--tvs-trello-red); color: #000; }
+.tvs-card-view__label--purple { background: var(--tvs-trello-purple); color: #000; }
+.tvs-card-view__label--blue { background: var(--tvs-trello-blue); color: #000; }
+.tvs-card-view__label--sky { background: var(--tvs-trello-sky); color: #000; }
+.tvs-card-view__label--lime { background: var(--tvs-trello-lime); color: #000; }
+.tvs-card-view__label--pink { background: var(--tvs-trello-pink); color: #000; }
+.tvs-card-view__label--black { background: var(--tvs-trello-black); color: #000; }
+.tvs-card-view__member {
+	background: var(--background-modifier-hover);
+}
+.tvs-card-view__due {
+	background: var(--background-modifier-hover);
+}
+.tvs-card-view__due--overdue { background: var(--background-modifier-error); color: var(--text-on-accent); }
+.tvs-card-view__due--soon { background: var(--background-modifier-warning, var(--tvs-trello-yellow)); }
+.tvs-card-view__due--complete { background: var(--background-modifier-success); color: var(--text-on-accent); }
+.tvs-card-view__text > :first-child { margin-top: 0; }
+.tvs-card-view__plain { white-space: pre-wrap; }
+.tvs-card-view__checklists progress {
+	width: 100%;
+	height: 6px;
+	margin-bottom: 4px;
+}
+.tvs-card-view__check {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	padding: 1px 0;
+}
+.tvs-card-view__field-name {
+	color: var(--text-muted);
+}
+.tvs-card-view__comment {
+	padding: 6px 0;
+	border-top: 1px solid var(--background-modifier-border);
+}
+.tvs-card-view__comment-head {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.tvs-card-view__comment-author {
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}

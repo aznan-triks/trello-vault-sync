@@ -25,6 +25,7 @@ import { TrelloVaultSyncSettingsTab } from "./settings/SettingsTab";
 import { DEFAULT_SETTINGS, hasCredentials, normalizeSettings, type TrelloVaultSyncSettings } from "./settings/types";
 import { redactSecrets, TrelloClient } from "./trello/client";
 import { ProgressPanel } from "./ui/ProgressPanel";
+import { CardView, VIEW_TYPE_TVS_CARD } from "./ui/CardView";
 import { SidebarView, VIEW_TYPE_TVS_SIDEBAR } from "./ui/SidebarView";
 
 /** How an operation ended — `busy` means it was refused because the same one was already running. */
@@ -74,6 +75,12 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		this.ignoredCards = ignoredCards;
 		this.settings = normalizeSettings(settingsRaw);
 		configureYieldEvery(this.settings.yieldEveryNotes);
+		if (this.settings.cardView.enabled) {
+			this.registerView(VIEW_TYPE_TVS_CARD, (leaf) => new CardView(leaf, this));
+			this.app.workspace.onLayoutReady(() => {
+				if (this.settings.cardView.openOnStartup) void this.openCardView();
+			});
+		}
 		this.journal = journal;
 		this.history = history;
 		this.vault = new ObsidianVault(
@@ -97,6 +104,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		if (this.autoSyncPoll !== null && this.autoSyncPollSeconds !== this.settings.autoSyncCheckSeconds) this.armAutoSyncPoll();
 		await this.persist();
 		this.refreshSidebarViews();
+		this.refreshCardViews();
 		this.rebuildRibbon();
 	}
 
@@ -154,6 +162,31 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TVS_SIDEBAR)) {
 			if (leaf.view instanceof SidebarView) leaf.view.refresh();
 		}
+	}
+
+	/** Redraws any open card view from its cache - a setting changed. */
+	private refreshCardViews(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TVS_CARD)) {
+			if (leaf.view instanceof CardView) leaf.view.refresh();
+		}
+	}
+
+	/** Opens the card view on the side chosen in the settings, or reveals it if already open. */
+	async openCardView(): Promise<void> {
+		if (!this.settings.cardView.enabled) {
+			new Notice("The card view is turned off - turn it on in the plugin settings (Card view tab), then restart Obsidian.");
+			return;
+		}
+		const { workspace } = this.app;
+		const existing = workspace.getLeavesOfType(VIEW_TYPE_TVS_CARD)[0];
+		if (existing) {
+			await workspace.revealLeaf(existing);
+			return;
+		}
+		const leaf = this.settings.cardView.side === "left" ? workspace.getLeftLeaf(false) : workspace.getRightLeaf(false);
+		if (!leaf) return;
+		await leaf.setViewState({ type: VIEW_TYPE_TVS_CARD, active: true });
+		await workspace.revealLeaf(leaf);
 	}
 
 	/**

@@ -137,6 +137,7 @@ describe("ensureSidebarViewsLoaded", () => {
 describe("onload synchronous view registration", () => {
 	test("registers VIEW_TYPE_TVS_SIDEBAR synchronously before loadData completes", async () => {
 		const { instance } = plugin();
+		(instance as unknown as { app: unknown }).app = { workspace: { onLayoutReady: vi.fn(), getLeavesOfType: () => [] } };
 		const registeredViews: string[] = [];
 		(instance as unknown as { registerView: unknown }).registerView = vi.fn((type: string) => {
 			registeredViews.push(type);
@@ -160,6 +161,7 @@ describe("onload synchronous view registration", () => {
 		// Complete loadData
 		resolveLoadData!({});
 		await onloadPromise;
+		expect(registeredViews).toContain("trello-vault-sync-card-view");
 	});
 });
 

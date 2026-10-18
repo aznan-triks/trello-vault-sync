@@ -12,7 +12,7 @@ import { renderLogRow } from "./ProgressPanel";
  * `id`: an internal identifier, not a user-configurable value (§1.4 no-hardcode
  * targets numbers/paths/URLs/thresholds/delays/labels, not this).
  */
-interface AppWithSettingDialog extends App {
+export interface AppWithSettingDialog extends App {
 	setting: { open(): void; openTabById(id: string): void };
 }
 

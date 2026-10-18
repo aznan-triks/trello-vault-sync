@@ -67,6 +67,8 @@ export interface CommandContext {
 	folderOptions(force?: "pull" | "push", bypassConflict?: boolean): FolderSyncOptions;
 	auditOptions(kind?: "links" | "locations" | "changes"): AuditOptions;
 	activateSidebarView(): Promise<void>;
+	/** Opens (or reveals) the Trello card side panel. */
+	openCardView?(): Promise<void>;
 	/** Auto-sync status for the sidebar switch — optional so test contexts needn't stub it. */
 	autoSyncState?(): "off" | "on" | "paused";
 	/** Turns auto-sync on/off (and lifts a failure pause). */
