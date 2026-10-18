@@ -1780,3 +1780,41 @@
 	font-weight: var(--font-semibold);
 	color: var(--text-normal);
 }
+.tvs-card-view__section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.tvs-card-view__edit {
+	opacity: 0.5;
+}
+.tvs-card-view__edit:hover,
+.tvs-card-view__section:hover .tvs-card-view__edit {
+	opacity: 1;
+}
+.tvs-card-view__input {
+	width: 100%;
+}
+textarea.tvs-card-view__input {
+	resize: vertical;
+}
+.tvs-card-view__form {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-bottom: 6px;
+}
+.tvs-card-view__buttons {
+	display: flex;
+	gap: 6px;
+	margin-top: 6px;
+}
+.tvs-card-view__add {
+	margin-top: 4px;
+}
+.tvs-card-view__field {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 4px;
+}
