@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Plain words:** Three defects found by running the plugin in a real vault (nothing had been tried outside the unit tests). A note whose card moved to a mapped folder that did not exist yet now moves instead of failing silently and staying in the old folder. "Update the card from this note" now really takes a label off the card when you removed its mapped value from the note, instead of writing the value back. "Show only changed" in the settings now shows only the changed settings, not the whole tab.
+  **Technical:**
+  - `ObsidianVault.rename()` calls `ensureParentFolder(newPath)` before `fileManager.renameFile`: `renameFile` does not create the destination folder, so a card moved to a newly mapped folder failed with `ENOENT` and the note stayed where it was (folder sync logged the error).
+  - `features/syncNote.ts`: the labels-to-properties pass now receives `labelDirection` (`options.force` when the decision was "skip") instead of the decision's direction, so an explicit Push still propagates a removal when title, body and due date are identical (`convergeLabelProperties` only removes on `"push"`).
+  - `settings/SettingsTab.ts::updateVisibility()`: "Show only changed" matched every row because it reuses the search path with an empty query; rows are now filtered on `tvs-setting--modified` as well.
+  - Test: `tests/syncNote.test.ts` — "a forced push propagates a removal even when nothing else differs".
+
 ## [1.24.1] — 2026-10-19
 
 ### Documentation & Onboarding

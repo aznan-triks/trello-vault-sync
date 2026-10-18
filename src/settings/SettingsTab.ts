@@ -400,6 +400,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				let sectionHasMatch = false;
 				if (
 					tab === "changelog" &&
+					!this.onlyChanged &&
 					("changelog".includes(this.searchQuery) ||
 						this.changelogRawMarkdown.toLowerCase().includes(this.searchQuery))
 				) {
@@ -409,7 +410,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				const items = sectionEl.querySelectorAll<HTMLElement>(".setting-item");
 				items.forEach((item) => {
 					const text = (item.textContent || "").toLowerCase();
-					const matches = text.includes(this.searchQuery);
+					// "Show only changed" is a display filter on the same code path as the search: with an
+					// empty query every row matched, so the filter used to show the whole tab instead of
+					// the changed settings.
+					const matches =
+						(this.searchQuery === "" || text.includes(this.searchQuery)) &&
+						(!this.onlyChanged || item.classList.contains("tvs-setting--modified"));
 					if (matches) {
 						item.removeClass("tvs-setting--hidden");
 						sectionHasMatch = true;

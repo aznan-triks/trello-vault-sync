@@ -2300,6 +2300,22 @@ describe("syncNoteWithCard — labels to properties", () => {
 		expect(decodeURIComponent(put?.url ?? "") + String(put?.body)).toContain("L1");
 	});
 
+	test("a forced push propagates a removal even when nothing else differs", async () => {
+		// The note dropped its mapped value while title, body and due date stayed identical: the decision
+		// is "skip". The removal used to be ignored there, and the value was written back from the card.
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "same", mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01", labels: [npcLabel] });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, { ...options, ...lp(), force: "push" });
+
+		expect(result.direction).toBe("skip");
+		const put = requests.find((r) => r.method === "PUT");
+		expect(decodeURIComponent(put?.url ?? "") + String(put?.body)).not.toContain("L1");
+		expect(vault.readFrontmatter(vault.note(PATH))?.kind).toBeUndefined();
+	});
+
 	test("to-note: nothing is ever sent to Trello", async () => {
 		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER.replace("---\n\n", "kind: npc\n---\n\n") + "same", mtime: at("2026-03-01") } });
 		const { transport, requests } = routedTransport({});
