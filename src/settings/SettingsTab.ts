@@ -9,6 +9,12 @@ import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { DEFAULT_LABELS_KEY } from "../core/labelRef";
+import {
+	ALL_CARD_VIEW_EDITABLE_FIELDS,
+	COMMENTS_LIMIT_CEILING,
+	type CardViewEditableField,
+	type CardViewSection,
+} from "../core/cardViewModel";
 import { mergeScannedLabels, type LabelPropertyDirection } from "../core/labelProperty";
 import type { OnLinkedNoteDeleted } from "../core/deletedNotes";
 import type { OnCardArchived, OnCardDeleted, OnCardMoved } from "../core/cardFate";
@@ -99,10 +105,38 @@ const TRELLO_LABEL_COLORS: Record<string, string> = {
 	black: "#8590a2",
 };
 
+const CARD_VIEW_SECTION_LABELS: Record<CardViewSection, string> = {
+	cover: "Cover image",
+	title: "Title",
+	list: "List",
+	due: "Due date",
+	labels: "Labels",
+	members: "Members",
+	description: "Description",
+	checklists: "Checklists",
+	attachments: "Attachments",
+	customFields: "Custom fields",
+	comments: "Comments",
+};
+
+const CARD_VIEW_EDITABLE_LABELS: Record<CardViewEditableField, string> = {
+	title: "the title",
+	description: "the description",
+	due: "the due date",
+	labels: "the labels",
+	members: "the members",
+	list: "the list (move the card)",
+	checklists: "the checklists",
+	comments: "the comments",
+	customFields: "the custom fields",
+	attachments: "the attachments (add a link)",
+	archive: "archiving the card",
+};
+
 const CHANGELOG_RAW_URL = "https://raw.githubusercontent.com/aznan-triks/trello-vault-sync/master/CHANGELOG.md";
 const CHANGELOG_REPO_URL = "https://github.com/aznan-triks/trello-vault-sync/blob/master/CHANGELOG.md";
 
-type SettingsTabId = "general" | "sync-rules" | "mappings" | "creation" | "automation" | "advanced" | "changelog";
+type SettingsTabId = "general" | "sync-rules" | "mappings" | "creation" | "card-view" | "automation" | "advanced" | "changelog";
 
 interface TabDefinition {
 	id: SettingsTabId;
@@ -114,6 +148,7 @@ const SETTINGS_TABS: TabDefinition[] = [
 	{ id: "sync-rules", label: "Sync Rules" },
 	{ id: "mappings", label: "Mappings" },
 	{ id: "creation", label: "Creation" },
+	{ id: "card-view", label: "Card view" },
 	{ id: "automation", label: "Automation & History" },
 	{ id: "advanced", label: "Advanced" },
 	{ id: "changelog", label: "Changelog" },
@@ -284,6 +319,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			// Tab 4: Creation (note-from-card, card-from-note)
 			{ id: "orphan-cards", tab: "creation", render: (el) => this.renderOrphanCards(el) },
 			// Tab 5: Automation
+			{ id: "card-view", tab: "card-view", render: (el) => this.renderCardView(el) },
 			{ id: "auto-sync", tab: "automation", render: (el) => this.renderAutoSync(el) },
 			// Tab 6: Advanced
 			{ id: "advanced", tab: "advanced", render: (el) => this.renderAdvanced(el) },
@@ -658,6 +694,95 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 				}),
 			);
+	}
+
+	private renderCardView(root: HTMLElement): void {
+		const v = this.plugin.settings.cardView;
+		new Setting(root).setName("Card view").setHeading();
+		root.createEl("p", {
+			cls: "setting-item-description",
+			text: "A side panel that shows the Trello card of the open note, loaded with a single request, and lets you edit it. Each part below can be hidden or made read-only.",
+		});
+		this.toggleField(root, "Enable the card view", "Off: the view is not registered at the next start and nothing is requested. Takes effect after restarting Obsidian.", () => v.enabled, (x) => (v.enabled = x));
+		this.toggleField(root, "Open at startup", "Open the card view when Obsidian starts.", () => v.openOnStartup, (x) => (v.openOnStartup = x));
+		new Setting(root)
+			.setName("Side")
+			.setDesc("Which side panel the view opens in.")
+			.addDropdown((d) =>
+				d.addOption("right", "Right").addOption("left", "Left").setValue(v.side).onChange((x) => {
+					v.side = x as "left" | "right";
+					void this.save();
+				}),
+			);
+		this.toggleField(root, "Refresh while hidden", "Off: no request is made while the view is not visible; it reloads when shown.", () => v.refreshWhenHidden, (x) => (v.refreshWhenHidden = x));
+		this.numberField(root, "Follow delay (ms)", "Wait after you switch note before the view follows. Minimum 0, default 250.", () => v.followDelayMs, (x) => (v.followDelayMs = x), 0);
+
+		new Setting(root).setName("What the view shows").setHeading();
+		root.createEl("p", { cls: "setting-item-description", text: "Order and visibility, for every card. A single card can differ: use the gear in the view's header." });
+		v.sectionOrder.forEach((section, index) => {
+			new Setting(root)
+				.setName(CARD_VIEW_SECTION_LABELS[section])
+				.addToggle((toggle) =>
+					toggle.setValue(v.sections[section]).onChange((x) => {
+						v.sections[section] = x;
+						void this.save();
+					}),
+				)
+				.addExtraButton((b) =>
+					b.setIcon("arrow-up").setTooltip("Move up").setDisabled(index === 0).onClick(() => this.moveCardViewSection(index, -1)),
+				)
+				.addExtraButton((b) =>
+					b.setIcon("arrow-down").setTooltip("Move down").setDisabled(index === v.sectionOrder.length - 1).onClick(() => this.moveCardViewSection(index, 1)),
+				);
+		});
+		this.toggleField(root, "Show empty sections", "On: a section with nothing in it says so (\"No labels\"). Off: it is hidden.", () => v.showEmptySections, (x) => (v.showEmptySections = x));
+		this.toggleField(root, "Render Markdown", "Show the description and the comments as formatted Markdown.", () => v.renderMarkdown, (x) => (v.renderMarkdown = x));
+		this.textField(root, "Date format", "A moment.js format such as DD/MM/YYYY HH:mm. Empty uses your system's format.", () => v.dateFormat, (x) => (v.dateFormat = x), "DD/MM/YYYY HH:mm");
+		this.numberField(root, "Due soon within (hours)", "A due date closer than this is highlighted as soon. Minimum 0, default 24.", () => v.dueSoonHours, (x) => (v.dueSoonHours = x), 0);
+		new Setting(root)
+			.setName("Open links in")
+			.setDesc("Where \"Open on Trello\" and card links go.")
+			.addDropdown((d) =>
+				d.addOption("browser", "Browser").addOption("desktop-app", "Trello desktop app").setValue(v.openLinksIn).onChange((x) => {
+					v.openLinksIn = x as "browser" | "desktop-app";
+					void this.save();
+				}),
+			);
+
+		new Setting(root).setName("Loading").setHeading();
+		this.numberField(root, "Card cache (seconds)", "A loaded card is reused for this long. 0 reloads at every display. Default 60.", () => v.cacheSeconds, (x) => (v.cacheSeconds = x), 0);
+		this.numberField(root, "Board data cache (seconds)", "The board's lists, labels, members and field definitions, loaded when you first edit. Default 600.", () => v.boardCacheSeconds, (x) => (v.boardCacheSeconds = x), 0);
+		this.numberField(root, "Comments loaded", `Comments fetched with the card. 0 loads none. At most ${COMMENTS_LIMIT_CEILING} (Trello's own limit). Default 20.`, () => v.commentsLimit, (x) => (v.commentsLimit = Math.round(x)), 0, COMMENTS_LIMIT_CEILING);
+
+		new Setting(root).setName("Editing").setHeading();
+		this.toggleField(root, "Allow editing", "Off: the view is read-only whatever the switches below say.", () => v.allowEditing, (x) => (v.allowEditing = x));
+		for (const field of ALL_CARD_VIEW_EDITABLE_FIELDS) {
+			this.toggleField(root, `Edit ${CARD_VIEW_EDITABLE_LABELS[field]}`, "", () => v.editable[field], (x) => (v.editable[field] = x));
+		}
+		new Setting(root)
+			.setName("Moved card goes to")
+			.setDesc("Where a card lands in its new list.")
+			.addDropdown((d) =>
+				d.addOption("top", "Top").addOption("bottom", "Bottom").setValue(v.movedCardPosition).onChange((x) => {
+					v.movedCardPosition = x as "top" | "bottom";
+					void this.save();
+				}),
+			);
+		this.toggleField(root, "Confirm before archiving", "Ask before the Archive button archives the card.", () => v.confirmArchive, (x) => (v.confirmArchive = x));
+		this.toggleField(root, "Update the note after an edit", "After an edit, run \"Update this note from its card\" so the note follows.", () => v.pullAfterEdit, (x) => (v.pullAfterEdit = x));
+		root.createEl("p", { cls: "setting-item-description", text: "Deleting a comment, a checklist item, an attachment or the card is deliberately not offered: those cannot be undone on Trello." });
+	}
+
+	private moveCardViewSection(index: number, delta: number): void {
+		const order = this.plugin.settings.cardView.sectionOrder;
+		const target = index + delta;
+		const moved = order[index];
+		const other = order[target];
+		if (moved === undefined || other === undefined) return;
+		order[index] = other;
+		order[target] = moved;
+		void this.save();
+		this.display();
 	}
 
 	private renderTuning(root: HTMLElement): void {

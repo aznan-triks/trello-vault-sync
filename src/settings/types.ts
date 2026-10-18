@@ -30,6 +30,7 @@ import { DEFAULT_REPORT_LABELS } from "../core/auditReport";
 import { DEFAULT_CONTAINMENT_SCORE } from "../core/similarity";
 import { DEFAULT_DRY_RUN_PREFIX } from "../core/journal";
 import { DEFAULT_MAX_BASENAME_LENGTH } from "../core/fileName";
+import { DEFAULT_CARD_VIEW_SETTINGS, normalizeCardViewSettings, type CardViewSettings } from "../core/cardViewModel";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import { DEFAULT_CUSTOM_FIELDS_KEY, DEFAULT_SYNC_CUSTOM_FIELDS } from "../core/customFieldRef";
 import { DEFAULT_MEMBERS_KEY, DEFAULT_SYNC_MEMBERS } from "../core/memberRef";
@@ -168,6 +169,8 @@ export interface TrelloVaultSyncSettings {
 	historyMaxRuns: number;
 	/** Longest note file name (without ".md") created from a card title; longer titles are cut. */
 	noteNameMaxLength: number;
+	/** The card side panel (Settings -> Card view). */
+	cardView: CardViewSettings;
 	/** Seconds between two auto-sync checks. The interval setting decides when a check actually syncs. */
 	autoSyncCheckSeconds: number;
 	/** Milliseconds after a sync during which note edits count as the sync's own writes. */
@@ -343,6 +346,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	historyEnabled: true,
 	historyMaxRuns: 20,
 	noteNameMaxLength: DEFAULT_MAX_BASENAME_LENGTH,
+	cardView: DEFAULT_CARD_VIEW_SETTINGS,
 	autoSyncCheckSeconds: 30,
 	ownWriteGraceMs: 1500,
 	retryableStatusCodes: [...DEFAULT_RETRYABLE_STATUS_CODES],
@@ -586,6 +590,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			input.historyMaxRuns,
 			DEFAULT_SETTINGS.historyMaxRuns,
 		),
+		cardView: normalizeCardViewSettings(input.cardView),
 		autoSyncCheckSeconds: Math.max(1, Math.round(safeNonNegativeNumber(input.autoSyncCheckSeconds, DEFAULT_SETTINGS.autoSyncCheckSeconds))),
 		ownWriteGraceMs: safeNonNegativeNumber(input.ownWriteGraceMs, DEFAULT_SETTINGS.ownWriteGraceMs),
 		retryableStatusCodes: normalizeStatusCodes(input.retryableStatusCodes),
