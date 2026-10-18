@@ -7,8 +7,22 @@ This directory contains visual documentation assets for **Trello Vault Sync**.
 | File | Type | Description |
 |---|---|---|
 | `card-view-preview.svg` | Vector diagram | Dark-theme illustration showing Obsidian note side-by-side with the Card View side panel. |
-| `card-view-demo.gif` | Animated GIF | Live recording showing the Card View following the active note and editing a field. |
-| `note-sync-demo.gif` | Animated GIF | Live recording showing note linking and the first sync with visual feedback. |
+| `card-view-demo.gif` | Animated GIF — **not recorded yet** | Live recording showing the Card View following the active note and editing a field. |
+| `note-sync-demo.gif` | Animated GIF — **not recorded yet** | Live recording showing note linking and the first sync with visual feedback. |
+
+Both GIFs are pending: the scenarios and their budgets are fixed below, the recordings are not.
+`scripts/capture-side-panel-gif.py` drives the first scenario and refuses to write a file whose
+frames do not move, so a frozen capture cannot ship as a demo.
+
+### Capture pitfall (cost a full session)
+
+Obsidian 1.14 stops painting while its window is not the foreground window. CDP
+`Page.captureScreenshot` and Windows `PrintWindow` then return the **same frozen image** on every
+call — a GIF made from those frames is a still image with a 1 MB budget. The window therefore has
+to be visible on screen (bring it to the front by hand; `SetForegroundWindow` is refused by Windows
+from a background process, and `--disable-backgrounding-occluded-windows` does not help). The script
+measures the RMS difference between consecutive frames and aborts below 1.0.
+
 
 ## Recording Specifications for Demo GIFs
 

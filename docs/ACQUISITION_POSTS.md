@@ -16,7 +16,7 @@
 
 | Checkpoint | Target Date | Target Downloads | Measured Downloads | Notes / Key Feedback |
 |---|---|---|---|---|
-| Baseline | 2026-10-19 | 194 | 194 | Store release v1.24.0 live |
+| Baseline | 2026-10-19 | 194 | 194 | 194 read on the registry page; measured against v1.24.0, not re-checked after 1.24.1 |
 | 1 Week | 2026-10-26 | 300+ | _TBD_ | Follow up after Reddit & Discord posts |
 | 1 Month | 2026-11-19 | 600+ | _TBD_ | Evaluate organic growth and first reviews |
 
@@ -24,18 +24,21 @@
 
 ## 1. Subreddit Promotion Guidelines & Etiquette
 
-- **r/ObsidianMD**:
-  - Flair required: `Plugin` or `Showcase`.
-  - Self-promotion rule: Must declare yourself as the developer clearly. Provide direct GitHub and Community Plugin links. No URL shorteners, no affiliate links.
-  - Tone: Technical, helpful, community-focused, and appreciative of the ecosystem.
-- **r/PKMS** (Personal Knowledge Management Systems):
-  - Focus on workflow: How bridging mobile task boards (Trello) with deep linked markdown notes solves friction without vendor lock-in.
-  - Avoid feature-dumping; emphasize personal workflow clarity.
-- **r/worldbuilding**:
-  - Emphasize character/location/quest cards mapped to extensive world bible notes.
-  - Focus on visual organization of factions, timelines, and lore notes.
-- **r/Trello**:
-  - Focus on local offline backup, markdown formatting, and bidirectional syncing with an external knowledge graph.
+**Read this before posting.** These rules were checked on 2026-10-19: Reddit's own rule pages
+(`/about/rules/`) return a login wall or HTTP 403 to every fetcher available here, so the quotes
+below come from third-party pages that reproduce them verbatim, with their read date. Treat them as
+a warning list, not as authority: open each subreddit's sidebar yourself on the day you post.
+
+| Subreddit | What the rules actually say |
+|---|---|
+| **r/ObsidianMD** | *"Don't shill. If you are just here to advertise your product, don't."* Under "No slop": *"If your first and only post is to promote your project (vibe-coded or otherwise), you will be immediately banned."* Same rule: *"Don't post AI-generated content, it will be removed."* Posting is limited to approved users. **A first-and-only promotional post from the author's account is an immediate ban** — this is the single biggest risk here, and no flair saves it. |
+| **r/PKMS** | *"You may post about systems/programs you have created, but not if it reads like an ad."* Promotional posts belong in the monthly "Self promotion" thread; blatant ads and one-line app posts are removed. |
+| **r/worldbuilding** | *"We allow non-disruptive advertising… Ads should be able to demonstrate some relevance and usefulness to the community."* The binding constraint is the context rule: a post must carry worldbuilding context. A bare tool announcement fails it. *"AI content is not appropriate for our community."* |
+| **r/Trello** | No rule text could be verified. Do not post there without reading the sidebar rules, or ask the moderators first. |
+
+Consequences for these drafts: no emoji, no superlatives, say plainly that you are the author, link
+the repository and the community-plugin page directly, and **participate in the subreddit before
+posting** — the drafts are ready, the account history is the missing part.
 
 ---
 
@@ -52,7 +55,7 @@ Hi everyone,
 
 I built **Trello Vault Sync** to solve a persistent friction in my workflow: using Trello on mobile for quick task and board organization, while doing my actual deep work and writing inside an Obsidian vault.
 
-While plugins like nathonius's classic Trello plugin laid great groundwork, I needed a solution with **bidirectional synchronization**, **offline safety**, and **a native side panel view** where I can inspect and edit cards directly inside Obsidian.
+While plugins like nathonius's classic Trello plugin laid great groundwork, I needed **bidirectional synchronization** with a **native side panel view** where I can inspect and edit cards directly inside Obsidian.
 
 Here is what the plugin does:
 
@@ -64,15 +67,18 @@ Here is what the plugin does:
 2. **True Two-Way Synchronization**:
    - Works at note scope, folder ↔ list mapping, or vault-wide.
    - Smart arbitration: automatically resolves changes based on the newest edit timestamp, or surfaces a side-by-side conflict modal when both sides changed simultaneously.
-   - Never loses your work: note deletions are sent to Obsidian's trash (never permanently destroyed), and file modification dates (`mtime`) are preserved to prevent phantom sync loops.
+   - Note deletions go to Obsidian's trash rather than being erased, and file modification dates (`mtime`) are preserved so a cleanup doesn't look like an edit.
 
-3. **100% Undoable**:
-   - Every sync run is recorded. Hit **"Undo the last sync"** to roll back any write to your notes and Trello cards.
+3. **Undoable sync history**:
+   - Every sync run is recorded. Hit **"Undo the last sync"** to roll back the notes it wrote, and the Trello writes it made when Trello rollback is enabled.
 
-4. **Zero Setup to Start**:
+4. **Nothing to configure to start**:
    - You only need your Trello API Key/Token (from `trello.com/app-key`) and to pick your board with an inline search picker. Default settings work out of the box.
 
+What it does not do: it syncs one board per vault (the board you pick in settings), it needs network access to Trello, it never deletes a card, comment, checklist item or attachment on Trello, and it does not make Trello work offline.
+
 - **Install via Obsidian**: Settings → Community plugins → Browse → search `Trello Vault Sync`
+- **Plugin page**: https://community.obsidian.md/plugins/trello-vault-sync
 - **GitHub**: https://github.com/aznan-triks/trello-vault-sync
 
 I'd love to hear your feedback, bug reports, and workflow ideas!
@@ -124,7 +130,7 @@ I built **Trello Vault Sync** (free and open source, available in the Obsidian c
 - **Every card mirrors a lore note**: Map lists (e.g. "Kingdoms", "NPCs", "Plot Hooks") to vault folders.
 - **Interactive Card Side Panel**: When reading a lore note in Obsidian, the right sidebar automatically loads the matching Trello card with its cover art, checklist quest goals, status tags, and comments.
 - **Safe Two-Way Sync**: Tweak an NPC's description or mark a quest stage complete on Trello mobile, and sync it right into your Obsidian note (or vice-versa).
-- **Safe Cleanup**: If you stop syncing a specific property or archive a card, your notes are never corrupted or permanently deleted.
+- **Safe Cleanup**: If you stop syncing a specific property or archive a card, leftover properties are removed from the note, and deletions go to the trash.
 
 Available now in Obsidian Settings → Community plugins (search for `Trello Vault Sync`).
 
@@ -151,7 +157,7 @@ It lets you:
 Direct link to repo and documentation: https://github.com/aznan-triks/trello-vault-sync
 It can be installed directly from Obsidian's Community Plugins tab.
 
-Hope this helps anyone looking to connect their boards to an offline Markdown knowledge base!
+Hope this helps anyone looking to connect their boards to a local Markdown knowledge base!
 
 ---
 
@@ -160,18 +166,18 @@ Hope this helps anyone looking to connect their boards to an offline Markdown kn
 ### Discord (`#plugin-releases` / `#plugin-showcase`)
 
 ```
-**Trello Vault Sync** is now available in Community Plugins! 🚀
+**Trello Vault Sync** is now available in Community Plugins.
 
-Two-way Trello synchronization, interactive card sidebar panel, and safe conflict handling for Obsidian.
+Two-way Trello synchronization, an interactive card sidebar panel, and conflict handling for Obsidian.
 
-✨ **Key Features:**
-• **Interactive Card View**: View & edit the linked card (checklists, due date, description, comments) right inside Obsidian's sidebar.
-• **Two-way sync**: Active note, folder ↔ list mapping, or whole vault.
-• **Safe by design**: Conflict detection modal, safe trash handling, 100% undoable sync history.
-• **Zero config needed to start**: Connect your board and sync your first note in under 5 minutes.
+**Key features:**
+- **Interactive Card View**: view and edit the linked card (checklists, due date, description, comments) inside Obsidian's sidebar.
+- **Two-way sync**: active note, folder ↔ list mapping, or whole vault.
+- **Safe by design**: conflict detection modal, notes moved to the trash rather than erased, undoable sync history.
+- **Nothing to configure to start**: connect your board and sync your first note in a few minutes.
 
-📥 Search **Trello Vault Sync** in Obsidian Community Plugins.
-🔗 GitHub: https://github.com/aznan-triks/trello-vault-sync
+Search **Trello Vault Sync** in Obsidian Community Plugins.
+GitHub: https://github.com/aznan-triks/trello-vault-sync
 ```
 
 ### Obsidian Official Forum (Category: Plugins / Share & Showcase)
@@ -201,14 +207,34 @@ Full documentation & source: https://github.com/aznan-triks/trello-vault-sync
 
 *(Send via private message / email to 2–3 genuine contacts who already use Obsidian and Trello)*
 
-> Subject: Quick favor: trying out my new Obsidian + Trello sync plugin?
+> Subject: Would you try Trello Vault Sync and tell me what breaks?
 >
 > Hi [Name],
 >
-> I just published a new plugin to Obsidian's Community store called **Trello Vault Sync** (https://github.com/aznan-triks/trello-vault-sync). It provides two-way syncing and an interactive card view sidebar so you can view and edit your Trello cards directly inside Obsidian.
+> I published an Obsidian plugin, Trello Vault Sync: it links a note to a Trello card and syncs the newer side into the other.
+> https://community.obsidian.md/plugins/trello-vault-sync
 >
-> Since I know you use both tools, I would love your authentic take on it. Could you test installing it (Settings → Community plugins → search "Trello Vault Sync") and let me know:
-> 1. Was the initial connection and first note sync intuitive?
-> 2. How does the sidebar Card View feel in your day-to-day workflow?
+> You use both tools, so your read counts. Twenty minutes and one linked note is enough; where you got stuck is the useful part. A review only if you keep using it.
 >
-> If you find it helpful, leaving a review or feedback on GitHub / Obsidian forum would mean the world to me. Thanks so much!
+> One question: when you link a note by title, does it pick the right card?
+
+*Note française, à l'attention de l'auteur (ne pas envoyer) :* ce message est écrit pour être envoyé par vous, depuis votre compte, à des personnes que vous connaissez réellement. Ne le copiez pas à des inconnus, n'échangez pas de reviews, n'utilisez pas plusieurs comptes : les règles Reddit et Obsidian sur les avis fabriqués ou sollicités contre rétribution s'appliquent, et une review retirée coûte plus qu'une absence de review. Deux ou trois destinataires suffisent.
+
+---
+
+## 5. Before publishing
+
+```
+[ ] card-view-demo.gif exists, under 1 MB, in docs/media/, embedded at the top of each
+    post (it does not exist yet: only card-view-preview.svg is there)
+[x] 1.24.1 validated in test-vault/ (plan A) — 3 defects fixed, no blocking bug open
+[ ] each subreddit's rules re-read the same day, by hand, from the logged-in account
+[ ] r/ObsidianMD: the account has real, recent, non-promotional history in the sub
+[ ] r/worldbuilding: post rewritten as a world post, with worldbuilding context
+[ ] r/Trello: rules read, or the moderators asked
+[ ] download baseline re-read from the community page the same day (194 is author-supplied,
+    measured against 1.24.0)
+[ ] links checked: community page + README anchor; no obsidian:// URI in a web post
+[ ] no superlatives, no emoji, the "what it does not do" paragraph kept
+[ ] each post published once, from the author's account, with the disclosure "I wrote it"
+```
