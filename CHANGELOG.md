@@ -8,19 +8,32 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Plain**: Optional `trello_plugin_note_id` property (off by default). A note can be unlinked from its card with a new command (confirmation switch `confirmUnlink`).
-- **Plain**: You choose what happens to a note when its card is moved, archived or deleted (move the note, unlink it, send it to an archive folder, keep it, or trash it). Optional creation/restoration of notes for the archive folder.
+- **Plain**: A **Trello card side panel** ("Open the card view", palette and sidebar) that follows the open note and shows its card: cover, title, list, due date, labels, members, description, checklists, attachments, custom fields and comments. Everything can be edited from it (title, description, due date and done, list, labels, members, checklist items, comments, custom fields, attached links, archive); deleting a comment, a checklist item, an attachment or the card is deliberately not offered (nothing irreversible on Trello). Each card can show or hide sections on its own (gear button). Empty states explain what to do (note not linked, card archived or gone, bad key, rate limit).
+  **Technical**: `ui/CardView.ts` (`ItemView`), `features/cardViewData.ts` (one `GET /cards/{id}` per card with `list`, `members`, `checklists`, `attachments`, `customFieldItems` and `actions=commentCard`; card cache `cardViewCacheSeconds`, board data fetched only on first use and cached `cardViewBoardCacheSeconds`), `features/cardViewActions.ts` (every write refused with no request when editing or the field is off; written under `OperationGuard.withKey("card:<id>")`), pure model in `core/cardViewModel.ts`. A new "Card view" settings tab controls the sections and their order, editing per field, caches, comments loaded, follow delay, hidden-view behaviour, link target, Markdown rendering, date format, due-soon threshold, archive confirmation and "update the note after an edit".
+- **Plain**: New command "Unlink this note from its card" (also in the sidebar and the card view): removes the Trello properties from the note, leaves the card and the note's text alone, undoable from the sync history (confirmation switch `confirmUnlink`).
+- **Plain**: Optional `trello_plugin_note_id` property (off by default) for people who also use the "Trello" plugin by nathonius.
+- **Plain**: You choose what happens to a note when its card is moved to another list, archived or deleted: follow it to the matching folder, remove the Trello properties (new default for archived and deleted), keep, move to an archive folder, or trash. Optional creation of notes for archived cards in the archive folder, and notes come back from it when a card is unarchived.
   **Technical**: pure decision `core/cardFate.ts` shared by the note, folder and vault engines; `features/noteFate.ts`, `goneCards.ts`, `unlinkNote.ts`.
-- **Plain**: Trello labels can be mapped to note properties (scan board labels, choose key and values, both directions).
+- **Plain**: A synced note you delete is no longer recreated by the next folder sync: the card goes on an "Ignored cards" list (setting, with "Stop ignoring"), or is archived on Trello, or the note is recreated as before (`onLinkedNoteDeleted`). A note that carries the card again takes it off the list.
+  **Technical**: `knownLinks` (list id to card ids that had a note at the last complete pass) and `ignoredCards` are persisted in `data.json`; ignored cards are also left out of the link report and the "create a note from an unlinked card" lists. Limit: the first sync after updating has nothing remembered yet, so a deletion is only detected from the second one.
+- **Plain**: Trello labels can be mapped to note properties (scan the board's labels, choose key and values, both directions, optional removal of the values when the label goes).
   **Technical**: `core/labelProperty.ts`, `labelProperties` options in `syncNote`.
-- **Plain**: New settings tab for the future card view (sections, order, display options), and Trello client calls for it (one request per card, comments, check items, custom fields, members).
-  **Technical**: `core/cardViewModel.ts`, `TrelloClient.getCardView/getMe/addComment/updateComment/addCheckItem`, `updateCard` accepts `closed`, `dueComplete`, `idMembers`, `idList`, `pos`.
-- Groundwork for "a note you delete is not recreated": `OnLinkedNoteDeleted`, `knownLinks`, `ignoredCards` (persisted, not yet wired into the sync engines).
+- **Plain**: Settings are easier to read: every setting shows its default value, a changed one is marked and has a reset button, a summary at the top counts the changed ones and can show only those, sub-settings of a switch are hidden while it is off (with "N more settings when this is on"; still found by the search), each tab starts with a one-line description, and rarely used values (network retries, timings, report wording) are in a closed "Expert settings" block at the bottom of Advanced. Terms like "orphan" and "phantom" are replaced by plain wording in setting names.
+  **Technical**: `track()` in `SettingsTab`, `core/settingValue.ts` (`sameSettingValue`).
+- **Plain**: New settings for values that were fixed: auto-sync check frequency, own-write grace delay, retried HTTP statuses, change log page size, UI pause frequency, title containment score, dry-run log prefix, change log avatar size and extra CSS, report headings and group prefixes, adopting an unlinked note named like a card, success and queue notices.
+  Left fixed on purpose (nobody has a reason to change them): Trello API root and field lists, forbidden file-name characters and reserved Windows names, the BOM, parsing regexes, view type ids, changelog URLs, and the name of the `trello_plugin_note_id` key (imposed by the other plugin).
 
 ### Changed
 
-- **Plain**: Command names are clearer (ids unchanged).
-- **Plain**: Many hardcoded values and always-on behaviours are now settings; arbitrary maximums were removed (only minimums remain).
+- **Plain**: Command names say what they do (for example "Update this note from its card", "Overwrite the card with this note"). Command ids, keyboard shortcuts and ribbon icons are unchanged.
+- **Plain**: "Allow delete" and "Protect cards moved or archived elsewhere" are replaced by three explicit choices (card moved, archived, deleted) in Sync Rules. Existing settings are migrated so behaviour stays the same; the per-folder "allow delete" override becomes "Never trash notes in this folder" (an old "allow" value now means "follow the global choice").
+- **Plain**: Arbitrary maximums on settings were removed (only sensible minimums remain; large values are warned about in the description). The note name length keeps 255, the file systems' limit.
+- **Plain**: The report wording settings moved to the Expert block in Advanced.
+
+### Fixed
+
+- **Plain**: A note deleted by hand in a synced folder came back at the next sync because its card still existed.
+- **Plain**: A card moved to another list left an orphaned note in the old folder and got a second note in the new one; the note now follows the card, or is left alone, never duplicated.
 
 ## [1.22.0] — 2026-09-30
 

@@ -27,42 +27,70 @@ command palette.
 
 | Command | What it does |
 | --- | --- |
-| Sync active note | Pull or push automatically, based on which side changed last |
-| Pull from Trello (active note) | Force-pull the note from its card, ignoring timestamps |
-| Push to Trello (active note) | Force-push the note to its card, ignoring timestamps |
-| Force pull (active note) | Same as "Pull from Trello (active note)", under an explicit "force" label |
-| Force push (active note) | Same as "Push to Trello (active note)", under an explicit "force" label |
-| Link active note to a card | Fuzzy-matches the file name against the board and writes the id |
-| Link active note to a card (pick manually) | Search-and-pick modal over the board's cards — use it when the title match above picks the wrong card, or isn't close enough to fire |
-| Resolve conflict (active note), side by side | Side-by-side view when both sides changed at once |
-| Undo last sync for the active note | Reverts this note's part of the last recorded sync run |
+| Sync this note with its card | Reconcile the open note with its linked Trello card, in whichever direction the newest change points. |
+| Update this note from its card | Overwrite the open note with the linked card's current content. |
+| Update the card from this note | Overwrite the linked Trello card with the open note's current content. |
+| Overwrite this note with its card | Pull from the linked card regardless of which side changed more recently. |
+| Overwrite the card with this note | Push to the linked card regardless of which side changed more recently. |
+| Link this note to the card with the same name | Find the best-matching Trello card by title and link it to the open note. |
+| Link this note to a card I choose | Search Trello cards by name and link the one you pick to the open note. |
+| Unlink this note from its card | Remove the Trello properties from the open note. The card and the note's text are left untouched. |
+| Compare this note and its card side by side | Show the note and its card side by side when both changed, and choose which one wins. |
+| Open the card view | Show the open note's Trello card in a side panel: read it, and edit it if editing is on. |
+| Create a card from this note | Create a new Trello card from the open note and link it back. |
+| Undo the last sync of this note | Revert the most recent sync write made to the open note. |
 
 ### Folders
 
 | Command | What it does |
 | --- | --- |
-| Sync a list with its folder | Mirrors one Trello list into one vault folder |
-| Sync every list with its folder | Runs all configured list ↔ folder pairs |
-| Force pull (mapped folder) | Pick a mapping, then overwrite every note in its folder from Trello, ignoring timestamps |
-| Force push (mapped folder) | Pick a mapping, then overwrite every card from its folder's notes, ignoring timestamps |
+| Sync one folder with its list | Pick one list ↔ folder mapping and reconcile just that pair. |
+| Sync every folder with its list | Reconcile every configured list ↔ folder mapping in one pass. |
+| Update a folder's notes from its list | Pull a mapped folder's cards into its notes; a genuine conflict is reported, not overwritten. |
+| Update a list's cards from its folder | Push a mapped folder's notes to their cards; a genuine conflict is reported, not overwritten. |
+| Overwrite a folder's notes with its list | Pull every mapped folder from Trello regardless of which side changed more recently. |
+| Overwrite a list's cards with its folder | Push every mapped folder to Trello regardless of which side changed more recently. |
 
 ### Vault
 
 | Command | What it does |
 | --- | --- |
-| Sync all linked notes | Walks the scope folder, fetching the board's cards in one request |
-| Force pull (vault) | Overwrite every linked note in scope from Trello, ignoring timestamps |
-| Force push (vault) | Overwrite every linked card from scope's notes, ignoring timestamps |
-| Create note from a Trello card | Adopt a card with no note yet — the inverse of linking an existing note to a card |
-| Audit links (orphan cards and notes) | Cards without notes, notes with broken ids, notes with no card |
-| Compare locations against Trello lists | Table of where each linked note lives versus its Trello list |
-| Audit changes (Trello change log) | Trello board activity since the last run, grouped by day then by card, into the report note |
-| Export change log as HTML | Standalone page of the same change log, each author's avatar embedded — works offline |
-| Show sync history | Lists recorded sync runs, newest first |
-| Undo last sync run | Reverts the last recorded run's writes |
-| Undo a sync run (pick what to undo) | Pick any recorded run, then check exactly which of its writes to undo |
+| Open the sidebar | Open this panel — mostly useful from the command palette when the panel is closed. |
+| Sync every linked note with its card | Reconcile every note in the vault that's already linked to a Trello card. |
+| Update every linked note from its card | Pull every linked card into its note; a genuine conflict is reported, not overwritten. |
+| Update every card from its linked note | Push every linked note to its card; a genuine conflict is reported, not overwritten. |
+| Overwrite every linked note with its card | Pull every linked note in the vault from Trello regardless of which side changed more recently. |
+| Overwrite every card with its linked note | Push every linked note in the vault to Trello regardless of which side changed more recently. |
 
-Plus **"Toggle dry-run mode"**, which flips the Dry run setting — a command in
+### Create
+
+| Command | What it does |
+| --- | --- |
+| Create a note from an unlinked card | Pick a Trello card with no linked note yet and create one for it. |
+| Recreate the missing cards of notes | Pick a note with no linked Trello card yet and create one for it. |
+| Create notes and cards from the link report | Create notes for the orphan cards and cards for the unlinked notes left unchecked in the link audit report — all of it, or one list or folder. |
+| Create notes from the link report | Create notes only for the orphan cards left unchecked in the link audit report — all of them, or one list. |
+| Create cards from the link report | Create Trello cards only for the unlinked notes left unchecked in the link audit report — all of them, or one folder. |
+
+### Audit
+
+| Command | What it does |
+| --- | --- |
+| Report unlinked cards and notes | Report Trello cards with no linked note, and notes with no linked card. |
+| Open the link report | Open the note where "Report unlinked cards and notes" writes its report. |
+| Report notes in the wrong folder | Report notes whose folder doesn't match their card's current Trello list. |
+| Fetch the Trello change log | Report what changed on Trello since the last time this audit ran. |
+| Export the change log as HTML | Write the Trello change log to a standalone HTML page in the vault. |
+
+### History
+
+| Command | What it does |
+| --- | --- |
+| Show the sync history | List past sync runs and what each one wrote. |
+| Undo the last sync | Revert every write made by the most recent sync run. |
+| Undo part of a past sync | Pick a past sync run and choose which of its writes to revert. |
+
+Plus **"Turn test mode (dry-run) on or off"**, which flips the Dry run setting — a command in
 the palette, and a switch at the top of the sidebar panel.
 
 A note points at its card through a single frontmatter key:
@@ -74,8 +102,7 @@ trello_board_card_id: "<boardId>;<cardId>"
 A bare card id is accepted too. Unfilled `{{CARD_ID}}` template placeholders are
 ignored rather than sent to the API.
 
-You never need to type that value by hand: run **"Link active note to a card (pick
-manually)"** and search the board's cards by name, or **"Link active note to a card"**
+You never need to type that value by hand: run **"Link this note to a card I choose"** and search the board's cards by name, or **"Link this note to the card with the same name"**
 for automatic title-matching.
 
 To find which note is linked to which Trello card, the plugin lists the vault's
@@ -125,8 +152,8 @@ For live development, `npm run dev` rebuilds `main.js` on save.
 4. **Click "Test connection"** to confirm the key, the token and board access
    all work before syncing anything.
 5. **Add one list ↔ folder mapping**, or link a single existing note first with
-   **"Link active note to a card (pick manually)"**.
-6. **Turn on Dry run**, then run **"Sync a list with its folder"** once —
+   **"Link this note to a card I choose"**.
+6. **Turn on Dry run**, then run **"Sync one folder with its list"** once —
    nothing is written, but the log shows exactly what would happen.
 7. Happy with the plan? **Turn Dry run off** and run the same command for real.
 
@@ -144,10 +171,22 @@ names below match the settings tab exactly.
   standalone HTML change log page.
 - **Arbitration & safety** — who wins on conflict (newer side, Obsidian always,
   or Trello always), the clock margin before a divergence counts as a real
-  conflict, Sync titles, Dry run, Create missing notes / Delete phantom notes
-  (each overridable per mapping), Protect cards moved or archived elsewhere, and
-  Confirm before a forced sync.
+  conflict, Sync titles, Dry run, Create missing notes (overridable per
+  mapping), adopting an unlinked note named like a card, and confirmations
+  before a forced sync or an unlink.
+- **When a card changes on Trello** — what a sync does with a note whose card
+  was moved to another list (follow it to the matching folder, keep, trash),
+  archived (remove the Trello properties — the default —, keep, move to an
+  archive folder, trash) or deleted (remove the properties, keep, trash), the
+  archive folder with its two options, and what happens to a card whose note
+  you deleted (stop recreating it and list it under *Ignored cards*, archive
+  the card, or recreate the note). Every change can be undone from the sync
+  history.
 - **Labels** — merge vs. overwrite when the note's and the card's labels diverge.
+- **Labels to properties** — map a Trello label to a note property and value(s)
+  (for example label *NPC* writes `type: npc`); scan the board's labels, then
+  fill the key and values of each row. A label counts as present on the note
+  when all its values are in the property.
 - **Attachments** — Sync attachments (pull-only, into frontmatter), Download
   attachments (writes files into the vault, off by default), and where a
   download lands (same folder as the note, or one shared folder).
@@ -169,15 +208,36 @@ names below match the settings tab exactly.
   interval, and the minimum gap enforced between runs however they were
   triggered.
 - **Trello list ↔ folder** — one row per list/folder pair, its note template,
-  and per-mapping overrides for Create missing notes / Delete phantom notes.
+  and per-mapping overrides for Create missing notes / "Never trash notes in this folder".
 - **Ribbon icons** — a toggle per command, choosing which ones get a button in
   Obsidian's left ribbon; every command stays available from the sidebar panel
   and the command palette regardless of this setting.
-- **Advanced** — similarity threshold for automatic title-matching, retry
-  tuning (retries, initial delay, request timeout, max retry wait), whether
-  attachments and checklists are fetched together with the cards, the
-  progress panel and its auto-close delay, and the frontmatter key used for
-  each synced value (including the card-link key itself).
+- **Card view** — the side panel showing the Trello card of the open note
+  (see below): which sections it shows and in which order, which fields can be
+  edited, cache durations, comments loaded, date format and more.
+- **Advanced** — similarity threshold for automatic title-matching, whether
+  attachments and checklists are fetched together with the cards, the progress
+  panel and its auto-close delay, the frontmatter key used for each synced
+  value (including the card-link key itself and the optional
+  `trello_plugin_note_id`), and a closed *Expert settings* block (network
+  retries and timings, rarely changed values, report wording).
+
+Every setting shows its default value; a changed one is marked and can be reset
+with one click, and the top of the tab says how many differ from the defaults
+(with a *Show only changed* filter). Sub-settings of a switch are hidden while
+it is off.
+
+### Card view
+
+**"Open the card view"** opens a side panel that follows the open note and
+shows its Trello card: cover, title, list, due date, labels, members,
+description, checklists, attachments, custom fields and comments. One request
+per card, reused for a configurable time, and none while the note is not linked
+or the panel is hidden. With editing on (the default) you can change the title,
+description, due date, list, labels, members, checklist items, comments, custom
+fields, attach a link, and archive the card — but never delete a comment, an
+item, an attachment or the card. The gear button chooses which sections one
+particular card shows.
 
 ## Templates
 
