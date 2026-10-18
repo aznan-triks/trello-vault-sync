@@ -81,7 +81,7 @@ export interface NoteSyncOptions {
 	/** Explicit user choice, bypassing timestamps entirely. */
 	force?: "pull" | "push";
 	/**
-	 * What genuinely distinguishes "Force pull/push (active note)" from the
+	 * What genuinely distinguishes "Overwrite this note with its card / Overwrite the card with this note" from the
 	 * plain "Pull/Push (active note)" commands — both pass `force`, but only
 	 * the "Force" ones also pass `bypassConflict: true`. Without it, `force`
 	 * still picks the direction whenever `decideSync` found a one-directional
@@ -757,7 +757,7 @@ async function syncNoteWithCardUnguarded(
 	// change (the "identical = no-op" guarantee force pull/push relies on).
 	// A genuine `"conflict"` (both sides changed within the margin) is only
 	// overridden by `force` when `bypassConflict` is also set — that's the one
-	// real difference between "Force pull/push (active note)" and the plain
+	// real difference between "Overwrite this note with its card / Overwrite the card with this note" and the plain
 	// "Pull/Push (active note)" commands (both pass `force`).
 	const direction =
 		decision.direction === "skip"

@@ -41,7 +41,7 @@ const FRONTMATTER = '---\ntrello_board_card_id: "board;c1"\n---\n\nlocal body';
 /**
  * Unlike `tests/noteCommands.test.ts`'s stub (which ignores its arguments),
  * this `noteOptions` genuinely forwards `force`/`bypassConflict` — needed to
- * prove "Force pull (active note)" now behaves differently from the plain
+ * prove "Overwrite this note with its card" now behaves differently from the plain
  * "Pull (active note)" command (the bug this test file targets).
  */
 function fakeContext(overrides: Partial<CommandContext> = {}): CommandContext {
@@ -108,7 +108,7 @@ describe("force pull/push (active note) — genuinely bypasses a conflict, unlik
 		expect((ctx.vault as FakeVault).contentOf(PATH)).toBe(FRONTMATTER);
 	});
 
-	test("'Force pull (active note)' overwrites during a conflict (confirmForceSync off)", async () => {
+	test("'Overwrite this note with its card' overwrites during a conflict (confirmForceSync off)", async () => {
 		const ctx = fakeContext();
 
 		// `forcePullActiveNote` fires the (unawaited, disabled) confirmation gate
@@ -120,7 +120,7 @@ describe("force pull/push (active note) — genuinely bypasses a conflict, unlik
 		expect((ctx.vault as FakeVault).contentOf(PATH)).toContain("remote body");
 	});
 
-	test("'Force pull (active note)' waits for confirmation when confirmForceSync is on", async () => {
+	test("'Overwrite this note with its card' waits for confirmation when confirmForceSync is on", async () => {
 		let capturedConfirm: (() => void) | undefined;
 		vi.spyOn(ConfirmModal.prototype, "open").mockImplementation(function (this: ConfirmModal) {
 			capturedConfirm = (this as unknown as { onConfirm: () => void }).onConfirm;

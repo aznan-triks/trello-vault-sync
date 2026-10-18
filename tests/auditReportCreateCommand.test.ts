@@ -254,7 +254,7 @@ describe("createFromAuditReport", () => {
 		const { ctx } = setup({}, "just notes");
 		await createFromAuditReport(ctx);
 		expect(captured.choices).toBeUndefined();
-		expect((Notice as unknown as { messages: string[] }).messages.join(" ")).toMatch(/Run "Audit links/);
+		expect((Notice as unknown as { messages: string[] }).messages.join(" ")).toMatch(/Run "Report unlinked cards and notes/);
 	});
 
 	test("dry-run creates nothing", async () => {

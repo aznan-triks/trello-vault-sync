@@ -203,7 +203,7 @@ describe("syncNoteWithCard", () => {
 		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "local");
 	});
 
-	test("bypassConflict makes 'Force pull (active note)' genuinely different: overwrites even a real conflict", async () => {
+	test("bypassConflict makes 'Overwrite this note with its card' genuinely different: overwrites even a real conflict", async () => {
 		const { vault, client } = setup("local", at("2026-01-01T00:00:00"));
 		const remote = card({ id: "c1", name: "Sagondo", desc: "remote", dateLastActivity: "2026-01-01T00:00:30" });
 

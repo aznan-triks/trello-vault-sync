@@ -150,7 +150,7 @@ async function undoPickedActions(ctx: CommandContext, run: SyncRun, selectedIndi
 }
 
 /**
- * Turns "Show sync history" from a dead end into an entry point: pick any
+ * Turns "Show the sync history" from a dead end into an entry point: pick any
  * recorded run (not just the last), then check exactly which of its writes
  * to undo — everything left unchecked stays in history, still undoable later.
  *

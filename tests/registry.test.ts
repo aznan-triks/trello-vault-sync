@@ -43,6 +43,11 @@ import { ALL_SECTIONS, COMMANDS, type CommandTone } from "../src/commands/regist
 const VALID_TONES: CommandTone[] = ["sync", "pull", "push", "link", "audit", "history", "default"];
 
 describe("registry", () => {
+	test("every command name is unique", () => {
+		const names = COMMANDS.map((command) => command.name);
+		expect(new Set(names).size).toBe(names.length);
+	});
+
 	test("every command has a non-empty one-sentence description", () => {
 		for (const command of COMMANDS) {
 			expect(command.description.length, `${command.id} description`).toBeGreaterThan(0);

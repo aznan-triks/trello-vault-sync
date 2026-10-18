@@ -15,7 +15,7 @@ export interface CreateCardFromNoteOptions {
 	labelsFrontmatterKey?: string;
 	cardRefFrontmatterKey?: string;
 	dryRun?: boolean;
-	/** Called once, after the card is created and the note is linked — never in dry-run. Feeds "Create cards from phantom notes" into sync history so the creation can be undone (archived) later. */
+	/** Called once, after the card is created and the note is linked — never in dry-run. Feeds "Recreate the missing cards of notes" into sync history so the creation can be undone (archived) later. */
 	onCardCreate?: (action: TrelloCardCreateAction) => void;
 }
 

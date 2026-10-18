@@ -233,7 +233,7 @@ function tally(stats: UndoStats, outcome: UndoOutcome): void {
  * A selected action that was processed is dropped whether it reverted or was
  * skipped: a skip (e.g. the note changed since the run) would be skipped again
  * on every later attempt, so keeping it would pin the run as "last" forever
- * and block "Undo last sync run".
+ * and block "Undo the last sync".
  *
  * `client` is optional — without it, Trello-side actions (`trello-card`,
  * `trello-checkitem`) are skipped rather than reverted; the skip message says

@@ -525,7 +525,7 @@ describe("undoSelectedActions", () => {
 		expect(vault.contentOf("a.md")).toBe("user's own edit");
 		expect(vault.contentOf("b.md")).toBe("b-original");
 		// A skipped undo would be skipped again next time (the note still diverges),
-		// so keeping it would pin this run as "last" forever and block "Undo last sync run".
+		// so keeping it would pin this run as "last" forever and block "Undo the last sync".
 		expect(remainingRun.actions).toEqual([]);
 	});
 

@@ -24,10 +24,10 @@ export function newNoteContentFromCard(card: TrelloCard, template: string | null
  * and adding a "(2)", "(3)"… suffix on a name collision (`uniqueNotePath`) —
  * never overwrites an existing note. The single place a note is ever
  * fabricated from a card: shared by `syncFolder`'s "create missing" branch
- * and the "Create note from a Trello card" command, so there is only ever
+ * and the "Create a note from an unlinked card" command, so there is only ever
  * one way a note-from-card looks.
  */
-/** Cards not yet claimed by any note in the vault — the picker for "Create note from a Trello card" never re-offers an already-linked card. */
+/** Cards not yet claimed by any note in the vault — the picker for "Create a note from an unlinked card" never re-offers an already-linked card. */
 export function unlinkedCards(cards: readonly TrelloCard[], linkedCardIds: ReadonlySet<string>): TrelloCard[] {
 	return cards.filter((card) => !linkedCardIds.has(card.id));
 }

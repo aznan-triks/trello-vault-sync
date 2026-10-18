@@ -141,7 +141,7 @@ export interface TrelloVaultSyncSettings {
 	/** Heading marking the checklist section — always the last thing in a note's body, not a frontmatter key. */
 	checklistHeading: string;
 
-	/** On by default — records every vault write a sync makes so it can be undone later ("Show sync history" / "Undo last sync run"). */
+	/** On by default — records every vault write a sync makes so it can be undone later ("Show the sync history" / "Undo the last sync"). */
 	historyEnabled: boolean;
 	/** Oldest run is dropped once this many are recorded. */
 	historyMaxRuns: number;
@@ -153,7 +153,7 @@ export interface TrelloVaultSyncSettings {
 	maxConcurrentOperations: number;
 	/** On by default — an undo also reverts the Trello-side writes a run made. Off: only vault writes are reverted; Trello actions are skipped and reported as disabled in settings, not attempted. */
 	historyRevertTrelloWrites: boolean;
-	/** On by default — shows a confirmation modal before "Undo last sync run" / "Undo last sync for the active note" (the picker command already ends on its own explicit "Undo selected" button, so it never goes through this gate). Off disables the modal for repeated use. */
+	/** On by default — shows a confirmation modal before "Undo the last sync" / "Undo the last sync of this note" (the picker command already ends on its own explicit "Undo selected" button, so it never goes through this gate). Off disables the modal for repeated use. */
 	confirmUndo: boolean;
 
 	/** Pull-only, no extra Trello request. */
@@ -177,9 +177,9 @@ export interface TrelloVaultSyncSettings {
 	/** On by default — shows a confirmation modal (with the count) before "Create for ALL" in the orphan-card / phantom-note pickers, so a single wrong click can't kick off a large batch. Off disables the modal for repeated use. */
 	confirmBatchCreate: boolean;
 
-	/** Fallback folder for "Create note from a Trello card" when the card's list isn't mapped to one. Empty means the user is prompted at creation time instead of a silent guess. */
+	/** Fallback folder for "Create a note from an unlinked card" when the card's list isn't mapped to one. Empty means the user is prompted at creation time instead of a silent guess. */
 	orphanCardFolder: string;
-	/** When true, "Create note from a Trello card" offers a batch create option for all orphan cards. Default is true. */
+	/** When true, "Create a note from an unlinked card" offers a batch create option for all orphan cards. Default is true. */
 	orphanCardBatchCreate: boolean;
 	/** Scope of orphan cards to consider for note creation: "all" or "mapped-lists-only". Default is "all". */
 	orphanCardScope: OrphanCardScope;

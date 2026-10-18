@@ -61,7 +61,7 @@ export async function batchCreateCardsFromNotesAction(
 	fallbackListId: string,
 	listName?: string,
 ): Promise<void> {
-	await ctx.run("Create cards from phantom notes", async (reporter, signal) => {
+	await ctx.run("Recreate the missing cards of notes", async (reporter, signal) => {
 		// Wrapped so every card this batch creates on Trello — and the note-side
 		// link it writes — lands in sync history and can be undone (an undone
 		// card creation is archived, never deleted — see `core/syncHistory.ts`'s
@@ -127,7 +127,7 @@ export async function batchCreateCardsFromNotesAction(
 	});
 }
 
-/** "Create Trello card from active note": turns the active note into a card on Trello and links them. */
+/** "Create a card from this note": turns the active note into a card on Trello and links them. */
 export async function createCardFromActiveNote(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 	const note = ctx.activeNote();
@@ -180,7 +180,7 @@ export async function createCardFromActiveNote(ctx: CommandContext): Promise<voi
 	}).open();
 }
 
-/** "Create Trello cards from phantom notes": scans for phantom/unlinked notes and creates cards for them. */
+/** "Recreate the missing cards of notes": scans for phantom/unlinked notes and creates cards for them. */
 export async function createCardsFromPhantomNotes(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 
