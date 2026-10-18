@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.1] — 2026-10-19
+
+### Documentation & Onboarding
+
+- **Plain words:** Complete onboarding and documentation overhaul: a quick 6-step "First 10 minutes" guide, "Top 5 commands to know" reducing initial complexity, visual Card View architecture diagram, automated live test-vault validation harness, and verified community showcase guidelines.
+  **Technical:**
+  - Restructured `README.md` with streamlined onboarding flow ("First 10 minutes") absorbing legacy quickstart into 6 straightforward steps.
+  - Added "The 5 commands you need to know" to lower cognitive load for new users, clarifying that default settings require zero initial configuration.
+  - Added dark-theme vector demonstration diagram (`docs/media/card-view-preview.svg`) and recording specifications (`docs/media/README.md`) for lightweight GIF screen captures.
+  - Added live integration test runner `scripts/verify-real-test-vault.mjs` validating real Trello board API payloads (`TrelloCardView`, checklists, attachments, actions, members, board labels) against deployed assets in `test-vault/`.
+  - Added acquisition post templates and baseline community tracking sheet (`docs/ACQUISITION_POSTS.md`) for Reddit (`r/ObsidianMD`, `r/PKMS`, `r/worldbuilding`, `r/Trello`), Obsidian Discord, and early user review outreach.
+
 ## [1.24.0] — 2026-10-18
 
 ### Added
