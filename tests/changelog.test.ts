@@ -51,6 +51,19 @@ describe("renderChangelogMarkdown", () => {
 		expect(out).toContain("<blockquote>quote here</blockquote>");
 		expect(out).toContain("<hr>");
 	});
+
+	test("renders indented lists properly without breaking or leaving literal hyphens", () => {
+		const md = [
+			"**Technical:**",
+			"  - Item 1 with `code`",
+			"  - Item 2",
+			"    - Sub-item 3",
+		].join("\n");
+		const out = renderChangelogMarkdown(md);
+		expect(out).toContain('<ul class="tvs-cl-md-list">');
+		expect(out).toContain("<li>Item 1 with <code>code</code></li>");
+		expect(out).toContain("<li>Item 2</li>");
+	});
 });
 
 describe("parseRawChangelogMarkdown", () => {
@@ -133,6 +146,38 @@ describe("parseChangelogVoiceBlocks & filterChangelogCatBody", () => {
 		const techOut = filterChangelogCatBody(frenchBody, "tech");
 		expect(techOut).not.toContain("Description claire.");
 		expect(techOut).toContain("Code.gs");
+	});
+
+	test("supports recent Plain words and Technical markers with colons inside or outside bold", () => {
+		const recentBody = `- **Plain words:** Three defects found by running the plugin in a real vault.
+  **Technical:**
+  - \`ObsidianVault.rename()\` details.
+  - \`features/syncNote.ts\` update.`;
+
+		const blocks = parseChangelogVoiceBlocks(recentBody);
+		expect(blocks).toHaveLength(2);
+		expect(blocks[0]?.type).toBe("plain");
+		expect(blocks[0]?.content).toContain("Three defects found");
+		expect(blocks[1]?.type).toBe("tech");
+		expect(blocks[1]?.content).toContain("ObsidianVault.rename()");
+
+		const plainOut = filterChangelogCatBody(recentBody, "plain");
+		expect(plainOut).toContain("Three defects found");
+		expect(plainOut).not.toContain("ObsidianVault.rename()");
+		expect(plainOut).not.toContain("Technical");
+
+		const techOut = filterChangelogCatBody(recentBody, "tech");
+		expect(techOut).not.toContain("Three defects found");
+		expect(techOut).toContain("ObsidianVault.rename()");
+	});
+
+	test("supports unbolded and varied voice marker formats", () => {
+		const varied = `- Plain words: Plain text without bolding.
+- Technical: Tech text without bolding.`;
+		const blocks = parseChangelogVoiceBlocks(varied);
+		expect(blocks).toHaveLength(2);
+		expect(blocks[0]?.type).toBe("plain");
+		expect(blocks[1]?.type).toBe("tech");
 	});
 
 	test("does not create spurious blocks on inline occurrences of voice keywords", () => {
@@ -265,5 +310,52 @@ describe("filterAndGroupChangelog", () => {
 		const dated = result.dateGroups.find((group) => group.date !== "Unreleased");
 		expect(dated?.date).toMatch(/^\d{4}-\d{2}-\d{2}/);
 		expect(result.dateGroups[0]?.versions.length).toBeGreaterThanOrEqual(1);
+	});
+
+	test("isolates Plain and Technical voices strictly for real recent version 1.24.2 in CHANGELOG.md", () => {
+		const { rawItems } = parseRawChangelogMarkdown(rawMarkdown);
+		const v1242 = rawItems.find((item) => item.ver === "1.24.2");
+		expect(v1242).toBeDefined();
+
+		const plainFiltered = filterAndGroupChangelog([v1242!], {
+			searchQuery: "",
+			viewMode: "plain",
+			activeCats: new Set(["Added", "Changed", "Fixed", "Removed", "Security"]),
+			sortOrder: "desc",
+			versionFrom: "all",
+			versionTo: "all",
+		});
+		expect(plainFiltered.processedItems).toHaveLength(1);
+		const plainBody = plainFiltered.processedItems[0]?.bodyContent ?? "";
+		expect(plainBody).toContain("Three defects found");
+		expect(plainBody).not.toContain("ObsidianVault.rename");
+		expect(plainBody).not.toContain("Technical");
+
+		const techFiltered = filterAndGroupChangelog([v1242!], {
+			searchQuery: "",
+			viewMode: "tech",
+			activeCats: new Set(["Added", "Changed", "Fixed", "Removed", "Security"]),
+			sortOrder: "desc",
+			versionFrom: "all",
+			versionTo: "all",
+		});
+		expect(techFiltered.processedItems).toHaveLength(1);
+		const techBody = techFiltered.processedItems[0]?.bodyContent ?? "";
+		expect(techBody).not.toContain("Three defects found");
+		expect(techBody).toContain("ObsidianVault.rename");
+
+		// Both 1.24.2 and 1.24.1 are visible in default view under 2026-10-19
+		const defaultResult = filterAndGroupChangelog(rawItems, {
+			searchQuery: "",
+			viewMode: "plain",
+			activeCats: new Set(["Added", "Changed", "Fixed", "Removed", "Security"]),
+			sortOrder: "desc",
+			versionFrom: "all",
+			versionTo: "all",
+		});
+		const oct19Group = defaultResult.dateGroups.find((g) => g.date === "2026-10-19");
+		expect(oct19Group).toBeDefined();
+		expect(oct19Group?.versions.map((v) => v.ver)).toContain("1.24.2");
+		expect(oct19Group?.versions.map((v) => v.ver)).toContain("1.24.1");
 	});
 });

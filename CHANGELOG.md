@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.3] — 2026-10-19
+
+### Fixed
+
+- **Plain words:** The Changelog viewer in settings now reliably filters Plain and Technical descriptions regardless of how release notes are formatted (including "Plain words:", colons inside bold tags, and unbolded markers), and displays indented bullet lists properly instead of leaving raw hyphens.
+  **Technical:**
+  - `src/core/changelog.ts::parseChangelogVoiceBlocks()`: replaced rigid regex with comprehensive voice marker pattern supporting `Plain words`, `Technical`, `Humanisé`, `Technique`, colons placed inside or outside bold/italic formatting, and unbolded colon-terminated markers.
+  - `src/core/changelog.ts::renderChangelogMarkdown()`: lists now allow optional leading indentation `^[ \t]*[-*]` so nested or indented bullets render as proper HTML list items.
+  - `src/core/changelog.ts::filterAndGroupChangelog()`: non-standard categories such as `Documentation & Onboarding` are preserved in the default view and mapped to known categories when filtering.
+  - Tests: added test coverage in `tests/changelog.test.ts` for all marker variations, indented list parsing, and isolation across real changelog entries.
+
 ## [1.24.2] — 2026-10-19
 
 ### Fixed
