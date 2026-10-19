@@ -41,6 +41,8 @@ export const CATEGORY_ICON_MAP: Record<string, string> = {
 	Removed: "🗑️",
 	Security: "🛡️",
 	Internal: "🔧",
+	Documentation: "📚",
+	"Documentation & Onboarding": "📚",
 	// Fallback mappings
 	"Ajout\u00e9": "✨",
 	"Modifi\u00e9": "⚡",
@@ -57,6 +59,8 @@ export const CATEGORY_CLASS_MAP: Record<string, string> = {
 	Removed: "tvs-cl-removed",
 	Security: "tvs-cl-security",
 	Internal: "tvs-cl-internal",
+	Documentation: "tvs-cl-added",
+	"Documentation & Onboarding": "tvs-cl-added",
 	// Fallback mappings
 	"Ajout\u00e9": "tvs-cl-added",
 	"Modifi\u00e9": "tvs-cl-modified",
@@ -130,13 +134,13 @@ export function renderChangelogMarkdown(text: string): string {
 	let i = 0;
 	while (i < lines.length) {
 		const line = lines[i] ?? "";
-		const ulMatch = /^[-*]\s+(.*)$/.exec(line);
-		const olMatch = /^\d+\.\s+(.*)$/.exec(line);
+		const ulMatch = /^[ \t]*[-*]\s+(.*)$/.exec(line);
+		const olMatch = /^[ \t]*\d+\.\s+(.*)$/.exec(line);
 		if (ulMatch) {
 			const items: string[] = [];
 			while (i < lines.length) {
 				const current = lines[i] ?? "";
-				const m = /^[-*]\s+(.*)$/.exec(current);
+				const m = /^[ \t]*[-*]\s+(.*)$/.exec(current);
 				if (!m) break;
 				items.push("<li>" + (m[1] ?? "") + "</li>");
 				i++;
@@ -146,7 +150,7 @@ export function renderChangelogMarkdown(text: string): string {
 			const items: string[] = [];
 			while (i < lines.length) {
 				const current = lines[i] ?? "";
-				const m = /^\d+\.\s+(.*)$/.exec(current);
+				const m = /^[ \t]*\d+\.\s+(.*)$/.exec(current);
 				if (!m) break;
 				items.push("<li>" + (m[1] ?? "") + "</li>");
 				i++;
@@ -205,10 +209,19 @@ export function parseRawChangelogMarkdown(markdownText: string): {
 	return { introHtml, rawItems };
 }
 
+const VOICE_LABEL_PATTERN =
+	"(?:Plain(?:[ \\t]+(?:words?|terms?|text|language))?|Humanis[\\u00e9e]d?|Human(?:[ \\t]+words?)?|Grand[ \\t]+public|Vulgarisation|Technical(?:[ \\t]+(?:details?|notes?|specs?))?|Techniques?|D[\\u00e9e]tails?[ \\t]+techniques?|Tech)";
+
 export function parseChangelogVoiceBlocks(catBody: string): ChangelogVoiceBlock[] {
 	if (!catBody) return [];
 	// Anchored to line start (with optional leading bullet/spaces) to prevent inline false-positives
-	const markerRegex = /(?:^|\r?\n)[ \t]*(?:[-*]\s*)?(\*\*(?:Plain|Humanis[\u00e9e]d?|Human|Technical|Technique)\*\*\s*:?\s*)/gi;
+	const markerRegex = new RegExp(
+		"(?:^|\\r?\\n)[ \\t]*(?:[-*+]\\s*)?(" +
+			"(?:(?:\\*\\*|__|\\*|_)\\s*" + VOICE_LABEL_PATTERN + "\\s*:?\\s*(?:\\*\\*|__|\\*|_)\\s*:?|" +
+			VOICE_LABEL_PATTERN + "\\s*:)" +
+			"\\s*)",
+		"gi",
+	);
 	const parts = catBody.split(markerRegex);
 	if (parts.length <= 1) {
 		return [{ type: "legacy", marker: "", content: catBody.trim() }];
@@ -221,7 +234,7 @@ export function parseChangelogVoiceBlocks(catBody: string): ChangelogVoiceBlock[
 		const marker = (parts[i] ?? "").trim();
 		const content = (parts[i + 1] ?? "").trim();
 		if (!content) continue;
-		const isPlain = /Plain|Human/i.test(marker);
+		const isPlain = /Plain|Human|Grand|Vulgaris/i.test(marker);
 		const isTech = /Tech/i.test(marker);
 		const type: "plain" | "tech" | "legacy" = isPlain ? "plain" : (isTech ? "tech" : "legacy");
 		blocks.push({ type, marker, content });
@@ -240,10 +253,12 @@ export function filterChangelogCatBody(catBody: string, viewMode: ChangelogViewM
 			out += b.content + "\n\n";
 		} else if (viewMode === "plain" && b.type === "plain") {
 			const marker = b.marker.includes(":") ? b.marker : b.marker + " :";
-			out += marker + " " + b.content + "\n\n";
+			const sep = b.content.startsWith("-") || b.content.startsWith("*") ? "\n" : " ";
+			out += marker + sep + b.content + "\n\n";
 		} else if (viewMode === "tech" && b.type === "tech") {
 			const marker = b.marker.includes(":") ? b.marker : b.marker + " :";
-			out += marker + " " + b.content + "\n\n";
+			const sep = b.content.startsWith("-") || b.content.startsWith("*") ? "\n" : " ";
+			out += marker + sep + b.content + "\n\n";
 		}
 	});
 	return out.trim();
@@ -359,6 +374,13 @@ export function filterAndGroupChangelog(
 			const catName = (bFirstLineEnd !== -1 ? block.substring(0, bFirstLineEnd) : block).trim();
 			const catBody = (bFirstLineEnd !== -1 ? block.substring(bFirstLineEnd + 1) : "").trim();
 
+			const hasAllDefaultCats =
+				options.activeCats.has("Added") &&
+				options.activeCats.has("Changed") &&
+				options.activeCats.has("Fixed") &&
+				options.activeCats.has("Removed") &&
+				options.activeCats.has("Security");
+
 			// Normalizing category match (e.g. Added / fallback mappings)
 			const isCatActive =
 				options.activeCats.has(catName) ||
@@ -366,7 +388,8 @@ export function filterAndGroupChangelog(
 				(catName === "Modifi\u00e9" && options.activeCats.has("Changed")) ||
 				(catName === "Corrig\u00e9" && options.activeCats.has("Fixed")) ||
 				(catName === "Supprim\u00e9" && options.activeCats.has("Removed")) ||
-				(catName === "S\u00e9curit\u00e9" && options.activeCats.has("Security"));
+				(catName === "S\u00e9curit\u00e9" && options.activeCats.has("Security")) ||
+				(hasAllDefaultCats && !["Added", "Changed", "Fixed", "Removed", "Security", "Ajout\u00e9", "Modifi\u00e9", "Corrig\u00e9", "Supprim\u00e9", "S\u00e9curit\u00e9"].includes(catName));
 
 			if (!isCatActive) return;
 
