@@ -368,6 +368,18 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				},
 			},
 			allowCreate: this.settings.allowCreate,
+			allowCreateCards: this.settings.allowCreateCards,
+			historyCardNames: new Set([
+				...Object.values(this.ignoredCards).map((c) => c.name),
+				...this.history.flatMap((run) =>
+					run.actions.flatMap((action) => {
+						if (action.kind === "trello-card") {
+							return [action.previous.name, action.written.name].filter((n): n is string => Boolean(n));
+						}
+						return [];
+					}),
+				),
+			]),
 			boardId: this.settings.boardId,
 			cardRefFrontmatterKey: this.settings.cardRefFrontmatterKey,
 			defaultTemplateName: this.settings.defaultTemplateName,

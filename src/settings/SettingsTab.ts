@@ -1210,6 +1210,17 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			), "allowCreate");
 
 		this.track(new Setting(root)
+			.setName("Create missing cards")
+			.setDesc("Creates a card on Trello in the mapped list for every unlinked note, provided no card of the same name exists on the board or in its history.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.allowCreateCards).onChange((value) => {
+					this.plugin.settings.allowCreateCards = value;
+					void this.save();
+					this.display();
+				}),
+			), "allowCreateCards");
+
+		this.track(new Setting(root)
 			.setName("Confirm before a forced sync")
 			.setDesc(
 				"Shows a confirmation dialog before a force pull/push at folder or vault scope (destructive by " +
@@ -2259,6 +2270,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 			const hasOverride =
 				(mapping.allowCreateOverride && mapping.allowCreateOverride !== "inherit") ||
+				(mapping.allowCreateCardOverride && mapping.allowCreateCardOverride !== "inherit") ||
 				(mapping.allowDeleteOverride && mapping.allowDeleteOverride !== "inherit");
 			if (hasOverride) {
 				titleDiv.createSpan({ cls: "tvs-badge tvs-badge--warn", text: "Custom overrides" });
@@ -2365,6 +2377,19 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				},
 			});
 
+			this.renderMappingOverride(detailsContent, {
+				name: "Create missing cards (this folder)",
+				globalName: "Create missing cards",
+				globalEnabled: this.plugin.settings.allowCreateCards,
+				descriptionPrefix: "Overrides",
+				alwaysLabel: "Always create",
+				neverLabel: "Never create",
+				value: mapping.allowCreateCardOverride ?? "inherit",
+				onChange: (mode) => {
+					mapping.allowCreateCardOverride = mode;
+				},
+			});
+
 			new Setting(detailsContent)
 				.setName("Never trash notes in this folder")
 				.setDesc(
@@ -2388,6 +2413,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						folder: "",
 						templateName: "",
 						allowCreateOverride: "inherit",
+						allowCreateCardOverride: "inherit",
 						allowDeleteOverride: "inherit",
 					});
 					void this.save();

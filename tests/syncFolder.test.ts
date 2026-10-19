@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { DEFAULT_LINKED_CARDS_KEY } from "../src/core/attachmentRef";
 import { syncAllMappings, syncFolder, type FolderMapping, type FolderSyncOptions } from "../src/features/syncFolder";
 import { silentReporter } from "../src/obsidian/gateway";
-import { TrelloClient } from "../src/trello/client";
+import { TrelloClient, type HttpRequest, type HttpResponse } from "../src/trello/client";
 import { FATE_OPTIONS, FakeVault, at, card, recordingReporter, routedTransport } from "./fakes";
 import type { CardFateRules } from "../src/core/cardFate";
 
@@ -33,6 +33,34 @@ function clientFor(cards: unknown[], boardCards: unknown[] = cards) {
 		"/lists/l1/cards": cards,
 		"/boards/board/cards": boardCards,
 	});
+	return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
+}
+
+function clientWithCreation(listCards: unknown[], boardCards: unknown[] = listCards, actions: unknown[] = [], newCardId = "c-new") {
+	const requests: HttpRequest[] = [];
+	const transport = async (req: HttpRequest): Promise<HttpResponse> => {
+		requests.push(req);
+		if (req.method === "POST" && req.url.includes("/cards")) {
+			return {
+				status: 200,
+				text: JSON.stringify({
+					id: newCardId,
+					idBoard: "board",
+					idList: "l1",
+					name: "Fresh Note",
+					desc: "Content",
+					url: `https://trello.com/c/${newCardId}`,
+					dateLastActivity: "2026-10-18T10:00:00.000Z",
+				}),
+			};
+		}
+		if (req.url.includes("/lists/l1/cards")) return { status: 200, text: JSON.stringify(listCards) };
+		if (req.url.includes("/boards/board/cards")) return { status: 200, text: JSON.stringify(boardCards) };
+		if (req.url.includes("/boards/board/actions")) return { status: 200, text: JSON.stringify(actions) };
+		if (req.url.includes("/boards/board/labels")) return { status: 200, text: JSON.stringify([]) };
+		if (req.method !== "GET") return { status: 200, text: "{}" };
+		return { status: 404, text: "no route" };
+	};
 	return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
 }
 
@@ -964,3 +992,185 @@ describe("syncFolder — a note the user deleted", () => {
 		expect(requests.filter((r) => r.method !== "GET")).toEqual([]);
 	});
 });
+
+describe("syncFolder — smart card creation for unlinked notes", () => {
+	test("creates a Trello card when allowCreateCards is enabled and no match exists on board or in history", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+		const { client, requests } = clientWithCreation([], []);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowCreateCards: true,
+		});
+
+		expect(stats.createdCards).toBe(1);
+		expect(stats.unlinked).toBe(0);
+		expect(vault.contentOf(`${FOLDER}/Fresh Note.md`)).toContain('trello_board_card_id: "board;c-new"');
+		const post = requests.find((r) => r.method === "POST" && r.url.includes("/cards"));
+		expect(post).toBeDefined();
+		expect(post?.body).toContain("name=Fresh+Note");
+		expect(post?.body).toContain("idList=l1");
+	});
+
+	test("does not create a card when allowCreateCards is false", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+		const { client, requests } = clientWithCreation([], []);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowCreateCards: false,
+		});
+
+		expect(stats.createdCards).toBe(0);
+		expect(stats.unlinked).toBe(1);
+		expect(vault.contentOf(`${FOLDER}/Fresh Note.md`)).toBe("Unlinked content");
+		const post = requests.find((r) => r.method === "POST" && r.url.includes("/cards"));
+		expect(post).toBeUndefined();
+	});
+
+	test("does not create a card when a card of the same name exists on the board (active)", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+		const boardCard = card({ id: "c-other", name: "Fresh Note", idList: "l-other" });
+		const { client, requests } = clientWithCreation([], [boardCard]);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowCreateCards: true,
+		});
+
+		expect(stats.createdCards).toBe(0);
+		expect(stats.unlinked).toBe(1);
+		const post = requests.find((r) => r.method === "POST" && r.url.includes("/cards"));
+		expect(post).toBeUndefined();
+	});
+
+	test("does not create a card when a card of the same name exists on the board (archived / closed)", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+		const archivedCard = card({ id: "c-archived", name: "Fresh Note", closed: true });
+		const { client, requests } = clientWithCreation([], [archivedCard]);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowCreateCards: true,
+		});
+
+		expect(stats.createdCards).toBe(0);
+		expect(stats.unlinked).toBe(1);
+		const post = requests.find((r) => r.method === "POST" && r.url.includes("/cards"));
+		expect(post).toBeUndefined();
+	});
+
+	test("does not create a card when a card of the same name is in board action history", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+		const actions = [
+			{
+				id: "a1",
+				type: "deleteCard",
+				date: "2026-10-18T10:00:00Z",
+				data: { card: { name: "Fresh Note" } },
+			},
+		];
+		const { client, requests } = clientWithCreation([], [], actions);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowCreateCards: true,
+		});
+
+		expect(stats.createdCards).toBe(0);
+		expect(stats.unlinked).toBe(1);
+		const post = requests.find((r) => r.method === "POST" && r.url.includes("/cards"));
+		expect(post).toBeUndefined();
+	});
+
+	test("does not create a card when a card of the same name is in historyCardNames", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+		const { client, requests } = clientWithCreation([], []);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowCreateCards: true,
+			historyCardNames: new Set(["Fresh Note"]),
+		});
+
+		expect(stats.createdCards).toBe(0);
+		expect(stats.unlinked).toBe(1);
+		const post = requests.find((r) => r.method === "POST" && r.url.includes("/cards"));
+		expect(post).toBeUndefined();
+	});
+
+	test("respects allowCreateCardOverride on mapping (on overrides global false, off overrides global true)", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+
+		// 1. Override ON with global false
+		const { client: client1 } = clientWithCreation([], []);
+		const stats1 = await syncFolder(vault, client1, { ...MAPPING, allowCreateCardOverride: "on" }, {
+			...options,
+			allowCreateCards: false,
+		});
+		expect(stats1.createdCards).toBe(1);
+
+		// 2. Override OFF with global true
+		const vault2 = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+		const { client: client2 } = clientWithCreation([], []);
+		const stats2 = await syncFolder(vault2, client2, { ...MAPPING, allowCreateCardOverride: "off" }, {
+			...options,
+			allowCreateCards: true,
+		});
+		expect(stats2.createdCards).toBe(0);
+		expect(stats2.unlinked).toBe(1);
+	});
+
+	test("dry-run simulates card creation without writing to Trello or vault", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+		const { client, requests } = clientWithCreation([], []);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowCreateCards: true,
+			dryRun: true,
+		});
+
+		expect(stats.createdCards).toBe(1);
+		expect(vault.contentOf(`${FOLDER}/Fresh Note.md`)).toBe("Unlinked content");
+		const post = requests.find((r) => r.method === "POST");
+		expect(post).toBeUndefined();
+	});
+
+	test("force pull never creates cards on Trello", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" },
+		});
+		const { client, requests } = clientWithCreation([], []);
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...options,
+			allowCreateCards: true,
+			force: "pull",
+		});
+
+		expect(stats.createdCards).toBe(0);
+		expect(stats.unlinked).toBe(1);
+		const post = requests.find((r) => r.method === "POST");
+		expect(post).toBeUndefined();
+	});
+});
+

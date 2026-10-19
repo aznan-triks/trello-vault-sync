@@ -46,6 +46,7 @@ describe("normalizeSettings", () => {
 			folder: "",
 			templateName: "",
 			allowCreateOverride: "inherit",
+			allowCreateCardOverride: "inherit",
 			allowDeleteOverride: "inherit",
 		});
 	});
@@ -55,7 +56,14 @@ describe("normalizeSettings", () => {
 			mappings: [{ listId: "l1", folder: "F", templateName: "", allowCreateOverride: "maybe" } as never],
 		});
 		expect(settings.mappings[0]?.allowCreateOverride).toBe("inherit");
+		expect(settings.mappings[0]?.allowCreateCardOverride).toBe("inherit");
 		expect(settings.mappings[0]?.allowDeleteOverride).toBe("inherit");
+	});
+
+	test("defaults allowCreateCards to false and normalizes boolean", () => {
+		expect(normalizeSettings({}).allowCreateCards).toBe(false);
+		expect(normalizeSettings({ allowCreateCards: true }).allowCreateCards).toBe(true);
+		expect(normalizeSettings({ allowCreateCards: "true" as never }).allowCreateCards).toBe(false);
 	});
 
 	test("strips a leading slash from scope/reportPath so a folder match is never silently empty", () => {
