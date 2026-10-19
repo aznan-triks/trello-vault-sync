@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Plain words:** Mapped folder synchronization can now automatically create missing Trello cards for local unlinked notes when enabled, with smart deduplication that checks active cards, archived cards, and board action history before creating anything.
+  **Technical:**
+  - Added pure module `src/core/cardHistoryMatch.ts` implementing `isSameCardName`, `hasMatchingCardInBoardOrHistory`, and `extractCardNamesFromActions` to safely compare sanitized note and card titles across casing and spacing.
+  - Added setting `allowCreateCards: boolean` (defaults to `false`) in `src/settings/types.ts` and per-folder mapping override `allowCreateCardOverride` (`inherit | on | off`).
+  - Added UI controls in `src/settings/SettingsTab.ts`: global toggle under Folder Sync and per-folder dropdown in the mappings table.
+  - Updated `src/features/syncFolder.ts` to inspect board cards (open + archived) and Trello board actions via `getActions` when card creation is enabled, creating the missing card with `createCardFromNote`, linking the note, recording sync history, and reporting `createdCards` in stats.
+  - Updated `src/commands/syncCommands.ts` and `src/ui/ProgressPanel.ts` to surface card creation progress and register rollback on write.
+  - Tests: unit test suite `tests/cardHistoryMatch.test.ts`, settings tests in `tests/settings.test.ts`, and 9 folder sync integration tests in `tests/syncFolder.test.ts`. All 1508 tests passing.
+
 ## [1.24.3] — 2026-10-19
 
 ### Fixed

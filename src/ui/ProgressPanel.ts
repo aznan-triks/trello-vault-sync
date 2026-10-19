@@ -42,6 +42,7 @@ export function renderLogRow(
 /** Human labels for the counters the sync engines emit. */
 const COUNT_LABELS: Record<string, string> = {
 	created: "created",
+	createdCards: "cards created",
 	adopted: "adopted",
 	pulled: "pulled",
 	pushed: "pushed",

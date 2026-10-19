@@ -90,6 +90,8 @@ export interface TrelloVaultSyncSettings {
 	dryRun: boolean;
 
 	allowCreate: boolean;
+	/** Creates a card on Trello for an unlinked note in a mapped folder when no matching card is on the board or in history. Off by default. */
+	allowCreateCards: boolean;
 	/** What a sync does with a note whose card was moved to another list or board. */
 	onCardMoved: OnCardMoved;
 	/** What a sync does with a note whose card was archived. Default: remove the Trello properties. */
@@ -319,6 +321,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	syncLabels: true,
 	dryRun: false,
 	allowCreate: true,
+	allowCreateCards: false,
 	onCardMoved: DEFAULT_CARD_FATE_RULES.onCardMoved,
 	onCardArchived: DEFAULT_CARD_FATE_RULES.onCardArchived,
 	onCardDeleted: DEFAULT_CARD_FATE_RULES.onCardDeleted,
@@ -557,6 +560,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		...input,
 		...normalizeCardFateRules(input),
 		archiveFolder: normalizeVaultPath(safeString(input.archiveFolder, DEFAULT_SETTINGS.archiveFolder)),
+		allowCreateCards: input.allowCreateCards === true,
 		archiveFolderCreateMissing: input.archiveFolderCreateMissing === true,
 		archiveFolderRestoreOnUnarchive: input.archiveFolderRestoreOnUnarchive !== false,
 		confirmUnlink: input.confirmUnlink !== false,
@@ -687,6 +691,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 			folder: normalizeVaultPath(safeString(mapping?.folder)),
 			templateName: safeString(mapping?.templateName),
 			allowCreateOverride: safeOverrideMode(mapping?.allowCreateOverride),
+			allowCreateCardOverride: safeOverrideMode(mapping?.allowCreateCardOverride),
 			// Only "never trash here" survives: the old "always delete" has no meaning once the global choice has three outcomes.
 			allowDeleteOverride: safeOverrideMode(mapping?.allowDeleteOverride) === "off" ? ("off" as const) : ("inherit" as const),
 		})),

@@ -16,8 +16,12 @@ import {
 	type TemplateResolver,
 	type VaultGateway,
 } from "../obsidian/gateway";
-import type { TrelloCard, TrelloClient } from "../trello/client";
+import type { TrelloAction } from "../core/auditAction";
+import { extractCardNamesFromActions, hasMatchingCardInBoardOrHistory } from "../core/cardHistoryMatch";
+import type { TrelloCardCreateAction } from "../core/syncHistory";
+import type { TrelloCard, TrelloClient, TrelloLabel } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
+import { createCardFromNote } from "./createCardFromNote";
 import { createNoteFromCard } from "./createNoteFromCard";
 import { handleGoneNotes, isUnderAny, moveNoteToFolder } from "./noteFate";
 import {
@@ -36,6 +40,8 @@ export interface FolderMapping {
 	templateName: string;
 	/** Overrides `allowCreate` for this mapping only; `undefined`/missing behaves as "inherit". */
 	allowCreateOverride?: MappingOverride;
+	/** Overrides `allowCreateCards` for this mapping only; `undefined`/missing behaves as "inherit". */
+	allowCreateCardOverride?: MappingOverride;
 	/** `"off"` = never trash a note of this folder, whatever the global choice; `undefined`/missing/"inherit" follows it. */
 	allowDeleteOverride?: MappingOverride;
 }
@@ -60,6 +66,14 @@ export interface FolderSyncOptions extends NoteSyncOptions {
 	cardRefFrontmatterKey?: string;
 	/** Fallback template note used when the mapping doesn't specify one. */
 	defaultTemplateName?: string;
+	/** Whether unlinked notes with no match on the board or in history should create cards on Trello. Default false. */
+	allowCreateCards?: boolean;
+	/** Card names from history (ignored cards, sync history) to check against. */
+	historyCardNames?: ReadonlySet<string>;
+	/** Pre-fetched board actions to avoid extra network requests. */
+	boardActions?: TrelloAction[];
+	/** Called once, after a card is created on Trello and the note is linked. */
+	onCardCreate?: (action: TrelloCardCreateAction) => void;
 }
 
 /** The memory a pass needs to tell "the user deleted this note" from "a new card" - persisted by the caller, never by the engine. */
@@ -74,6 +88,7 @@ export interface DeletedNotesContext {
 
 export interface FolderSyncStats {
 	created: number;
+	createdCards: number;
 	adopted: number;
 	pulled: number;
 	pushed: number;
@@ -101,6 +116,7 @@ export interface FolderSyncStats {
 /** A stats object with every counter at zero — also the shape callers accumulate into. */
 const emptyStats = (): FolderSyncStats => ({
 	created: 0,
+	createdCards: 0,
 	adopted: 0,
 	pulled: 0,
 	pushed: 0,
@@ -146,6 +162,9 @@ export async function syncFolder(
 	const stats = emptyStats();
 	const cardRefKey = options.cardRefFrontmatterKey ?? DEFAULT_CARD_REF_KEY;
 	const allowCreate = resolveOverride(mapping.allowCreateOverride, options.allowCreate);
+	const allowCreateCards =
+		options.force !== "pull" &&
+		resolveOverride(mapping.allowCreateCardOverride, options.allowCreateCards ?? false);
 	const trashAllowed = mapping.allowDeleteOverride !== "off";
 	const cards = await client.getListCards(mapping.listId, signal, cardIncludesFor(options));
 	reporter.log("info", `${cards.length} card(s) in the list`);
@@ -182,7 +201,12 @@ export async function syncFolder(
 	}
 	stats.unlinked = plan.unlinkedNotes.length;
 
-	reporter.setTotal(plan.pairs.length + (allowCreate ? plan.missingCards.length : 0) + plan.phantomNotes.length);
+	reporter.setTotal(
+		plan.pairs.length +
+		(allowCreate ? plan.missingCards.length : 0) +
+		(allowCreateCards ? plan.unlinkedNotes.length : 0) +
+		plan.phantomNotes.length,
+	);
 
 	const templateName = mapping.templateName || options.defaultTemplateName || "";
 	const template = templateName ? await vault.readTemplate(templateName) : null;
@@ -312,13 +336,109 @@ export async function syncFolder(
 		}
 	}
 
+	const createdCardIds = new Set<string>();
+	if (allowCreateCards && plan.unlinkedNotes.length > 0 && !signal?.aborted) {
+		let allBoardCards = boardCards;
+		if (!allBoardCards) {
+			try {
+				allBoardCards = await client.getBoardCards(options.boardId, "all", signal);
+			} catch {
+				allBoardCards = [];
+			}
+		}
+
+		let actions = options.boardActions;
+		if (!actions) {
+			try {
+				actions = await client.getActions(options.boardId, {}, signal);
+			} catch {
+				actions = [];
+			}
+		}
+
+		const knownNames = new Set<string>();
+		for (const c of allBoardCards) {
+			if (c.name) knownNames.add(c.name);
+		}
+		for (const c of cards) {
+			if (c.name) knownNames.add(c.name);
+		}
+		for (const name of extractCardNamesFromActions(actions)) {
+			knownNames.add(name);
+		}
+		if (options.historyCardNames) {
+			for (const name of options.historyCardNames) {
+				knownNames.add(name);
+			}
+		}
+
+		const unlinkedCandidates = plan.unlinkedNotes.filter(
+			(unlinked) => !hasMatchingCardInBoardOrHistory(unlinked.basename, knownNames, options.maxNameLength),
+		);
+
+		let boardLabels: TrelloLabel[] | null = null;
+		if (unlinkedCandidates.length > 0 && options.syncLabels !== false) {
+			try {
+				boardLabels = await client.getBoardLabels(options.boardId, signal);
+			} catch {
+				boardLabels = [];
+			}
+		}
+
+		for (const unlinked of unlinkedCandidates) {
+			if (signal?.aborted) break;
+			const note = byPath.get(unlinked.path);
+			if (!note) continue;
+
+			reporter.step(unlinked.basename);
+			try {
+				stats.createdCards++;
+				stats.unlinked--;
+				reporter.log(
+					"create",
+					options.dryRun
+						? `[Dry-run] Would create Trello card "${unlinked.basename}" in list`
+						: `Created Trello card "${unlinked.basename}" in list and linked note`,
+				);
+				const result = await createCardFromNote(
+					vault,
+					client,
+					note,
+					mapping.listId,
+					boardLabels ?? [],
+					{
+						syncDue: options.syncDue,
+						syncLabels: options.syncLabels,
+						syncChecklists: options.syncChecklists,
+						checklistHeading: options.checklistHeading,
+						dueFrontmatterKey: options.dueFrontmatterKey,
+						labelsFrontmatterKey: options.labelsFrontmatterKey,
+						cardRefFrontmatterKey: cardRefKey,
+						dryRun: options.dryRun,
+						onCardCreate: options.onCardCreate,
+					},
+					signal,
+				);
+				knownNames.add(unlinked.basename);
+				if (!options.dryRun) {
+					createdCardIds.add(result.card.id);
+				}
+			} catch (error) {
+				stats.createdCards--;
+				stats.unlinked++;
+				stats.errors++;
+				reporter.log("error", `${unlinked.basename} — ${errorMessage(error)}`);
+			}
+		}
+	}
+
 	stats.phantoms = plan.phantomNotes.length;
 
 	if (deletedNotes && !options.dryRun && !signal?.aborted && stats.errors === 0) {
-		const have = new Set([...linkedAnywhere, ...createdIds, ...plan.pairs.map((pair) => pair.card.id)]);
+		const have = new Set([...linkedAnywhere, ...createdIds, ...createdCardIds, ...plan.pairs.map((pair) => pair.card.id)]);
 		deletedNotes.record({
 			listId: mapping.listId,
-			knownLinks: nextKnownLinks(cards.map((c) => c.id), have),
+			knownLinks: nextKnownLinks([...cards.map((c) => c.id), ...createdCardIds], have),
 			newlyIgnored,
 			unignored: cards.filter((c) => deletedNotes.ignoredIds.has(c.id) && have.has(c.id)).map((c) => c.id),
 		});
@@ -452,12 +572,19 @@ export async function syncAllMappings(
 	signal?: AbortSignal,
 ): Promise<FolderSyncStats> {
 	const total = emptyStats();
-	// One board-wide fetch (archived cards included) only when archived cards are to get a note of their own.
+	// One board-wide fetch (archived cards included) when archived cards are to get a note of their own or when mappings create cards.
+	const anyMappingCreatesCards =
+		options.force !== "pull" &&
+		mappings.some((m) => resolveOverride(m.allowCreateCardOverride, options.allowCreateCards ?? false));
 	const wantsArchivedNotes =
 		options.archiveCreateMissing === true &&
 		options.cardFate.onCardArchived === "archive-folder" &&
 		options.cardFate.archiveFolder !== "";
-	const boardCards = wantsArchivedNotes ? await client.getBoardCards(options.boardId, "all", signal) : undefined;
+	const wantsAllCards = wantsArchivedNotes || anyMappingCreatesCards;
+	const boardCards = wantsAllCards ? await client.getBoardCards(options.boardId, "all", signal) : undefined;
+	const boardActions = anyMappingCreatesCards
+		? await client.getActions(options.boardId, {}, signal).catch(() => [])
+		: undefined;
 	const allNotes = vault.listNotes("");
 	const cardIndex = options.syncAttachments === false ? undefined : buildCardIndex(vault, allNotes);
 	const memberDirectory =
@@ -477,7 +604,7 @@ export async function syncAllMappings(
 				vault,
 				client,
 				mapping,
-				options,
+				{ ...options, boardActions: options.boardActions ?? boardActions },
 				reporter,
 				boardCards,
 				signal,

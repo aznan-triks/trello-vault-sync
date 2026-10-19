@@ -62,14 +62,15 @@ async function runMapping(ctx: CommandContext, mapping: FolderMapping, direction
 				vault,
 				ctx.client(reporter),
 				mapping,
-				{ ...ctx.folderOptions(direction), onTrelloWrite },
+				{ ...ctx.folderOptions(direction), onTrelloWrite, onCardCreate: onTrelloWrite },
 				reporter,
 				undefined,
 				signal,
 			);
 			reportStats(reporter, stats);
 			ctx.setLastRunConflicts?.(stats.conflicts);
-			return `+ ${stats.created} · 🔗 ${stats.adopted} · ↓ ${stats.pulled} · ↑ ${stats.pushed} · 🗑 ${stats.deleted} · ✕ ${stats.errors}`;
+			const cardsCreated = stats.createdCards > 0 ? ` · ✨ ${stats.createdCards}` : "";
+			return `+ ${stats.created}${cardsCreated} · 🔗 ${stats.adopted} · ↓ ${stats.pulled} · ↑ ${stats.pushed} · 🗑 ${stats.deleted} · ✕ ${stats.errors}`;
 		});
 	});
 }
@@ -87,13 +88,14 @@ export async function syncAllMappings(ctx: CommandContext): Promise<void> {
 				vault,
 				ctx.client(reporter),
 				ctx.settings.mappings,
-				{ ...ctx.folderOptions(), onTrelloWrite },
+				{ ...ctx.folderOptions(), onTrelloWrite, onCardCreate: onTrelloWrite },
 				reporter,
 				signal,
 			);
 			reportStats(reporter, total);
 			ctx.setLastRunConflicts?.(total.conflicts);
-			return `${ctx.settings.mappings.length} folder(s) · + ${total.created} · ↓ ${total.pulled} · ↑ ${total.pushed} · ✕ ${total.errors}`;
+			const cardsCreated = total.createdCards > 0 ? ` · ✨ ${total.createdCards}` : "";
+			return `${ctx.settings.mappings.length} folder(s) · + ${total.created}${cardsCreated} · ↓ ${total.pulled} · ↑ ${total.pushed} · ✕ ${total.errors}`;
 		});
 	}, { countsAsSync: true });
 }
