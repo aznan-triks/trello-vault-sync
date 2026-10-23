@@ -25,7 +25,7 @@ import { DEFAULT_DUE_KEY, formatDueRef, parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import type { OperationGuard } from "../core/operationGuard";
 import { sanitizeFileName, uniqueNotePath } from "../core/fileName";
-import { DEFAULT_LABELS_KEY, formatLabelsRef, normalizeLabelName, parseLabelsRef } from "../core/labelRef";
+import { DEFAULT_LABELS_KEY, formatLabelsRef, normalizeLabelName, parseLabelsRef, sameLabelSet } from "../core/labelRef";
 import { DEFAULT_LABELS_SYNC_MODE, resolveLabelSync, type LabelSyncMode } from "../core/labelMerge";
 import {
 	DEFAULT_CUSTOM_FIELDS_KEY,
@@ -42,7 +42,7 @@ import {
 	parseMembersRef,
 	resolveMemberNames,
 } from "../core/memberRef";
-import { extractBody, insertChecklistSection, replaceBody, splitChecklistSection } from "../core/noteBody";
+import { extractBody, insertChecklistSection, rawBody, replaceBody, splitChecklistSection } from "../core/noteBody";
 import type { CardFateRules } from "../core/cardFate";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
 import type { TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/syncHistory";
@@ -268,15 +268,21 @@ export function decideForCard(
 	});
 }
 
-/** Resolve label names to board ids, logging (not throwing) on a name with no match. */
-function resolveLabelIds(names: string[], boardLabels: TrelloLabel[]): string[] {
+/**
+ * Resolve label names to board ids, logging (not throwing) on a name with no match. The ids go out as the
+ * card's FULL label set, so what the card already carries (`held`) must survive: a label it holds keeps its id
+ * when two board labels share a name, and a nameless (color-only) one, which no list of names can mention, is kept.
+ */
+function resolveLabelIds(names: string[], boardLabels: TrelloLabel[], held: TrelloLabel[] = []): string[] {
 	const ids: string[] = [];
 	for (const name of names) {
-		const match = boardLabels.find((label) => normalizeLabelName(label.name) === normalizeLabelName(name));
+		const sameName = (label: TrelloLabel) => normalizeLabelName(label.name) === normalizeLabelName(name);
+		const match = held.find(sameName) ?? boardLabels.find(sameName);
 		if (match) ids.push(match.id);
 		else console.warn(`[trello-vault-sync] Label "${name}" has no match on the Trello board — left unassigned.`);
 	}
-	return ids;
+	for (const label of held) if (label.name.trim() === "") ids.push(label.id);
+	return [...new Set(ids)];
 }
 
 /** Write a resolved label list into a note's frontmatter, deleting the key when empty. */
@@ -344,7 +350,19 @@ async function resolveLabelIdsForCard(
 	signal?: AbortSignal,
 ): Promise<string[]> {
 	const boardLabels = await client.getBoardLabels(card.idBoard, signal);
-	return resolveLabelIds(labels, boardLabels);
+	return resolveLabelIds(labels, boardLabels, card.labels);
+}
+
+/** The ids to write for these names, or `null` when the card already carries exactly that set: no write, no new activity on the card. */
+async function labelIdsToWrite(
+	client: TrelloClient,
+	card: TrelloCard,
+	labels: string[],
+	signal?: AbortSignal,
+): Promise<string[] | null> {
+	const ids = await resolveLabelIdsForCard(client, card, labels, signal);
+	// Ids are lowercase hex, so the name comparison is exact for them too.
+	return sameLabelSet(ids, (card.labels ?? []).map((label) => label.id)) ? null : ids;
 }
 
 /**
@@ -367,7 +385,7 @@ async function convergeLabelsOnMerge(
 	const { nextLocal, nextRemote } = resolveLabelSync(localLabels, remoteLabels, "merge", "pull");
 	const wroteLocal = nextLocal !== null && !signal?.aborted;
 	if (wroteLocal) await writeLocalLabels(vault, note, nextLocal, labelsKey);
-	const ids = nextRemote !== null && !signal?.aborted ? await resolveLabelIdsForCard(client, card, nextRemote, signal) : null;
+	const ids = nextRemote !== null && !signal?.aborted ? await labelIdsToWrite(client, card, nextRemote, signal) : null;
 	return { wroteLocal, ids };
 }
 
@@ -523,8 +541,8 @@ async function convergeChecklists(
 	let pushCheckItems = async (): Promise<void> => {};
 	try {
 		if (signal?.aborted) return { stale: false, pushCheckItems };
-		const fullBody = extractBody(content);
-		const { rest: description, checklistBlock } = splitChecklistSection(fullBody, heading);
+		const fullBody = rawBody(content);
+		const { rest, checklistBlock, after } = splitChecklistSection(fullBody, heading);
 
 		const { markdown, pushes } = resolveChecklists(remoteChecklists, checklistBlock, heading, winner);
 		const remoteStateById = new Map(
@@ -553,7 +571,7 @@ async function convergeChecklists(
 
 		if (signal?.aborted) return { stale: false, pushCheckItems };
 		if (markdown === checklistBlock) return { stale: false, pushCheckItems };
-		const nextContent = replaceBody(content, insertChecklistSection(description, markdown));
+		const nextContent = replaceBody(content, insertChecklistSection(rest, markdown, after));
 		if (nextContent === content) return { stale: false, pushCheckItems };
 		await vault.write(note, nextContent);
 		return { stale: true, pushCheckItems };
@@ -857,7 +875,7 @@ async function syncNoteWithCardUnguarded(
 	const remoteChecklists = syncChecklists ? await loadChecklists(client, card, options.dryRun, signal) : null;
 	const checklistsChanged =
 		remoteChecklists !== null &&
-		checklistsDiffer(remoteChecklists, splitChecklistSection(extractBody(content), checklistHeading).checklistBlock, checklistHeading);
+		checklistsDiffer(remoteChecklists, splitChecklistSection(rawBody(content), checklistHeading).checklistBlock, checklistHeading);
 
 	const decision = decideForCard(note, card, localBody, options, localDue, localLabels, checklistsChanged);
 	// `decision.direction === "skip"` only ever means "identical" (see
@@ -906,7 +924,7 @@ async function syncNoteWithCardUnguarded(
 			nextLabelIds = merged.ids;
 		} else if (direction === "push") {
 			const { nextRemote } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "push");
-			if (nextRemote !== null) nextLabelIds = await resolveLabelIdsForCard(client, card, nextRemote, signal);
+			if (nextRemote !== null) nextLabelIds = await labelIdsToWrite(client, card, nextRemote, signal);
 		}
 	}
 
@@ -1081,7 +1099,7 @@ async function syncNoteWithCardUnguarded(
 
 	if (direction === "pull") {
 		let current = note;
-		if (syncDescription) {
+		if (syncDescription && decision.bodyChanged) {
 			// Same reasoning as `localBody` above: preserve a leftover checklist
 			// section on pull regardless of `syncChecklists`, so turning the toggle
 			// off never destroys it.
@@ -1119,7 +1137,7 @@ async function syncNoteWithCardUnguarded(
 	}
 
 	const fields: CardFieldUpdate = {};
-	if (syncDescription) fields.desc = localBody;
+	if (syncDescription && decision.bodyChanged) fields.desc = localBody;
 	if (options.syncTitle && decision.titleChanged) fields.name = note.basename;
 	if (syncDue && decision.dueChanged) fields.due = localDue;
 	if (nextLabelIds) fields.idLabels = nextLabelIds;
