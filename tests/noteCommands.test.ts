@@ -134,6 +134,17 @@ describe("unlinkActive", () => {
 		expect(settings.cardView.perCard).toEqual({ other: { cover: true } });
 	});
 
+	test("the pair's sync base is dropped with the link, but not in a dry run", async () => {
+		const bases = new Map([["c1", { at: 1 }], ["other", { at: 2 }]]);
+		const syncBase = { get: (id: string) => bases.get(id), set: () => {}, drop: (id: string) => void bases.delete(id) };
+		const withBase = (dryRun: boolean) =>
+			fakeContext({ noteOptions: () => ({ policy: "newer-wins", marginMs: 0, syncTitle: true, dryRun, trelloPropertyKeys: keys, syncBase }), settings: { ...DEFAULT_SETTINGS, boardId: "board", confirmUnlink: false, dryRun } });
+		await unlinkActive(withBase(true));
+		expect([...bases.keys()]).toEqual(["c1", "other"]);
+		await unlinkActive(withBase(false));
+		expect([...bases.keys()]).toEqual(["other"]);
+	});
+
 	test("a note that is not linked is left alone", async () => {
 		const ctx = fakeContext({ vault: new FakeVault({ [PATH]: { content: "no link" } }) });
 		await unlinkActive({ ...ctx, settings: { ...ctx.settings, confirmUnlink: false } });

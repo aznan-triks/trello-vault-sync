@@ -20,6 +20,13 @@ export interface UndoStats {
 	skipped: number;
 }
 
+/** What an undo returns: its counts, what is left of the run, and the actions it actually reverted (their cards no longer match any recorded sync base). */
+export interface UndoResult {
+	stats: UndoStats;
+	remainingRun: SyncRun;
+	reverted: SyncAction[];
+}
+
 async function currentStateAt(vault: VaultGateway, path: string): Promise<{ exists: boolean; content: string | null }> {
 	const note = vault.noteAt(path);
 	if (!note) return { exists: false, content: null };
@@ -251,8 +258,9 @@ export async function undoSelectedActions(
 	signal?: AbortSignal,
 	client?: TrelloClient,
 	trelloRevertDisabled = false,
-): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
+): Promise<UndoResult> {
 	const stats: UndoStats = { reverted: 0, revertedRemote: 0, skipped: 0 };
+	const reverted: SyncAction[] = [];
 	const cache = createTrelloCache();
 	const kept = new Map<number, SyncAction>();
 	let stop = false;
@@ -271,10 +279,11 @@ export async function undoSelectedActions(
 		}
 		const outcome = await applyUndo(vault, action, log, client, cache, signal, trelloRevertDisabled);
 		tally(stats, outcome);
+		if (outcome !== "skipped") reverted.push(action);
 	}
 
 	const remainingActions = run.actions.filter((_, index) => kept.has(index));
-	return { stats, remainingRun: { ...run, actions: remainingActions } };
+	return { stats, remainingRun: { ...run, actions: remainingActions }, reverted };
 }
 
 /**
@@ -289,7 +298,7 @@ export function undoRun(
 	signal?: AbortSignal,
 	client?: TrelloClient,
 	trelloRevertDisabled = false,
-): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
+): Promise<UndoResult> {
 	return undoSelectedActions(vault, run, () => true, log, signal, client, trelloRevertDisabled);
 }
 
@@ -305,6 +314,6 @@ export function undoRunForNote(
 	signal?: AbortSignal,
 	client?: TrelloClient,
 	trelloRevertDisabled = false,
-): Promise<{ stats: UndoStats; remainingRun: SyncRun }> {
+): Promise<UndoResult> {
 	return undoSelectedActions(vault, run, (action) => action.path === notePath, log, signal, client, trelloRevertDisabled);
 }

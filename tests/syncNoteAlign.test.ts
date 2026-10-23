@@ -213,6 +213,18 @@ describe("syncNoteWithCard: in-stream settings alignment (cleanUpDuringSync)", (
 		expect(fm?.[DEFAULT_DUE_KEY]).toBe("2026-11-20");
 	});
 
+	test("a key migration blocked by the note's own value is reported as a warning, both keys kept", async () => {
+		const { vault, client } = setupNote({ legacy_due_date: "2026-11-20", [DEFAULT_DUE_KEY]: "2027-01-01" }, "Same body");
+		const remote = card({ id: "c1", name: "Sagondo", desc: "Same body", dateLastActivity: "2026-01-01" });
+
+		const res = await syncNoteWithCard(vault, client, vault.note(PATH), remote, createSyncOptions({
+			keyMigrations: { legacy_due_date: DEFAULT_DUE_KEY },
+		}));
+
+		expect(res.warnings).toEqual([`"legacy_due_date" not migrated: "${DEFAULT_DUE_KEY}" already holds a different value, both kept`]);
+		expect(vault.readFrontmatter(vault.note(PATH))?.legacy_due_date).toBe("2026-11-20");
+	});
+
 	test("cover pruning preserves local attachment paths and removes remote Trello URLs", async () => {
 		const remoteCoverUrl = "https://trello-attachments.s3.amazonaws.com/abc/cover.jpg";
 		const { vault: remoteVault, client: client1 } = setupNote(

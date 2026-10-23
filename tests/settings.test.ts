@@ -632,6 +632,13 @@ describe("normalizeSettings — formerly hard-coded values", () => {
 });
 
 describe("normalizeSettings — Milestone 5 settings alignment", () => {
+	test("useSyncBase defaults to true, a 1.25.1 settings object keeps loading, and an explicit false is kept", () => {
+		expect(DEFAULT_SETTINGS.useSyncBase).toBe(true);
+		expect(normalizeSettings({}).useSyncBase).toBe(true);
+		expect(normalizeSettings({ useSyncBase: false }).useSyncBase).toBe(false);
+		expect(normalizeSettings({ useSyncBase: "no" as unknown as boolean }).useSyncBase).toBe(true);
+	});
+
 	test("cleanUpDuringSync defaults to true and preserves explicit false", () => {
 		expect(normalizeSettings({}).cleanUpDuringSync).toBe(true);
 		expect(normalizeSettings({ cleanUpDuringSync: false }).cleanUpDuringSync).toBe(false);

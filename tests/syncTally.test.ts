@@ -89,3 +89,14 @@ describe("addCounts", () => {
 		expect(result).toBe(target);
 	});
 });
+
+describe("merge direction", () => {
+	test("counts as one pulled and one pushed note, logged as merged", () => {
+		const stats: NoteTallyStats = { pulled: 0, pushed: 0, skipped: 0, renamed: 0, conflicts: 0 };
+		const log = vi.fn();
+		tallyNoteResult(stats, { renamed: false, direction: "merge" }, log, "Sagondo");
+		expect(stats).toEqual({ pulled: 1, pushed: 1, skipped: 0, renamed: 0, conflicts: 0 });
+		expect(log).toHaveBeenCalledWith("pull", "Sagondo (merged)");
+		expect(describeSyncOutcome({ renamed: false, direction: "merge" })).toMatch(/^Merged/);
+	});
+});

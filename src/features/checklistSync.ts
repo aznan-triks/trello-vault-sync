@@ -29,12 +29,17 @@ export type ChecklistWinner = "local" | "remote";
  * stable id survives a round-trip through plain Markdown), so a checklist with
  * duplicate item names matches approximately rather than exactly. Names are
  * compared trimmed: the note's are, and Trello may keep a trailing space.
+ *
+ * `base` (checkItemId → checked, as of the last successful sync) settles an item it knows without asking
+ * `winner`: the side that moved away from the base wins, so a tick made on either side survives whatever else
+ * happened on the card. An item the base does not know, or no match in the note, follows `winner` as above.
  */
 export function resolveChecklists(
 	remote: TrelloChecklist[],
 	localBlock: string | null,
 	heading: string,
 	winner: ChecklistWinner = "local",
+	base?: Record<string, boolean>,
 ): ChecklistResolution {
 	const localGroups = parseChecklistMarkdown(localBlock);
 	const pushes: ChecklistPush[] = [];
@@ -47,22 +52,31 @@ export function resolveChecklists(
 		const items = remoteGroup.checkItems.map((remoteItem) => {
 			const name = remoteItem.name.trim();
 			const remoteComplete = remoteItem.state === "complete";
-			if (winner === "remote") return { name, complete: remoteComplete };
+			const known = base?.[remoteItem.id];
+			if (winner === "remote" && known === undefined) return { name, complete: remoteComplete };
 			const matchIndex = localItemsRemaining.findIndex((item) => item.name === name);
 			if (matchIndex === -1) return { name, complete: remoteComplete };
 
 			const [localItem] = localItemsRemaining.splice(matchIndex, 1);
 			const localComplete = localItem?.complete ?? remoteComplete;
-			if (localComplete !== remoteComplete) {
-				pushes.push({ checkItemId: remoteItem.id, state: localComplete ? "complete" : "incomplete" });
+			// With a base only one side can have moved (a box has two states): that side wins.
+			const complete = known === undefined || localComplete === remoteComplete ? localComplete : localComplete !== known ? localComplete : remoteComplete;
+			if (complete !== remoteComplete) {
+				pushes.push({ checkItemId: remoteItem.id, state: complete ? "complete" : "incomplete" });
 			}
-			return { name, complete: localComplete };
+			return { name, complete };
 		});
 
 		return { name: groupName, items };
 	});
 
 	return { markdown: renderChecklistMarkdown(finalGroups, heading), pushes };
+}
+
+/** Checked state of every item once `pushes` have gone out — what both sides show after a sync that settled the checklists. */
+export function checklistStates(remote: TrelloChecklist[], pushes: ChecklistPush[] = []): Record<string, boolean> {
+	const pushed = new Map(pushes.map((push) => [push.checkItemId, push.state === "complete"]));
+	return Object.fromEntries(remote.flatMap((group) => group.checkItems.map((item) => [item.id, pushed.get(item.id) ?? item.state === "complete"])));
 }
 
 /** True when the note and the card do not show the same checklists, item names and checked states alike. */

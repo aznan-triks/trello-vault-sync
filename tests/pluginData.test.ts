@@ -39,8 +39,8 @@ describe("normalizePersistedData", () => {
 	});
 
 	test("handles a fresh install (undefined/null raw data)", () => {
-		expect(normalizePersistedData(undefined)).toEqual({ settingsRaw: undefined, journal: [], history: [], lastSyncAt: null, knownLinks: {}, ignoredCards: {} });
-		expect(normalizePersistedData(null)).toEqual({ settingsRaw: null, journal: [], history: [], lastSyncAt: null, knownLinks: {}, ignoredCards: {} });
+		expect(normalizePersistedData(undefined)).toEqual({ settingsRaw: undefined, journal: [], history: [], lastSyncAt: null, knownLinks: {}, ignoredCards: {}, syncBases: {} });
+		expect(normalizePersistedData(null)).toEqual({ settingsRaw: null, journal: [], history: [], lastSyncAt: null, knownLinks: {}, ignoredCards: {}, syncBases: {} });
 	});
 
 	test("extracts a well-formed sync history", () => {
@@ -96,5 +96,29 @@ describe("normalizePersistedData — deleted-note memory", () => {
 	test("defaults to empty", () => {
 		expect(normalizePersistedData({ settings: {} }).knownLinks).toEqual({});
 		expect(normalizePersistedData(null).ignoredCards).toEqual({});
+	});
+});
+
+describe("normalizePersistedData — sync bases", () => {
+	test("a 1.25.1 data.json (no syncBases) loads with the rest intact and no bases", () => {
+		const result = normalizePersistedData({ settings: { policy: "newer-wins" }, journal: [], history: [], lastSyncAt: 5, knownLinks: { l1: ["a"] }, ignoredCards: {} });
+		expect(result.syncBases).toEqual({});
+		expect(result.knownLinks).toEqual({ l1: ["a"] });
+		expect(result.lastSyncAt).toBe(5);
+	});
+
+	test("keeps well-formed bases", () => {
+		const base = { title: "Busy", body: "0a1b2c3d:4", due: 1_700_000_000_000, checkItems: { i1: true, i2: false }, at: 7 };
+		expect(normalizePersistedData({ settings: {}, syncBases: { c1: base, c2: { due: null, at: 1 } } }).syncBases).toEqual({ c1: base, c2: { due: null, at: 1 } });
+	});
+
+	test("an unreadable base is ignored, never an exception", () => {
+		const result = normalizePersistedData({
+			settings: {},
+			syncBases: { c1: "nope", c2: null, c3: { title: 4, body: ["x"], due: {}, checkItems: { i1: "yes", i2: true }, at: "now" }, c4: [] },
+		});
+		expect(result.syncBases).toEqual({ c3: { checkItems: { i2: true }, at: 0 } });
+		expect(normalizePersistedData({ settings: {}, syncBases: "nope" }).syncBases).toEqual({});
+		expect(normalizePersistedData({ settings: {}, syncBases: [1, 2] }).syncBases).toEqual({});
 	});
 });

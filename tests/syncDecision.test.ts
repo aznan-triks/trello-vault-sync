@@ -22,6 +22,7 @@ describe("decideSync", () => {
 			titleChanged: false,
 			dueChanged: false,
 			labelsChanged: false,
+			fields: { title: "none", body: "none", due: "none", labels: "none" },
 			reason: "identical",
 		});
 	});
@@ -39,6 +40,7 @@ describe("decideSync", () => {
 			titleChanged: false,
 			dueChanged: false,
 			labelsChanged: false,
+			fields: { title: "none", body: "pull", due: "none", labels: "none" },
 			reason: "remote-newer",
 		});
 	});
@@ -57,6 +59,7 @@ describe("decideSync", () => {
 			titleChanged: true,
 			dueChanged: false,
 			labelsChanged: false,
+			fields: { title: "push", body: "none", due: "none", labels: "none" },
 			reason: "local-newer",
 		});
 	});

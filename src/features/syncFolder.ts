@@ -453,6 +453,7 @@ export async function syncFolder(
 		stats,
 		signal,
 		known: boardCards ? new Map(boardCards.map((boardCard) => [boardCard.id, boardCard])) : undefined,
+		syncBase: options.syncBase,
 	});
 
 	return stats;

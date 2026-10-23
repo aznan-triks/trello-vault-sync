@@ -1,5 +1,6 @@
 import type { IgnoredCards } from "./deletedNotes";
 import type { JournalEntry } from "./journal";
+import { normalizeSyncBases, type SyncBase } from "./syncBase";
 import type { SyncAction, SyncRun } from "./syncHistory";
 
 export interface PersistedData {
@@ -13,6 +14,8 @@ export interface PersistedData {
 	knownLinks: Record<string, string[]>;
 	/** Cards that must never get a note again, by card id. */
 	ignoredCards: IgnoredCards;
+	/** Card id -> what the linked pair looked like after its last successful sync. */
+	syncBases: Record<string, SyncBase>;
 }
 
 function normalizeKnownLinks(raw: unknown): Record<string, string[]> {
@@ -90,15 +93,16 @@ function isSyncRun(value: unknown): value is SyncRun {
  */
 export function normalizePersistedData(raw: unknown): PersistedData {
 	const hasSettingsKey = typeof raw === "object" && raw !== null && "settings" in raw;
-	if (!hasSettingsKey) return { settingsRaw: raw, journal: [], history: [], lastSyncAt: null, knownLinks: {}, ignoredCards: {} };
+	if (!hasSettingsKey) return { settingsRaw: raw, journal: [], history: [], lastSyncAt: null, knownLinks: {}, ignoredCards: {}, syncBases: {} };
 
-	const { settings, journal: rawJournal, history: rawHistory, lastSyncAt: rawLastSyncAt, knownLinks: rawKnown, ignoredCards: rawIgnored } = raw as {
+	const { settings, journal: rawJournal, history: rawHistory, lastSyncAt: rawLastSyncAt, knownLinks: rawKnown, ignoredCards: rawIgnored, syncBases: rawBases } = raw as {
 		settings: unknown;
 		journal?: unknown;
 		history?: unknown;
 		lastSyncAt?: unknown;
 		knownLinks?: unknown;
 		ignoredCards?: unknown;
+		syncBases?: unknown;
 	};
 	const journal = Array.isArray(rawJournal) ? rawJournal.filter(isJournalEntry) : [];
 	const history = Array.isArray(rawHistory) ? rawHistory.filter(isSyncRun) : [];
@@ -110,5 +114,6 @@ export function normalizePersistedData(raw: unknown): PersistedData {
 		lastSyncAt,
 		knownLinks: normalizeKnownLinks(rawKnown),
 		ignoredCards: normalizeIgnoredCards(rawIgnored),
+		syncBases: normalizeSyncBases(rawBases),
 	};
 }

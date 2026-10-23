@@ -35,6 +35,35 @@ describe("data.json persistence", () => {
 	});
 });
 
+describe("sync bases", () => {
+	test("are written to data.json with the rest", async () => {
+		const { instance, saveData } = plugin();
+		instance.syncBases = { c1: { body: "0a1b2c3d:4", at: 1 } };
+		await instance.run("Sync", async () => "done");
+		expect(saveData).toHaveBeenCalledWith(expect.objectContaining({ syncBases: { c1: { body: "0a1b2c3d:4", at: 1 } } }));
+	});
+
+	test("the engines read and write them while the setting is on", () => {
+		const { instance } = plugin();
+		const store = instance.noteOptions().syncBase;
+		store?.set("c1", { at: 1 });
+		expect(store?.get("c1")).toEqual({ at: 1 });
+		expect(instance.syncBases.c1).toEqual({ at: 1 });
+		store?.drop("c1");
+		expect(instance.syncBases.c1).toBeUndefined();
+	});
+
+	test("with the setting off nothing is read, and a write drops the pair's base", () => {
+		const { instance } = plugin();
+		instance.syncBases = { c1: { at: 1 } };
+		instance.settings.useSyncBase = false;
+		const store = instance.noteOptions().syncBase;
+		expect(store?.get("c1")).toBeUndefined();
+		store?.set("c1", { at: 2 });
+		expect(instance.syncBases.c1).toBeUndefined();
+	});
+});
+
 describe("rebuildRibbon", () => {
 	test("creates ribbon icons for configured commands, applies custom colors, and removes previous icons on rebuild", () => {
 		const { instance } = plugin();

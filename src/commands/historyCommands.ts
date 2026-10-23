@@ -1,7 +1,7 @@
 import { Notice } from "obsidian";
 import { confirmIfEnabled } from "./confirmAction";
 import type { CommandContext } from "./context";
-import { lastRun, replaceRunAt, type SyncRun } from "../core/syncHistory";
+import { lastRun, replaceRunAt, type SyncAction, type SyncRun } from "../core/syncHistory";
 import { undoRun, undoRunForNote, undoSelectedActions, type UndoStats } from "../features/rollback";
 import { SyncActionPickerModal } from "../ui/SyncActionPickerModal";
 import { SyncRunPickerModal } from "../ui/SyncRunPickerModal";
@@ -24,6 +24,24 @@ function describeUndoStats(stats: UndoStats): string {
 function undoClientFor(ctx: CommandContext, reporter: Reporter): { client: TrelloClient | undefined; trelloRevertDisabled: boolean } {
 	if (!ctx.settings.historyRevertTrelloWrites) return { client: undefined, trelloRevertDisabled: true };
 	return { client: ctx.client(reporter), trelloRevertDisabled: false };
+}
+
+/**
+ * After an undo, what each side holds is no longer what the recorded sync base describes: drop the base of every
+ * card an undone action touched, so the next sync decides those pairs by the clocks again (the safe fallback).
+ */
+function forgetBases(ctx: CommandContext, reverted: readonly SyncAction[]): void {
+	const store = ctx.noteOptions().syncBase;
+	if (!store) return;
+	for (const action of reverted) {
+		if ("cardId" in action) {
+			store.drop(action.cardId);
+			continue;
+		}
+		const note = ctx.vault.noteAt(action.path) ?? (action.kind === "rename" ? ctx.vault.noteAt(action.previousPath) : null);
+		const cardId = note ? ctx.vault.getCardRef(note)?.cardId : undefined;
+		if (cardId) store.drop(cardId);
+	}
 }
 
 export async function showSyncHistory(ctx: CommandContext): Promise<void> {
@@ -60,7 +78,7 @@ export async function undoLastSyncRun(ctx: CommandContext): Promise<void> {
 	const doUndo = async () => {
 		await ctx.run(`Undo — ${last.scope || "vault"}`, async (reporter, signal) => {
 			const { client, trelloRevertDisabled } = undoClientFor(ctx, reporter);
-			const { stats, remainingRun } = await undoRun(
+			const { stats, remainingRun, reverted } = await undoRun(
 				ctx.vault,
 				last,
 				(level, message) => reporter.log(level, message),
@@ -68,6 +86,7 @@ export async function undoLastSyncRun(ctx: CommandContext): Promise<void> {
 				client,
 				trelloRevertDisabled,
 			);
+			forgetBases(ctx, reverted);
 			await ctx.setHistory(replaceRunAt(ctx.history, ctx.history.length - 1, remainingRun));
 			return describeUndoStats(stats);
 		});
@@ -100,7 +119,7 @@ export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<vo
 	const doUndo = async () => {
 		await ctx.run(`Undo — ${note.basename}`, async (reporter, signal) => {
 			const { client, trelloRevertDisabled } = undoClientFor(ctx, reporter);
-			const { stats, remainingRun } = await undoRunForNote(
+			const { stats, remainingRun, reverted } = await undoRunForNote(
 				ctx.vault,
 				last,
 				note.path,
@@ -109,6 +128,7 @@ export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<vo
 				client,
 				trelloRevertDisabled,
 			);
+			forgetBases(ctx, reverted);
 			await ctx.setHistory(replaceRunAt(ctx.history, ctx.history.length - 1, remainingRun));
 			return describeUndoStats(stats);
 		});
@@ -129,7 +149,7 @@ export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<vo
 async function undoPickedActions(ctx: CommandContext, run: SyncRun, selectedIndices: ReadonlySet<number>): Promise<void> {
 	await ctx.run(`Undo — ${run.scope || "vault"}`, async (reporter, signal) => {
 		const { client, trelloRevertDisabled } = undoClientFor(ctx, reporter);
-		const { stats, remainingRun } = await undoSelectedActions(
+		const { stats, remainingRun, reverted } = await undoSelectedActions(
 			ctx.vault,
 			run,
 			(_action, index) => selectedIndices.has(index),
@@ -138,6 +158,7 @@ async function undoPickedActions(ctx: CommandContext, run: SyncRun, selectedIndi
 			client,
 			trelloRevertDisabled,
 		);
+		forgetBases(ctx, reverted);
 		// The run object is the very one taken from `ctx.history` when the picker
 		// opened; `indexOf` finds it by identity. If history moved on in the
 		// meantime (another undo, a new sync) and it's no longer there, there is
