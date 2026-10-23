@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	ALIGN_CATEGORIES,
+	conflictingMigrations,
 	DEFAULT_MANUAL_ALIGN_CATEGORIES,
 	detectStaleChanges,
 	isTrelloUrl,
@@ -666,6 +667,28 @@ describe("detectStaleChanges - 12 Categories Unit Tests", () => {
 
 			const changes = detectStaleChanges({ frontmatter, hasCardRef: true, settings });
 			expect(changes.find((c) => c.category === "key-migration")).toBeUndefined();
+		});
+
+		test("Grok #5: a target key that already holds a different value is not overwritten, both keys are kept", () => {
+			const keyMigrations = { old_due: "trello_due", legacy_tags: "trello_labels" };
+			const frontmatter = { trello_board_card_id: "b1;c1", old_due: "2026-10-31", trello_due: "2026-12-25", legacy_tags: ["v1"] };
+
+			const changes = detectStaleChanges({ frontmatter, hasCardRef: true, settings: createSettings({ keyMigrations }) });
+
+			expect(changes).toEqual([
+				{ category: "key-migration", action: "migrate", keys: ["legacy_tags"], migrations: { legacy_tags: "trello_labels" } },
+			]);
+			expect(conflictingMigrations(frontmatter, keyMigrations)).toEqual(["old_due"]);
+		});
+
+		test("Grok #5: a target key holding the same value is migrated, which only removes the duplicate", () => {
+			const keyMigrations = { old_tags: "trello_labels" };
+			const frontmatter = { trello_board_card_id: "b1;c1", old_tags: ["a", "b"], trello_labels: ["a", "b"] };
+
+			const changes = detectStaleChanges({ frontmatter, hasCardRef: true, settings: createSettings({ keyMigrations }) });
+
+			expect(changes).toEqual([{ category: "key-migration", action: "migrate", keys: ["old_tags"], migrations: { old_tags: "trello_labels" } }]);
+			expect(conflictingMigrations(frontmatter, keyMigrations)).toEqual([]);
 		});
 	});
 });

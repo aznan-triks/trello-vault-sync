@@ -513,10 +513,11 @@ describe("Milestone 6: Tier 5 Adversarial Coverage Hardening", () => {
 			const note = vault.note("cycle.md");
 			const changes = await alignNote(vault, note, ["key-migration"], settings, { keepMtime: true });
 
-			expect(changes).toHaveLength(1);
+			// Each target already holds the other key's different value: nothing is overwritten (Grok #5), both are kept.
+			expect(changes).toHaveLength(0);
 			const fm = vault.readFrontmatter(note);
-			// Keys swapped or resolved deterministically without hanging or corrupting frontmatter
-			expect(fm).toBeDefined();
+			expect(fm?.["keyA"]).toBe("valueA");
+			expect(fm?.["keyB"]).toBe("valueB");
 			expect(vault.note("cycle.md").mtime).toBe(100);
 		});
 
@@ -1191,7 +1192,7 @@ describe("Milestone 6: Tier 5 Adversarial Coverage Hardening", () => {
 			expect(changes.filter((c) => c.category === "checklist-section")).toHaveLength(0);
 		});
 
-		test("key migration replaces existing target key if targetKey already exists in frontmatter", async () => {
+		test("key migration keeps both keys when the target key already holds a different value (Grok #5)", async () => {
 			const settings = createTestSettings({
 				keyMigrations: {
 					old_key: "target_key",
@@ -1209,8 +1210,8 @@ describe("Milestone 6: Tier 5 Adversarial Coverage Hardening", () => {
 			await alignNote(vault, note, ["key-migration"], settings, { keepMtime: true });
 
 			const fm = vault.readFrontmatter(note);
-			expect(fm?.["old_key"]).toBeUndefined();
-			expect(fm?.["target_key"]).toBe("fresh_value");
+			expect(fm?.["old_key"]).toBe("fresh_value");
+			expect(fm?.["target_key"]).toBe("obsolete_value");
 		});
 
 		test("preserves non-HTTP, file, and wikilink cover values from being pruned", () => {
