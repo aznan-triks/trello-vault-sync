@@ -294,21 +294,21 @@ async function writeLocalLabels(
 /**
  * Keeps mapped note properties and the card's labels in step. The decided direction says who wins removals
  * (pull: the card, push: the note); otherwise - skip, conflict - the two only ever grow towards each other.
- * Returns true when it rewrote the note's frontmatter.
+ * Writes the note's frontmatter itself; the card's label set is only computed, from `labelIds` (the set the
+ * earlier label step left), and returned for the caller to write once. `ids` is null when nothing changes.
  */
 async function convergeLabelProperties(
 	vault: VaultGateway,
-	client: TrelloClient,
 	note: NoteHandle,
 	card: TrelloCard,
 	config: NonNullable<NoteSyncOptions["labelProperties"]>,
 	direction: string,
-	onTrelloWrite: NoteSyncOptions["onTrelloWrite"],
+	labelIds: string[],
 	signal?: AbortSignal,
-): Promise<boolean> {
+): Promise<{ wroteNote: boolean; ids: string[] | null }> {
 	const { mappings, removeValues } = config;
-	if (card.labels === undefined) return false; // labels not fetched: absent is not the same as empty
-	const cardIds = new Set((card.labels ?? []).map((label) => label.id));
+	if (card.labels === undefined) return { wroteNote: false, ids: null }; // labels not fetched: absent is not the same as empty
+	const cardIds = new Set(card.labels.map((label) => label.id));
 	const frontmatter = { ...(vault.readFrontmatter(note) ?? {}) };
 	const toNote = config.direction !== "to-trello";
 	const toTrello = config.direction !== "to-note";
@@ -323,23 +323,15 @@ async function convergeLabelProperties(
 			wroteNote = true;
 		}
 	}
+	let ids: string[] | null = null;
 	if (toTrello && direction !== "pull" && !signal?.aborted) {
 		const wanted = labelsFromProperties(frontmatter, mappings);
 		const mapped = mappedLabelIds(mappings);
-		const nextIds = [...cardIds].filter((id) => !mapped.has(id) || wanted.has(id) || !(removeValues && direction === "push"));
+		const nextIds = labelIds.filter((id) => !mapped.has(id) || wanted.has(id) || !(removeValues && direction === "push"));
 		for (const id of wanted) if (!nextIds.includes(id)) nextIds.push(id);
-		if (nextIds.length !== cardIds.size || nextIds.some((id) => !cardIds.has(id))) {
-			await client.updateCard(card.id, { idLabels: nextIds }, signal);
-			onTrelloWrite?.({
-				kind: "trello-card",
-				path: note.path,
-				cardId: card.id,
-				previous: { idLabels: [...cardIds] },
-				written: { idLabels: nextIds },
-			});
-		}
+		if (nextIds.length !== labelIds.length || nextIds.some((id) => !labelIds.includes(id))) ids = nextIds;
 	}
-	return wroteNote;
+	return { wroteNote, ids };
 }
 
 /** Resolve a label list to the card's board's ids — one `getBoardLabels` call, shared by every push path. */
@@ -353,32 +345,12 @@ async function resolveLabelIdsForCard(
 	return resolveLabelIds(labels, boardLabels);
 }
 
-/** Resolve a label list to ids and push it as the card's full label set, on its own `updateCard` call. */
-async function pushRemoteLabels(
-	client: TrelloClient,
-	note: NoteHandle,
-	card: TrelloCard,
-	labels: string[],
-	onTrelloWrite: NoteSyncOptions["onTrelloWrite"],
-	signal?: AbortSignal,
-): Promise<void> {
-	if (signal?.aborted) return;
-	const idLabels = await resolveLabelIdsForCard(client, card, labels, signal);
-	await client.updateCard(card.id, { idLabels }, signal);
-	onTrelloWrite?.({
-		kind: "trello-card",
-		path: note.path,
-		cardId: card.id,
-		previous: { idLabels: (card.labels ?? []).map((label) => label.id) },
-		written: { idLabels },
-	});
-}
-
 /**
  * Converges labels in `merge` mode: both sides move to their union, independently
  * of whatever direction was decided for title/body/due — a name typed on either
  * side is never lost. No-op under `overwrite` mode, where labels instead ride
- * the pull/push branches below like `due` does.
+ * the pull/push branches below like `due` does. Writes the note's side itself; the
+ * card's side is only resolved to ids (null when nothing to send), for the caller to write once.
  */
 async function convergeLabelsOnMerge(
 	vault: VaultGateway,
@@ -388,14 +360,36 @@ async function convergeLabelsOnMerge(
 	localLabels: string[],
 	remoteLabels: string[],
 	labelsKey: string,
+	signal?: AbortSignal,
+): Promise<{ wroteLocal: boolean; ids: string[] | null }> {
+	const { nextLocal, nextRemote } = resolveLabelSync(localLabels, remoteLabels, "merge", "pull");
+	const wroteLocal = nextLocal !== null && !signal?.aborted;
+	if (wroteLocal) await writeLocalLabels(vault, note, nextLocal, labelsKey);
+	const ids = nextRemote !== null && !signal?.aborted ? await resolveLabelIdsForCard(client, card, nextRemote, signal) : null;
+	return { wroteLocal, ids };
+}
+
+/** The fields one `updateCard` call can carry. */
+type CardFieldUpdate = { name?: string; desc?: string; due?: string | null; idLabels?: string[] };
+
+/** One `updateCard` call, recorded for the sync history with what it replaced. */
+async function writeCardFields(
+	client: TrelloClient,
+	note: NoteHandle,
+	card: TrelloCard,
+	fields: CardFieldUpdate,
 	onTrelloWrite: NoteSyncOptions["onTrelloWrite"],
 	signal?: AbortSignal,
-): Promise<boolean> {
-	const { nextLocal, nextRemote } = resolveLabelSync(localLabels, remoteLabels, "merge", "pull");
-	const writeLocal = nextLocal !== null && !signal?.aborted;
-	if (writeLocal) await writeLocalLabels(vault, note, nextLocal, labelsKey);
-	if (nextRemote !== null) await pushRemoteLabels(client, note, card, nextRemote, onTrelloWrite, signal);
-	return writeLocal;
+): Promise<void> {
+	if (Object.keys(fields).length === 0) return;
+	await client.updateCard(card.id, fields, signal);
+	if (!onTrelloWrite) return;
+	const previous: TrelloCardUpdateAction["previous"] = {};
+	if (fields.name !== undefined) previous.name = card.name;
+	if (fields.desc !== undefined) previous.desc = card.desc;
+	if (fields.due !== undefined) previous.due = card.due;
+	if (fields.idLabels !== undefined) previous.idLabels = (card.labels ?? []).map((label) => label.id);
+	onTrelloWrite({ kind: "trello-card", path: note.path, cardId: card.id, previous, written: fields });
 }
 
 /** Order-sensitive equality — attachment/linked-card lists follow Trello's own order, never sorted. */
@@ -479,7 +473,8 @@ async function convergeAttachments(
  * `resolveChecklists`'s `pushes`); Trello wins which items/checklists exist at
  * all, so the section is always rewritten to Trello's own structure — see
  * `resolveChecklists` for the full reconciliation rule. `content` is the note's
- * current text, already read by the caller. Returns whether the note may have changed.
+ * current text, already read by the caller. Returns whether the note may have changed, and the
+ * check-item writes to Trello as a step of their own: the caller decides when they go out.
  */
 async function convergeChecklists(
 	vault: VaultGateway,
@@ -490,9 +485,15 @@ async function convergeChecklists(
 	content: string,
 	onTrelloWrite: NoteSyncOptions["onTrelloWrite"],
 	signal?: AbortSignal,
-): Promise<boolean> {
+): Promise<{ stale: boolean; pushCheckItems: () => Promise<void> }> {
+	const failure = (error: unknown) =>
+		warnUnlessAborted(
+			signal,
+			`[trello-vault-sync] Could not sync checklists for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
+		);
+	let pushCheckItems = async (): Promise<void> => {};
 	try {
-		if (signal?.aborted) return false;
+		if (signal?.aborted) return { stale: false, pushCheckItems };
 		const fullBody = extractBody(content);
 		const { rest: description, checklistBlock } = splitChecklistSection(fullBody, heading);
 
@@ -502,32 +503,35 @@ async function convergeChecklists(
 			remoteChecklists.flatMap((group) => group.checkItems.map((item) => [item.id, item.state] as const)),
 		);
 
-		for (const push of pushes) {
-			if (signal?.aborted) break;
-			await client.updateCheckItemState(card.id, push.checkItemId, push.state, signal);
-			const previousState = remoteStateById.get(push.checkItemId) ?? (push.state === "complete" ? "incomplete" : "complete");
-			onTrelloWrite?.({
-				kind: "trello-checkitem",
-				path: note.path,
-				cardId: card.id,
-				checkItemId: push.checkItemId,
-				previousState,
-				writtenState: push.state,
-			});
-		}
+		pushCheckItems = async () => {
+			try {
+				for (const push of pushes) {
+					if (signal?.aborted) break;
+					await client.updateCheckItemState(card.id, push.checkItemId, push.state, signal);
+					const previousState = remoteStateById.get(push.checkItemId) ?? (push.state === "complete" ? "incomplete" : "complete");
+					onTrelloWrite?.({
+						kind: "trello-checkitem",
+						path: note.path,
+						cardId: card.id,
+						checkItemId: push.checkItemId,
+						previousState,
+						writtenState: push.state,
+					});
+				}
+			} catch (error) {
+				failure(error);
+			}
+		};
 
-		if (signal?.aborted) return false;
-		if (markdown === checklistBlock) return false;
+		if (signal?.aborted) return { stale: false, pushCheckItems };
+		if (markdown === checklistBlock) return { stale: false, pushCheckItems };
 		const nextContent = replaceBody(content, insertChecklistSection(description, markdown));
-		if (nextContent === content) return false;
+		if (nextContent === content) return { stale: false, pushCheckItems };
 		await vault.write(note, nextContent);
-		return true;
+		return { stale: true, pushCheckItems };
 	} catch (error) {
-		warnUnlessAborted(
-			signal,
-			`[trello-vault-sync] Could not sync checklists for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
-		);
-		return true;
+		failure(error);
+		return { stale: true, pushCheckItems };
 	}
 }
 
@@ -851,23 +855,43 @@ async function syncNoteWithCardUnguarded(
 
 	// Independent of the direction decided above for title/body/due — each step
 	// below can write the note, and runs even when that direction ends up "skip"
-	// or "conflict". `stale` tracks whether `content` may no longer match the file:
+	// — but never during a "conflict": a write from here moves one side's clock, and
+	// the next cycle would read that as a win and overwrite the other side unasked.
+	// `stale` tracks whether `content` may no longer match the file:
 	// the checklist step and the pull branch rebuild the whole file from `content`,
 	// and a stale snapshot would silently undo a write made before them. The note
 	// is re-read only then — never after a step that wrote nothing.
+	const writesAllowed = !options.dryRun && direction !== "conflict";
 	let stale = false;
-	if (syncLabels && labelsSyncMode === "merge" && !options.dryRun && !signal?.aborted) {
-		const wrote = await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, options.onTrelloWrite, signal);
-		stale = stale || wrote;
+	// The card's label set once both label steps are done: they edit one list, written once, not two requests off the same snapshot.
+	let nextLabelIds: string[] | null = null;
+	if (syncLabels && writesAllowed && !signal?.aborted) {
+		if (labelsSyncMode === "merge") {
+			const merged = await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, signal);
+			stale = stale || merged.wroteLocal;
+			nextLabelIds = merged.ids;
+		} else if (direction === "push") {
+			const { nextRemote } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "push");
+			if (nextRemote !== null) nextLabelIds = await resolveLabelIdsForCard(client, card, nextRemote, signal);
+		}
 	}
 
-	if (options.labelProperties && !options.dryRun && !signal?.aborted) {
-		const wrote = await convergeLabelProperties(vault, client, note, card, options.labelProperties, labelDirection, options.onTrelloWrite, signal);
-		stale = stale || wrote;
+	if (options.labelProperties && writesAllowed && !signal?.aborted) {
+		const currentIds = (card.labels ?? []).map((label) => label.id);
+		const props = await convergeLabelProperties(vault, note, card, options.labelProperties, labelDirection, nextLabelIds ?? currentIds, signal);
+		stale = stale || props.wroteNote;
+		nextLabelIds = props.ids ?? nextLabelIds;
+	}
+
+	// On a push the labels ride the card write below, and the check items go after it: if that write fails,
+	// the card has not been touched, so the next cycle does not mistake it for the newer side and pull over the local edit.
+	let pushCheckItems = async (): Promise<void> => {};
+	if (nextLabelIds && direction !== "push" && !signal?.aborted) {
+		await writeCardFields(client, note, card, { idLabels: nextLabelIds }, options.onTrelloWrite, signal);
 	}
 
 	const syncAttachments = options.syncAttachments ?? DEFAULT_SYNC_ATTACHMENTS;
-	if (syncAttachments && !options.dryRun && !signal?.aborted) {
+	if (syncAttachments && writesAllowed && !signal?.aborted) {
 		const attachmentsKey = options.attachmentsFrontmatterKey ?? DEFAULT_ATTACHMENTS_KEY;
 		const linkedCardsKey = options.linkedCardsFrontmatterKey ?? DEFAULT_LINKED_CARDS_KEY;
 		const syncLinkedCards = options.syncLinkedCards ?? DEFAULT_SYNC_LINKED_CARDS;
@@ -885,15 +909,18 @@ async function syncNoteWithCardUnguarded(
 		stale = stale || wrote;
 	}
 
-	if (syncChecklists && !options.dryRun && !signal?.aborted) {
+	if (syncChecklists && writesAllowed && !signal?.aborted) {
 		if (stale) {
 			content = await vault.read(note);
 			stale = false;
 		}
-		stale = await convergeChecklists(vault, client, note, card, checklistHeading, content, options.onTrelloWrite, signal);
+		const checklists = await convergeChecklists(vault, client, note, card, checklistHeading, content, options.onTrelloWrite, signal);
+		stale = checklists.stale;
+		if (direction === "push") pushCheckItems = checklists.pushCheckItems;
+		else await checklists.pushCheckItems();
 	}
 
-	if (options.downloadAttachments && !options.dryRun && !signal?.aborted) {
+	if (options.downloadAttachments && writesAllowed && !signal?.aborted) {
 		if (options.fetchBinary) {
 			await convergeAttachmentDownloads(
 				vault,
@@ -914,7 +941,7 @@ async function syncNoteWithCardUnguarded(
 	}
 
 	const syncCardCover = options.syncCardCover ?? DEFAULT_SYNC_CARD_COVER;
-	if (syncCardCover && !options.dryRun && !signal?.aborted) {
+	if (syncCardCover && writesAllowed && !signal?.aborted) {
 		const wrote = await convergeCover(
 			vault,
 			client,
@@ -933,7 +960,7 @@ async function syncNoteWithCardUnguarded(
 	}
 
 	const syncMembers = options.syncMembers ?? DEFAULT_SYNC_MEMBERS;
-	if (syncMembers && !options.dryRun && !signal?.aborted) {
+	if (syncMembers && writesAllowed && !signal?.aborted) {
 		const wrote = await convergeMembers(
 			vault,
 			client,
@@ -947,7 +974,7 @@ async function syncNoteWithCardUnguarded(
 	}
 
 	const syncCustomFields = options.syncCustomFields ?? DEFAULT_SYNC_CUSTOM_FIELDS;
-	if (syncCustomFields && !options.dryRun && !signal?.aborted) {
+	if (syncCustomFields && writesAllowed && !signal?.aborted) {
 		const wrote = await convergeCustomFields(
 			vault,
 			client,
@@ -1057,28 +1084,13 @@ async function syncNoteWithCardUnguarded(
 		return { direction, renamed, note: current, reason: decision.reason, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
 	}
 
-	const fields: { name?: string; desc?: string; due?: string | null; idLabels?: string[] } = {};
+	const fields: CardFieldUpdate = {};
 	if (syncDescription) fields.desc = localBody;
 	if (options.syncTitle && decision.titleChanged) fields.name = note.basename;
 	if (syncDue && decision.dueChanged) fields.due = localDue;
-	if (syncLabels && labelsSyncMode === "overwrite") {
-		const { nextRemote } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "push");
-		if (nextRemote !== null) fields.idLabels = await resolveLabelIdsForCard(client, card, nextRemote, signal);
-	}
-	if (signal?.aborted) {
-		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)`, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
-	}
-	if (Object.keys(fields).length > 0) {
-		await client.updateCard(card.id, fields, signal);
-		if (options.onTrelloWrite) {
-			const previous: TrelloCardUpdateAction["previous"] = {};
-			if (fields.name !== undefined) previous.name = card.name;
-			if (fields.desc !== undefined) previous.desc = card.desc;
-			if (fields.due !== undefined) previous.due = card.due;
-			if (fields.idLabels !== undefined) previous.idLabels = (card.labels ?? []).map((label) => label.id);
-			options.onTrelloWrite({ kind: "trello-card", path: note.path, cardId: card.id, previous, written: fields });
-		}
-	}
+	if (nextLabelIds) fields.idLabels = nextLabelIds;
+	await writeCardFields(client, note, card, fields, options.onTrelloWrite, signal);
+	await pushCheckItems();
 	return { direction, renamed: false, note, reason: decision.reason, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
 }
 
