@@ -341,3 +341,9 @@ describe("lot D — the plugin's own writes are not local edits", () => {
 		expect(t.state.card.desc).toBe("edited");
 	});
 });
+
+// Lot E (base snapshot, planned apart): these two proofs of the audit stay unfixed, so they are markers, not tests.
+describe("lot E — not fixed yet", () => {
+	test.todo("F2a: an unrelated activity on the card (a comment) must not make an unchanged card win over a local body edit");
+	test.todo("F2b: a body edit in the note must not overwrite a due date edited on Trello earlier");
+});
