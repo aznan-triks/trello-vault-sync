@@ -1342,6 +1342,16 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.save();
 				}),
 			), "confirmUnlink");
+
+		this.track(new Setting(root)
+			.setName("Card wins after a manual link")
+			.setDesc("Linking a note to a card by hand (\"Link this note to the card with the same name\" or \"…to a card I choose\") pulls the card's content into the note right away, the way a note adopted by a folder sync does. Off: the first sync goes by whichever side was edited last.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.manualLinkCardWins).onChange((value) => {
+					this.plugin.settings.manualLinkCardWins = value;
+					void this.save();
+				}),
+			), "manualLinkCardWins");
 	}
 
 	private renderIgnoredCards(root: HTMLElement): void {

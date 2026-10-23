@@ -31,6 +31,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Test rewritten: "ignores a local name with no match on the board..." in `tests/syncNote.test.ts` expected the useless `PUT idLabels=`; it now expects no `PUT`.
   - Tests: `tests/reconciliation.test.ts` (F10 x3, F7 x2, F8), `tests/noteBody.test.ts`.
 
+- **Plain words:** The sync no longer mistakes its own work for your edits, which used to flip the direction of the next sync. Copying labels, attachments, a checklist, the cover, members or custom fields from Trello into a note used to refresh the note's "last edited" time, so the next sync could think the note was newer and overwrite the card's description with an old copy. The same happened when you linked a note to a card by hand. Those writes now leave the time alone, and linking by hand has a new setting, "Card wins after a manual link" (on by default): the card's content is pulled into the note straight away, as for a note adopted by a folder sync; switch it off and the first sync goes by whichever side was edited last. Three smaller fixes: the same due date written two ways (`…:00Z` and `…:00.000Z`) is no longer a change; the " (2)" added to a note's name when two cards share a title is no longer sent back to Trello as a rename; and a mapped label you removed by deleting its property is no longer put back by the label list (`trello_labels`). Still open: an unrelated activity on the card (a comment, a member) still makes Trello look newer than your unsynced edit; that needs the base-snapshot change, planned separately.
+  **Technical:**
+  - `features/syncNote.ts`: `COPY_FROM_TRELLO` (`{ keepMtime: true }`) on every note write that copies Trello data in: labels (`writeLocalLabels`), label properties, attachments, checklist rewrite, cover, members, custom fields. `ObsidianVault.setCardRef` (and the test fake) keep the mtime too. The pull's own body/due writes are unchanged.
+  - New setting `manualLinkCardWins` (default `true`; `types.ts`, `DEFAULT_SETTINGS`, `normalizeSettings`, `SettingsTab`, tracked): `linkActive` and `linkActivePick` run `syncNoteAt(ctx, note, "pull")` after a successful link. A conflict is still reported, never overwritten.
+  - `core/syncDecision.ts`: `sameDue` compares due dates as instants (`Date.parse`), text that does not parse is compared as written; `core/fileName.ts::isCollisionVariant` recognises `base (n)`, n from 2, so a collision suffix is not a title change.
+  - `convergeLabelsOnMerge` / `labelIdsToWrite` take `propertyOwned` (the mapped label ids, when label properties flow to Trello): the merge never adds one the card does not hold, and never removes one it does.
+  - Tests: `tests/reconciliation.test.ts` (F3b x7, F13, F5 x2, F9), `tests/syncDecision.test.ts` (F11 x2, F9 x2), `tests/noteCommands.test.ts` (F13 x5).
+
 ## [1.25.0] — 2026-10-19
 
 ### Added

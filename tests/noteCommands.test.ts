@@ -1,5 +1,16 @@
 import { describe, expect, test, vi } from "vitest";
 
+// `linkActivePick` opens a modal and gets the chosen card back through its callback: capture that callback.
+const picker = vi.hoisted(() => ({ pick: null as null | ((card: unknown) => void) }));
+vi.mock("../src/ui/CardPickerModal", () => ({
+	CardPickerModal: class CardPickerModal {
+		constructor(_app: unknown, _cards: unknown, onPick: (card: unknown) => void) {
+			picker.pick = onPick;
+		}
+		open(): void {}
+	},
+}));
+
 // `noteCommands.ts` pulls in `obsidian` (for `Notice`) and, transitively via
 // `CardPickerModal`/`ConflictModal`, `FuzzySuggestModal`/`Modal` — none of
 // which resolve to a real module under vitest (the "obsidian" package ships
@@ -18,12 +29,12 @@ vi.mock("obsidian", () => ({
 	},
 }));
 
-import { syncActive, unlinkActive } from "../src/commands/noteCommands";
+import { linkActive, linkActivePick, syncActive, unlinkActive } from "../src/commands/noteCommands";
 import type { CommandContext } from "../src/commands/context";
 import { silentReporter } from "../src/obsidian/gateway";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
 import { TrelloClient } from "../src/trello/client";
-import { card, FakeVault, routedTransport, FATE_OPTIONS } from "./fakes";
+import { at, card, FakeVault, routedTransport, FATE_OPTIONS } from "./fakes";
 
 const PATH = "note.md";
 const FRONTMATTER = '---\ntrello_board_card_id: "board;c1"\n---\n\nold body';
@@ -127,5 +138,62 @@ describe("unlinkActive", () => {
 		const ctx = fakeContext({ vault: new FakeVault({ [PATH]: { content: "no link" } }) });
 		await unlinkActive({ ...ctx, settings: { ...ctx.settings, confirmUnlink: false } });
 		expect((ctx.vault as FakeVault).contentOf(PATH)).toBe("no link");
+	});
+});
+
+describe("linking a note by hand (F13)", () => {
+	const CARD = card({ id: "c1", name: "note", desc: "remote body", dateLastActivity: "2026-08-01T00:00:00.000Z" });
+	/** A note edited after the card's last activity: left to newer-wins, its text would overwrite the card. */
+	const linkContext = (manualLinkCardWins: boolean) => {
+		const vault = new FakeVault({ [PATH]: { content: "---\ntype: x\n---\n\nnote text", mtime: at("2026-09-01T00:00:00.000Z") } });
+		const { transport } = routedTransport({ "/boards/board/cards": [CARD], "/cards/c1": CARD });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const ctx = fakeContext({
+			vault,
+			client: () => client,
+			settings: { ...DEFAULT_SETTINGS, boardId: "board", manualLinkCardWins },
+			activeNote: () => vault.note(PATH),
+			noteOptions: (force) => ({ policy: "newer-wins", marginMs: 0, syncTitle: true, dryRun: false, ...(force ? { force } : {}) }),
+		});
+		return { vault, ctx };
+	};
+
+	test("linking by name pulls the card's content into the note when the card wins", async () => {
+		const { vault, ctx } = linkContext(true);
+		await linkActive(ctx);
+		expect(vault.getCardRef(vault.note(PATH))?.cardId).toBe("c1");
+		expect(vault.contentOf(PATH)).toContain("remote body");
+		expect(vault.contentOf(PATH)).not.toContain("note text");
+	});
+
+	test("linking by name leaves the note's text alone when the setting is off", async () => {
+		const { vault, ctx } = linkContext(false);
+		await linkActive(ctx);
+		expect(vault.getCardRef(vault.note(PATH))?.cardId).toBe("c1");
+		expect(vault.contentOf(PATH)).toContain("note text");
+	});
+
+	test("linking by name pulls nothing when no card matches", async () => {
+		const { vault, ctx } = linkContext(true);
+		await linkActive({ ...ctx, activeNote: () => ({ ...vault.note(PATH), basename: "zzz" }) });
+		expect(vault.getCardRef(vault.note(PATH))).toBeNull();
+		expect(vault.contentOf(PATH)).toContain("note text");
+	});
+
+	test("picking a card pulls its content into the note when the card wins", async () => {
+		const { vault, ctx } = linkContext(true);
+		await linkActivePick(ctx);
+		picker.pick?.(CARD);
+		await vi.waitFor(() => expect(vault.contentOf(PATH)).toContain("remote body"));
+		expect(vault.contentOf(PATH)).not.toContain("note text");
+	});
+
+	test("picking a card leaves the note's text alone when the setting is off", async () => {
+		const { vault, ctx } = linkContext(false);
+		await linkActivePick(ctx);
+		picker.pick?.(CARD);
+		await vi.waitFor(() => expect(vault.getCardRef(vault.note(PATH))?.cardId).toBe("c1"));
+		await Promise.resolve();
+		expect(vault.contentOf(PATH)).toContain("note text");
 	});
 });

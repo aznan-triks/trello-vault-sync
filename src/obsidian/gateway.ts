@@ -58,7 +58,7 @@ export interface VaultGateway {
 export interface CardRefStore {
 	/** The card this note points at, or `null` when unlinked or unusable. */
 	getCardRef(note: NoteHandle): CardRef | null;
-	/** Write the card reference into the note's frontmatter. */
+	/** Write the card reference into the note's frontmatter. A link is not an edit: the note's mtime stays as it was. */
 	setCardRef(note: NoteHandle, ref: CardRef): Promise<void>;
 }
 

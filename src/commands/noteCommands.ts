@@ -62,10 +62,16 @@ export async function syncNoteAt(
 	});
 }
 
+/** A link made by hand is not an edit: with `manualLinkCardWins` the card's content is pulled into the note, like an adopted note in a folder sync. */
+async function pullAfterManualLink(ctx: CommandContext, note: NoteHandle): Promise<void> {
+	if (ctx.settings.manualLinkCardWins) await syncNoteAt(ctx, note, "pull");
+}
+
 export async function linkActive(ctx: CommandContext): Promise<void> {
 	const note = ctx.activeNote();
 	if (!ctx.ready(true) || !note) return;
 
+	let linked = false;
 	await ctx.run(`Link — ${note.basename}`, async (reporter, signal) => {
 		const result = await linkActiveNote(
 			ctx.vault,
@@ -80,8 +86,10 @@ export async function linkActive(ctx: CommandContext): Promise<void> {
 		);
 		if (result.reason === "already-linked") return "This note is already linked to a card.";
 		if (!result.linked) return "No card close enough to the note's title.";
+		linked = true;
 		return `Linked to "${result.card?.name}" (${Math.round(result.score * 100)}%).`;
 	});
+	if (linked) await pullAfterManualLink(ctx, note);
 }
 
 export async function unlinkActive(ctx: CommandContext): Promise<void> {
@@ -119,7 +127,10 @@ export async function linkActivePick(ctx: CommandContext): Promise<void> {
 		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId, undefined, signal);
 		new CardPickerModal(ctx.app, cards, (card) => {
 			void linkNoteToCard(ctx.vault, note, card).then(
-				() => { if (ctx.settings.showSuccessNotices) new Notice(`Linked to "${card.name}".`); },
+				async () => {
+					if (ctx.settings.showSuccessNotices) new Notice(`Linked to "${card.name}".`);
+					await pullAfterManualLink(ctx, note);
+				},
 				(error) => {
 					new Notice(`❌ ${errorMessage(error)}`);
 					console.error("[trello-vault-sync]", error);

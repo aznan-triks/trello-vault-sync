@@ -82,10 +82,14 @@ export class ObsidianVault implements VaultGateway, CardRefStore, TemplateResolv
 
 	async setCardRef(note: NoteHandle, ref: CardRef): Promise<void> {
 		const key = this.getCardRefKey();
-		await this.writeFrontmatter(note, (frontmatter) => {
-			frontmatter[key] = formatCardRef(ref.boardId, ref.cardId);
-			this.addPluginNoteId(frontmatter);
-		});
+		await this.writeFrontmatter(
+			note,
+			(frontmatter) => {
+				frontmatter[key] = formatCardRef(ref.boardId, ref.cardId);
+				this.addPluginNoteId(frontmatter);
+			},
+			{ keepMtime: true },
+		);
 	}
 
 	/** Adds the "Trello" plugin's per-note id when the option is on and the note has none yet. */

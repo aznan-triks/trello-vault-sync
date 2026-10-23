@@ -61,6 +61,11 @@ export function uniqueNotePath(
 	}
 }
 
+/** `title` is `base` followed by the " (n)" suffix `uniqueNotePath` adds on a collision (n from 2 on). */
+export function isCollisionVariant(title: string, base: string): boolean {
+	return title.startsWith(base) && /^ \((?:[2-9]|[1-9]\d+)\)$/.test(title.slice(base.length));
+}
+
 /** A folder path as the prefix every note under it starts with — the one normalization every folder-scoping rule shares. */
 function folderPrefix(folder: string): string {
 	return `${folder.replace(/\/$/, "")}/`;

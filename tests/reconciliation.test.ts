@@ -259,3 +259,85 @@ describe("lot C — destructive writes", () => {
 		expect(t.puts).toHaveLength(0);
 	});
 });
+
+describe("lot D — the plugin's own writes are not local edits", () => {
+	const mapping = { labelId: "LD", labelName: "Done", labelColor: null, key: "status", values: ["done"] };
+	const labelProperties = { direction: "both" as const, removeValues: false, mappings: [mapping] };
+	const checklist = { id: "cl", name: "Todo", pos: 1, checkItems: [{ id: "i1", name: "a", state: "incomplete", pos: 1 }] };
+
+	// Each sub-sync copies a Trello value into the note; the copy must leave the note's mtime alone, or the next
+	// cycle reads it as a local edit and pushes a stale body over the card.
+	const copies: Array<[string, Partial<TrelloCard>, Partial<NoteSyncOptions>, string]> = [
+		["labels", { labels: [label("LY", "Y")] }, {}, "Y"],
+		["label properties", { labels: [label("LD", "Done")] }, { syncLabels: false, labelProperties }, "done"],
+		["attachments", { attachments: [{ id: "a1", name: "x", url: "https://example.com/x", isUpload: false, bytes: 0 }] }, { syncAttachments: true }, "https://example.com/x"],
+		["checklist", { checklists: [checklist] as never, dateLastActivity: iso(T0 + H / 2) }, { syncChecklists: true }, "- [ ] a"],
+		["cover", { cover: { idAttachment: "a1", scaled: [{ url: "https://example.com/cover.jpg", width: 800 }] } as never }, { syncCardCover: true }, "cover.jpg"],
+		["members", { idMembers: ["u1"] }, { syncMembers: true }, "Alice"],
+		["custom fields", { customFieldItems: [{ idCustomField: "f1", value: { text: "x" } }] as never }, { syncCustomFields: true }, "Field"],
+	];
+
+	test.each(copies)("F3b: copying %s from Trello keeps the note's mtime", async (_name, remote, options, expected) => {
+		const vault = new ClockVault({ "Note.md": { content: `---\n${REF}\n---\n\nsame`, mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "same", ...remote }), [label("LY", "Y")]);
+		clock.now = T0 + H;
+		await syncNoteWithCard(
+			vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, ...options },
+			new Map(), new Map([["u1", "Alice"]]), new Map([["f1", { id: "f1", name: "Field", type: "text" }]]) as never,
+		);
+		expect(vault.contentOf("Note.md")).toContain(expected);
+		expect(vault.note("Note.md").mtime).toBe(T0);
+	});
+
+	test("F13: linking a note does not make it the newer side", async () => {
+		const vault = new ClockVault({ "Note.md": { content: `---\ntype: x\n---\n\nnote text`, mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "card text", dateLastActivity: iso(T0 + H) }), []);
+		clock.now = T0 + 2 * H;
+		await vault.setCardRef(vault.note("Note.md"), { boardId: "board", cardId: "c1" });
+		expect(vault.note("Note.md").mtime).toBe(T0);
+		clock.now = T0 + 3 * H;
+		const r = await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), BASE);
+		expect(r.direction).toBe("pull");
+		expect(t.state.card.desc).toBe("card text");
+	});
+
+	test("F5: a mapped label removed through its property is not put back by the label merge", async () => {
+		// trello_labels still lists Done (merge mode is additive), the user removed `status: done`
+		const vault = new ClockVault({ "Note.md": { content: `---\n${REF}\ntrello_labels:\n  - "Done"\n---\n\nsame`, mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "same", labels: [label("LD", "Done")] }), [label("LD", "Done")]);
+		clock.now = T0 + H;
+		await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, labelProperties: { ...labelProperties, removeValues: true }, force: "push" });
+		expect(t.state.card.labels?.map((l) => l.id)).toEqual([]);
+		for (let i = 2; i <= 4; i++) {
+			clock.now = T0 + i * H;
+			await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, labelProperties: { ...labelProperties, removeValues: true } });
+		}
+		expect(t.state.card.labels?.map((l) => l.id)).toEqual([]);
+		expect(vault.readFrontmatter(vault.note("Note.md"))?.status).toBeUndefined();
+	});
+
+	test("F5: a mapped label named in trello_labels still reaches the card when properties only flow to the note", async () => {
+		const vault = new ClockVault({ "Note.md": { content: `---\n${REF}\ntrello_labels:\n  - "Done"\n---\n\nsame`, mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "same" }), [label("LD", "Done")]);
+		clock.now = T0 + H;
+		await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, labelProperties: { ...labelProperties, direction: "to-note" } });
+		expect(t.state.card.labels?.map((l) => l.id)).toEqual(["LD"]);
+	});
+
+	test("F9: a ' (2)' collision suffix on the note is not a title change, so it is never pushed to the card", async () => {
+		const vault = new ClockVault({
+			"Old.md": { content: `---\n${REF}\n---\n\nsame`, mtime: T0 },
+			"Busy.md": { content: "other", mtime: T0 },
+		});
+		const t = fakeTrello(remoteCard({ name: "Busy", desc: "same", dateLastActivity: iso(T0 + H) }), []);
+		clock.now = T0 + 2 * H;
+		const pulled = await syncNoteWithCard(vault, t.client, vault.note("Old.md"), t.fresh(), BASE);
+		expect(pulled.note.path).toBe("Busy (2).md");
+		clock.now = T0 + 4 * H;
+		await vault.write(vault.note("Busy (2).md"), vault.contentOf("Busy (2).md").replace("same", "edited"));
+		clock.now = T0 + 5 * H;
+		await syncNoteWithCard(vault, t.client, vault.note("Busy (2).md"), t.fresh(), BASE);
+		expect(t.state.card.name).toBe("Busy");
+		expect(t.state.card.desc).toBe("edited");
+	});
+});

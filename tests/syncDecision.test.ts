@@ -293,3 +293,28 @@ describe("decideSync — checklists", () => {
 		expect(decideSync({ ...base, checklistsChanged: false }).direction).toBe("skip");
 	});
 });
+
+describe("decideSync — spellings that are not changes", () => {
+	test("F11: the same due instant in two ISO spellings is not a change", () => {
+		const d = decideSync({ ...base, localDue: "2026-10-23T12:00:00Z", remoteDue: "2026-10-23T12:00:00.000Z", localMtime: 2_000_000 });
+		expect(d.dueChanged).toBe(false);
+		expect(d.direction).toBe("skip");
+	});
+
+	test("F11: a different instant is still a change, and so is a due that cannot be parsed", () => {
+		expect(decideSync({ ...base, localDue: "2026-10-23T12:00:00Z", remoteDue: "2026-10-23T13:00:00.000Z" }).dueChanged).toBe(true);
+		expect(decideSync({ ...base, localDue: "tomorrow", remoteDue: "2026-10-23T12:00:00.000Z" }).dueChanged).toBe(true);
+		expect(decideSync({ ...base, localDue: null, remoteDue: "2026-10-23T12:00:00.000Z" }).dueChanged).toBe(true);
+	});
+
+	test("F9: the collision suffix added to a note name is not a title change", () => {
+		expect(decideSync({ ...base, localTitle: "Busy (2)", remoteTitle: "Busy" }).titleChanged).toBe(false);
+		expect(decideSync({ ...base, localTitle: "Busy (12)", remoteTitle: "Busy" }).titleChanged).toBe(false);
+	});
+
+	test("F9: only a numeric suffix from 2 on, on the same base, counts as a collision", () => {
+		for (const localTitle of ["Busy (1)", "Busy (x)", "Busy (2) b", "Other (2)", "Busy(2)"]) {
+			expect(decideSync({ ...base, localTitle, remoteTitle: "Busy" }).titleChanged, localTitle).toBe(true);
+		}
+	});
+});
