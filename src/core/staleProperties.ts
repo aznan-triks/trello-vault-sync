@@ -115,6 +115,18 @@ export interface AlignSettings {
 	keyMigrations?: Record<string, string>;
 }
 
+/** The target key is already filled with something other than the old key's value: migrating would overwrite it. */
+function holdsOtherValue(frontmatter: Record<string, unknown>, oldKey: string, targetKey: string): boolean {
+	return targetKey in frontmatter && JSON.stringify(frontmatter[targetKey]) !== JSON.stringify(frontmatter[oldKey]);
+}
+
+/** Old keys a migration leaves alone because the target key holds a different value: both are kept, for the report to mention. */
+export function conflictingMigrations(frontmatter: Record<string, unknown>, keyMigrations: Record<string, string>): string[] {
+	return Object.entries(keyMigrations)
+		.filter(([oldKey, targetKey]) => oldKey !== targetKey && oldKey in frontmatter && holdsOtherValue(frontmatter, oldKey, targetKey))
+		.map(([oldKey]) => oldKey);
+}
+
 /**
  * Parameters passed to `detectStaleChanges`.
  */
@@ -332,7 +344,8 @@ export function detectStaleChanges(params: DetectStaleParams): AlignChange[] {
 				oldKey.trim() !== "" &&
 				targetKey.trim() !== "" &&
 				oldKey !== targetKey &&
-				oldKey in frontmatter
+				oldKey in frontmatter &&
+				!holdsOtherValue(frontmatter, oldKey, targetKey)
 			) {
 				migratedKeys.push(oldKey);
 				applicableMigrations[oldKey] = targetKey;

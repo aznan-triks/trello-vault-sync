@@ -190,6 +190,19 @@ Body text`,
 		expect(updated?.trello_plugin_note_id).toMatch(/^[0-9a-f]{32}$/i);
 	});
 
+	test("Grok #5: a migration whose target already holds a different value keeps both keys and says so in the report", async () => {
+		const settings = createSettings({ keyMigrations: { old_priority: "prio_target" } });
+		const content = `---\ntrello_board_card_id: "b1;c1"\nold_priority: "High"\nprio_target: "Low"\n---\n\nBody text`;
+		const vault = new FakeVault({ "task.md": { content } });
+		const reporter = recordingReporter();
+
+		const result = await alignNotes(vault, [vault.note("task.md")], ["key-migration"], settings, { reporter });
+
+		expect(result.notesModified).toBe(0);
+		expect(vault.contentOf("task.md")).toBe(content);
+		expect(reporter.logs.some((l) => l.level === "warn" && l.message.includes("old_priority") && l.message.includes("prio_target"))).toBe(true);
+	});
+
 	test("dryRun: true reports planned changes but verifies note content is completely unchanged", async () => {
 		const initialContent = `---
 trello_board_card_id: "b1;c1"

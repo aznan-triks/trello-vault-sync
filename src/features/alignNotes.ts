@@ -9,6 +9,7 @@ import { hasChecklistSection, removeChecklistSection } from "../core/noteBody";
 import type { OperationGuard } from "../core/operationGuard";
 import {
 	ALIGN_CATEGORIES,
+	conflictingMigrations,
 	detectStaleChanges,
 	type AlignCategory,
 	type AlignChange,
@@ -233,6 +234,12 @@ export async function alignNotes(
 					"info",
 					`${note.basename} — aligned ${changes.length} change(s): ${changes.map((c) => c.category).join(", ")}`,
 				);
+			}
+
+			if (categories.includes("key-migration") && settings.keyMigrations) {
+				for (const oldKey of conflictingMigrations(vault.readFrontmatter(note) ?? {}, settings.keyMigrations)) {
+					reporter?.log("warn", `${note.basename} — "${oldKey}" not migrated: "${settings.keyMigrations[oldKey]}" already holds a different value, both kept`);
+				}
 			}
 		} catch (error) {
 			reporter?.log("error", `${note.basename} — ${errorMessage(error)}`);

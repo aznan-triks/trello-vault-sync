@@ -36,10 +36,11 @@ function clientFor(cards: unknown[], boardCards: unknown[] = cards) {
 	return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
 }
 
-function clientWithCreation(listCards: unknown[], boardCards: unknown[] = listCards, actions: unknown[] = [], newCardId = "c-new") {
+function clientWithCreation(listCards: unknown[], boardCards: unknown[] = listCards, actions: unknown[] = [], newCardId = "c-new", failingUrl?: string) {
 	const requests: HttpRequest[] = [];
 	const transport = async (req: HttpRequest): Promise<HttpResponse> => {
 		requests.push(req);
+		if (failingUrl && req.url.includes(failingUrl)) return { status: 400, text: "boom" };
 		if (req.method === "POST" && req.url.includes("/cards")) {
 			return {
 				status: 200,
@@ -1171,6 +1172,81 @@ describe("syncFolder — smart card creation for unlinked notes", () => {
 		expect(stats.unlinked).toBe(1);
 		const post = requests.find((r) => r.method === "POST");
 		expect(post).toBeUndefined();
+	});
+
+	// Grok #1: a failed read must never look like "no such card", or the duplicate check is blind.
+	test.each([
+		["the board's cards", "/boards/board/cards"],
+		["the board's action history", "/boards/board/actions"],
+	])("creates nothing, and says so, when reading %s fails", async (_what, failingUrl) => {
+		const vault = new FakeVault({ [`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" } });
+		const { client, requests } = clientWithCreation([], [], [], "c-new", failingUrl);
+		const reporter = recordingReporter();
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowCreateCards: true }, reporter);
+
+		expect(requests.find((r) => r.method === "POST")).toBeUndefined();
+		expect(stats.createdCards).toBe(0);
+		expect(stats.unlinked).toBe(1);
+		expect(stats.errors).toBe(1);
+		expect(reporter.logs.some((l) => l.level === "error" && l.message.includes("No card created"))).toBe(true);
+		expect(vault.contentOf(`${FOLDER}/Fresh Note.md`)).toBe("Unlinked content");
+	});
+
+	test("a multi-folder run whose action history cannot be read creates nothing and reports each folder", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" } });
+		const { client, requests } = clientWithCreation([], [], [], "c-new", "/boards/board/actions");
+		const reporter = recordingReporter();
+
+		const total = await syncAllMappings(vault, client, [MAPPING], { ...options, allowCreateCards: true }, reporter);
+
+		expect(requests.find((r) => r.method === "POST")).toBeUndefined();
+		expect(total.createdCards).toBe(0);
+		expect(total.errors).toBe(1);
+		expect(reporter.logs.some((l) => l.level === "warn" && l.message.includes("action history"))).toBe(true);
+	});
+
+	test("cards are still created without labels, with a warning, when the board's labels cannot be read", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fresh Note.md`]: { content: "Unlinked content" } });
+		const { client } = clientWithCreation([], [], [], "c-new", "/boards/board/labels");
+		const reporter = recordingReporter();
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...options, allowCreateCards: true }, reporter);
+
+		expect(stats.createdCards).toBe(1);
+		expect(reporter.logs.some((l) => l.level === "warn" && l.message.includes("labels"))).toBe(true);
+	});
+});
+
+describe("syncFolder — what a pass remembers (Grok #2)", () => {
+	type Update = Parameters<NonNullable<FolderSyncOptions["deletedNotes"]>["record"]>[0];
+	const record = (updates: Update[]) => ({ rule: "ignore-card" as const, knownLinks: () => new Set<string>(), ignoredIds: new Set<string>(), record: (u: Update) => updates.push(u) });
+	const notes = { [`${FOLDER}/Good.md`]: { content: linked("c1", "same") }, [`${FOLDER}/Bad.md`]: { content: linked("c2", "same") } };
+	const cards = [
+		card({ id: "c1", name: "Good", desc: "same", dateLastActivity: "2026-01-01T00:00:00.000Z" }),
+		card({ id: "c2", name: "Bad", desc: "same", dateLastActivity: "not a date" }), // makes this pair's sync throw
+	];
+
+	test("one failing note does not stop the other cards from being remembered", async () => {
+		const updates: Update[] = [];
+		const { client } = clientFor(cards);
+
+		const stats = await syncFolder(new FakeVault(notes), client, MAPPING, { ...options, deletedNotes: record(updates) });
+
+		expect(stats.errors).toBe(1);
+		expect(updates).toHaveLength(1);
+		expect(updates[0]?.knownLinks.sort()).toEqual(["c1", "c2"]);
+	});
+
+	test("a cancelled pass remembers nothing", async () => {
+		const updates: Update[] = [];
+		const { client } = clientFor(cards);
+		const controller = new AbortController();
+		controller.abort();
+
+		await syncFolder(new FakeVault(notes), client, MAPPING, { ...options, deletedNotes: record(updates) }, undefined, undefined, controller.signal);
+
+		expect(updates).toEqual([]);
 	});
 });
 

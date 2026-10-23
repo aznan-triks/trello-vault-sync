@@ -337,24 +337,12 @@ export async function syncFolder(
 	}
 
 	const createdCardIds = new Set<string>();
-	if (allowCreateCards && plan.unlinkedNotes.length > 0 && !signal?.aborted) {
-		let allBoardCards = boardCards;
-		if (!allBoardCards) {
-			try {
-				allBoardCards = await client.getBoardCards(options.boardId, "all", signal);
-			} catch {
-				allBoardCards = [];
-			}
-		}
-
-		let actions = options.boardActions;
-		if (!actions) {
-			try {
-				actions = await client.getActions(options.boardId, {}, signal);
-			} catch {
-				actions = [];
-			}
-		}
+	const history =
+		allowCreateCards && plan.unlinkedNotes.length > 0 && !signal?.aborted
+			? await readCreationHistory(client, options, boardCards, stats, reporter, signal)
+			: null;
+	if (history) {
+		const { allBoardCards, actions } = history;
 
 		const knownNames = new Set<string>();
 		for (const c of allBoardCards) {
@@ -380,8 +368,10 @@ export async function syncFolder(
 		if (unlinkedCandidates.length > 0 && options.syncLabels !== false) {
 			try {
 				boardLabels = await client.getBoardLabels(options.boardId, signal);
-			} catch {
+			} catch (error) {
+				// Not a duplicate risk: the cards are still created, and the note's labels reach them on a later sync.
 				boardLabels = [];
+				if (!signal?.aborted) reporter.log("warn", `Could not read the board's labels, cards are created without labels (${errorMessage(error)})`);
 			}
 		}
 
@@ -434,7 +424,8 @@ export async function syncFolder(
 
 	stats.phantoms = plan.phantomNotes.length;
 
-	if (deletedNotes && !options.dryRun && !signal?.aborted && stats.errors === 0) {
+	// Remembers which cards have a note even when other notes of the pass failed: the set is about presence, not success.
+	if (deletedNotes && !options.dryRun && !signal?.aborted) {
 		const have = new Set([...linkedAnywhere, ...createdIds, ...createdCardIds, ...plan.pairs.map((pair) => pair.card.id)]);
 		deletedNotes.record({
 			listId: mapping.listId,
@@ -465,6 +456,33 @@ export async function syncFolder(
 	});
 
 	return stats;
+}
+
+/**
+ * What the duplicate check of "create cards for unlinked notes" reads: every card of the board (archived ones too) and its action history.
+ * `null` when either read fails: a missing read must never look like "no such card", so nothing is created this pass (counted and logged as an error).
+ * shortcut: `getActions` returns one page of history (`changeLogPageSize`, 1000 by default), so a card deleted long ago can be missing, upgrade by paging when such duplicates are reported.
+ */
+async function readCreationHistory(
+	client: TrelloClient,
+	options: FolderSyncOptions,
+	boardCards: TrelloCard[] | undefined,
+	stats: FolderSyncStats,
+	reporter: Reporter,
+	signal?: AbortSignal,
+): Promise<{ allBoardCards: TrelloCard[]; actions: TrelloAction[] } | null> {
+	try {
+		return {
+			allBoardCards: boardCards ?? (await client.getBoardCards(options.boardId, "all", signal)),
+			actions: options.boardActions ?? (await client.getActions(options.boardId, {}, signal)),
+		};
+	} catch (error) {
+		if (!signal?.aborted) {
+			stats.errors++;
+			reporter.log("error", `No card created: could not read the board's cards and history to check for duplicates (${errorMessage(error)})`);
+		}
+		return null;
+	}
 }
 
 /** Applies the user's rule to a card whose note was deleted: remember it as ignored, or archive it on Trello (recoverable). */
@@ -582,8 +600,12 @@ export async function syncAllMappings(
 		options.cardFate.archiveFolder !== "";
 	const wantsAllCards = wantsArchivedNotes || anyMappingCreatesCards;
 	const boardCards = wantsAllCards ? await client.getBoardCards(options.boardId, "all", signal) : undefined;
+	// A failed read is not "no history": the folders that need it read it again and create nothing if it still fails (see `readCreationHistory`).
 	const boardActions = anyMappingCreatesCards
-		? await client.getActions(options.boardId, {}, signal).catch(() => [])
+		? await client.getActions(options.boardId, {}, signal).catch((error: unknown) => {
+				if (!signal?.aborted) reporter.log("warn", `Could not read the board's action history up front (${errorMessage(error)})`);
+				return undefined;
+			})
 		: undefined;
 	const allNotes = vault.listNotes("");
 	const cardIndex = options.syncAttachments === false ? undefined : buildCardIndex(vault, allNotes);
