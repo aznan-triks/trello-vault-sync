@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Plain words:** A note and a card that were both edited at about the same time are no longer settled behind your back. The label, checklist, attachment, member and cover steps used to run anyway during that standoff, which made one side look newer and let the next sync overwrite the other side without asking. They now do nothing until you decide. A push is also safer: if sending the note's text to Trello fails, nothing else has been written to the card yet, so the next sync does not wrongly pull the card over your edit. Labels typed in the note and labels set through a mapped property now reach the card in a single update instead of two that could erase each other. This is part of the reconciliation fixes (issue #2); the root cause (a local edit lost when anything else happens on the card) is still open and will be a separate change.
+  **Technical:**
+  - `features/syncNote.ts`: `writesAllowed = !dryRun && direction !== "conflict"` gates every sub-sync (labels, label properties, attachments, checklists, downloads, cover, members, custom fields); previously only `dryRun` did.
+  - Label steps (`convergeLabelsOnMerge`, `convergeLabelProperties`) no longer call `updateCard`: they compute one target id list (the property step starts from the merge step's result), written once by `writeCardFields` — inside the main `updateCard` on a push, on its own on pull/skip. Fixes the stale-snapshot lost update.
+  - `convergeChecklists` returns its check-item writes as a deferred `pushCheckItems`; on a push they go out after the card write.
+  - Tests: `tests/reconciliation.test.ts` (F3a, F3b, F3 checklists, F4 x3, F6).
+
 ## [1.25.0] — 2026-10-19
 
 ### Added
