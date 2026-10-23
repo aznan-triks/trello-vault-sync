@@ -278,3 +278,18 @@ describe("decideSync", () => {
 		expect(decision.direction).toBe("skip");
 	});
 });
+
+describe("decideSync — checklists", () => {
+	test("a checklist-only change is not identical: the newer side wins", () => {
+		expect(decideSync({ ...base, checklistsChanged: true, remoteMtime: 2_000_000 }).direction).toBe("pull");
+		expect(decideSync({ ...base, checklistsChanged: true, localMtime: 2_000_000 }).direction).toBe("push");
+	});
+
+	test("a checklist-only change within the margin is a conflict", () => {
+		expect(decideSync({ ...base, checklistsChanged: true, remoteMtime: 1_000_500 }).direction).toBe("conflict");
+	});
+
+	test("an unchanged checklist keeps the fiche identical", () => {
+		expect(decideSync({ ...base, checklistsChanged: false }).direction).toBe("skip");
+	});
+});

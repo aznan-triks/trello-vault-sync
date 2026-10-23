@@ -41,6 +41,8 @@ export interface SyncInput {
 	syncDue?: boolean;
 	/** Whether labels are synchronized. Defaults to true. */
 	syncLabels?: boolean;
+	/** The note's checklist section and the card's checklists differ (items or checked states). Defaults to false. */
+	checklistsChanged?: boolean;
 	policy: ConflictPolicy;
 	/** Timestamp tolerance below which the two sides are considered simultaneous. */
 	marginMs: number;
@@ -83,7 +85,7 @@ export function decideSync(input: SyncInput): SyncDecision {
 		input.labelsSyncMode === "overwrite" &&
 		!sameLabelSet(input.localLabels ?? [], input.remoteLabels ?? []);
 
-	if (!bodyChanged && !titleChanged && !dueChanged && !labelsChanged) {
+	if (!bodyChanged && !titleChanged && !dueChanged && !labelsChanged && input.checklistsChanged !== true) {
 		return { direction: "skip", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "identical" };
 	}
 
