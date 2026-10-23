@@ -170,4 +170,25 @@ describe("createCardFromNote", () => {
 		expect(desc).not.toContain("Checklist");
 		expect(desc).toContain("Real body content");
 	});
+
+	test("the card goes to the bottom of the list unless a position is given", async () => {
+		const vault = new FakeVault({ "Notes/A.md": { content: "a" }, "Notes/B.md": { content: "b" } });
+		const { transport, calls } = stubTransport([ok(createdCard), ok(createdCard)]);
+		const client = new TrelloClient(CREDENTIALS, transport);
+
+		await createCardFromNote(vault, client, vault.note("Notes/A.md"), "l-inbox", []);
+		await createCardFromNote(vault, client, vault.note("Notes/B.md"), "l-inbox", [], { pos: 25.5 });
+
+		expect(new URLSearchParams(calls[0]?.body).get("pos")).toBe("bottom");
+		expect(new URLSearchParams(calls[1]?.body).get("pos")).toBe("25.5");
+	});
+
+	test("a dry run sends nothing, whatever the position", async () => {
+		const vault = new FakeVault({ "Notes/A.md": { content: "a" } });
+		const { transport, calls } = stubTransport([]);
+
+		await createCardFromNote(vault, new TrelloClient(CREDENTIALS, transport), vault.note("Notes/A.md"), "l-inbox", [], { pos: 3, dryRun: true });
+
+		expect(calls).toEqual([]);
+	});
 });

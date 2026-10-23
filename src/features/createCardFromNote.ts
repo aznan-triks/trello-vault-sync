@@ -15,6 +15,8 @@ export interface CreateCardFromNoteOptions {
 	labelsFrontmatterKey?: string;
 	cardRefFrontmatterKey?: string;
 	dryRun?: boolean;
+	/** Where the card lands in its list; `"bottom"` (the default) is the end of the list. A number goes between two cards, see `core/sections.ts`. */
+	pos?: number | "bottom";
 	/** Called once, after the card is created and the note is linked — never in dry-run. Feeds "Recreate the missing cards of notes" into sync history so the creation can be undone (archived) later. */
 	onCardCreate?: (action: TrelloCardCreateAction) => void;
 }
@@ -74,7 +76,7 @@ export async function createCardFromNote(
 			desc: body,
 			due,
 			idLabels,
-			pos: "bottom",
+			pos: options.pos ?? "bottom",
 		},
 		signal,
 	);

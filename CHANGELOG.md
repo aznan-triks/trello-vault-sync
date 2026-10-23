@@ -12,7 +12,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **Technical:**
   - `core/sections.ts` (new, pure): `splitSections` cuts the cards, sorted by `pos`, into `{ separator, cards }[]`; `sectionOfNote` reads the section name from the property and/or the first subfolder under the mapped folder; `positionInSection` returns the `pos` halfway between the two neighbours (`"bottom"` for the last section, `null` when no separator carries the name); `sectionTarget` chains them; `insertCard` files a created card by its returned `pos`; `sectionRulesFrom` is `null` while the label is empty. Names are compared with `isSameCardName`.
   - Settings `separatorLabelName` (`""`), `separatorPlacement` (`"last"`), `sectionSource` (`"auto"`), `sectionFrontmatterKey` (`DEFAULT_SECTION_KEY`), with `normalizeSettings` fallbacks.
-  - Tests: `tests/sections.test.ts`, `tests/settings.test.ts`.
+  - `trello/client.ts`: `TrelloCard.pos` (already returned by `fields: all`). `features/createCardFromNote.ts`: new option `pos` (`number | "bottom"`, default `"bottom"`), sent as the card's `pos`; callers that do not pass it behave as before.
+  - Tests: `tests/sections.test.ts`, `tests/settings.test.ts`, `tests/createCardFromNote.test.ts` (default `pos=bottom`, explicit `pos`, dry run).
 
 ## [1.25.1] — 2026-10-23
 

@@ -76,6 +76,8 @@ export interface TrelloCard {
 	idList?: string;
 	closed?: boolean;
 	due: string | null;
+	/** Trello's ordering key within the list (returned by `fields: all`) — what sections are cut and filled by, see `core/sections.ts`. */
+	pos?: number;
 	/** Optional so `PlannedCard` (a deliberate subset used by the folder planner, out of this feature's scope) keeps satisfying this shape unchanged. */
 	labels?: TrelloLabel[];
 	/** `null`/missing when the card has no cover (a plain color cover carries no `scaled` images — see `core/attachmentRef.ts::coverImageUrl`). */
