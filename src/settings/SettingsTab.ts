@@ -20,6 +20,7 @@ import {
 } from "../core/cardViewModel";
 import { mergeScannedLabels, type LabelPropertyDirection } from "../core/labelProperty";
 import { sameSettingValue, setSettingAt, settingAt } from "../core/settingValue";
+import { DEFAULT_SECTION_KEY, type SectionPlacement, type SectionSource } from "../core/sections";
 import type { OnLinkedNoteDeleted } from "../core/deletedNotes";
 import type { OnCardArchived, OnCardDeleted, OnCardMoved } from "../core/cardFate";
 import type { LabelSyncMode } from "../core/labelMerge";
@@ -93,6 +94,17 @@ const LABEL_PROPERTY_DIRECTION_LABELS: Record<LabelPropertyDirection, string> = 
 	both: "Both ways",
 	"to-note": "Trello labels to note properties only",
 	"to-trello": "Note properties to Trello labels only",
+};
+
+const SEPARATOR_PLACEMENT_LABELS: Record<SectionPlacement, string> = {
+	first: "Right after the separator",
+	last: "Right before the next separator",
+};
+
+const SECTION_SOURCE_LABELS: Record<SectionSource, string> = {
+	auto: "The property, else the subfolder",
+	frontmatter: "The property only",
+	subfolder: "The subfolder only",
 };
 
 /** Trello's fixed label palette (the part before any "_dark"/"_light" suffix) as CSS colors. */
@@ -2430,6 +2442,84 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					this.display();
 				}),
 		);
+
+		this.renderSeparators(root);
+	}
+
+	private renderSeparators(root: HTMLElement): void {
+		const settings = this.plugin.settings;
+		const on = settings.separatorLabelName !== "";
+		new Setting(root).setName("Separator cards").setHeading();
+		root.createEl("p", {
+			cls: "setting-item-description",
+			text: "In a long Trello list organised with heading cards (separators), a card created from a note goes into its section instead of the end of the list.",
+		});
+
+		this.track(new Setting(root)
+			.setName("Separator label")
+			.setDesc(
+				"The Trello label that marks a separator card. Empty turns this off: every new card goes to the end of its list. " +
+					"A note names its section with the name of a separator (same spelling as a note name: case and forbidden characters do not matter).",
+			)
+			.addText((text) => {
+				text.setPlaceholder("Label name").setValue(settings.separatorLabelName).onChange((value) => {
+					settings.separatorLabelName = value.trim();
+					void this.save();
+				});
+				// Not on every keystroke: redrawing would take the focus away while typing.
+				text.inputEl.addEventListener("blur", () => {
+					if ((settings.separatorLabelName !== "") !== on) this.display();
+				});
+				new TrelloPickerSuggest(
+					this.app,
+					text.inputEl,
+					async () => {
+						if (settings.boardId.trim() === "") throw new Error("Set the board id above first.");
+						const labels = await this.plugin.client().getBoardLabels(settings.boardId);
+						return labels.filter((label) => label.name.trim() !== "").map((label) => ({ id: label.id, name: label.name }));
+					},
+					(label) => {
+						settings.separatorLabelName = label.name;
+						text.setValue(label.name);
+						void this.save();
+						this.display();
+					},
+				);
+			}), "separatorLabelName");
+
+		const holder = this.group(root, on);
+		this.track(new Setting(holder)
+			.setName("Place the card")
+			.setDesc("Where a new card goes in its section.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(SEPARATOR_PLACEMENT_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(settings.separatorPlacement).onChange((value) => {
+					settings.separatorPlacement = value as SectionPlacement;
+					void this.save();
+				});
+			}), "separatorPlacement");
+
+		this.track(new Setting(holder)
+			.setName("Section of a note")
+			.setDesc("Where a note names its section: the subfolder is the first folder under the mapped folder (Cities/Paris/x.md under the mapped folder is in Cities).")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(SECTION_SOURCE_LABELS)) dropdown.addOption(value, label);
+				dropdown.setValue(settings.sectionSource).onChange((value) => {
+					settings.sectionSource = value as SectionSource;
+					void this.save();
+				});
+			}), "sectionSource");
+
+		this.track(new Setting(holder)
+			.setName("Section property")
+			.setDesc("The property holding the section name. Empty resets it to the default key.")
+			.addText((text) =>
+				text.setValue(settings.sectionFrontmatterKey).onChange((value) => {
+					settings.sectionFrontmatterKey = safeFrontmatterKey(value, DEFAULT_SECTION_KEY);
+					void this.save();
+				}),
+			), "sectionFrontmatterKey");
+		this.groupHint(root, holder);
 	}
 
 	private renderMappingOverride(

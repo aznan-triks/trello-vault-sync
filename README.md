@@ -152,6 +152,7 @@ panel, never in a vault note; each heading below matches a section of the settin
 - **Arbitration & safety** — who wins on conflict (newer side, Obsidian always, or Trello always), clock margin, Dry run toggle, and automatic note cleanup during sync.
 - **When a card changes on Trello** — what a sync does when a card is moved, archived, or deleted on Trello, plus ignored cards handling.
 - **Labels & Labels to properties** — label merging rules and bidirectional mapping from Trello labels to Obsidian frontmatter properties.
+- **Separator cards** (Mappings tab) — name the Trello label that marks the heading cards of a long list, and a card created from a note goes into its section (the note's first subfolder under the mapped folder, or a property), first or last. Off until the label is set.
 - **Attachments, Checklists, Cover image, Members, Custom fields** — toggle sync for each card dimension, configure frontmatter keys, and set attachment download locations.
 - **Sync history** — history retention count, confirmation prompt, and Trello write rollback toggle.
 - **Auto-sync** — background synchronization triggers (timer, focus, startup) and interval settings.

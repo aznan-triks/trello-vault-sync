@@ -167,6 +167,11 @@ export function sectionTarget(
 	return pos === null ? { pos: "bottom", section: null, missing: name } : { pos, section: name, missing: null };
 }
 
+/** The journal line (after the note's name) for a note whose section no separator carries. */
+export function missingSectionMessage(section: string): string {
+	return `no separator named "${section}" in the list, the card goes to the end of the list`;
+}
+
 /** Files a created card into the section its returned `pos` falls in, so the next placement of the same pass counts it. */
 export function insertCard<T extends SectionCard>(sections: Section<T>[], card: T): void {
 	let target = sections.at(-1);
