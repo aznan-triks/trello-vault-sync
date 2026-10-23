@@ -56,6 +56,8 @@ export interface SyncInput {
 	syncLabels?: boolean;
 	/** The note's checklist section and the card's checklists differ (items or checked states). Defaults to false. */
 	checklistsChanged?: boolean;
+	/** The caller settles the checklists item by item (from a base), so a difference there is no reason to pick a direction. Only read by `decideWithBase`. */
+	checklistsByItem?: boolean;
 	policy: ConflictPolicy;
 	/** Timestamp tolerance below which the two sides are considered simultaneous. */
 	marginMs: number;
@@ -68,7 +70,7 @@ export interface SyncDecision {
 	dueChanged: boolean;
 	labelsChanged: boolean;
 	fields: FieldSides;
-	reason: "identical" | "remote-newer" | "local-newer" | "within-margin" | "policy" | "remote-changed" | "local-changed" | "both-changed";
+	reason: "identical" | "remote-newer" | "local-newer" | "within-margin" | "policy" | "remote-changed" | "local-changed" | "both-changed" | "checklists";
 }
 
 const NO_SIDES: FieldSides = { title: "none", body: "none", due: "none", labels: "none" };

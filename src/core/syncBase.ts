@@ -157,8 +157,8 @@ export function decideWithBase(input: SyncInput, base: SyncBase | undefined): Sy
 	const sides = Object.values(fields);
 	const pull = sides.includes("pull");
 	const push = sides.includes("push");
-	// Nothing tracked changed: identical, or only the checklists differ — which keep the clock-based direction.
-	if (!pull && !push) return legacy;
+	// Nothing tracked changed: identical, or only the checklists differ — settled item by item when the caller can, otherwise by the clocks.
+	if (!pull && !push) return input.checklistsByItem && legacy.direction !== "skip" ? { ...legacy, direction: "skip", reason: "checklists" } : legacy;
 	const direction = pull && push ? "merge" : pull ? "pull" : "push";
 	const reason = arbitrated ? legacy.reason : direction === "merge" ? "both-changed" : direction === "pull" ? "remote-changed" : "local-changed";
 	return { ...legacy, direction, fields, reason };

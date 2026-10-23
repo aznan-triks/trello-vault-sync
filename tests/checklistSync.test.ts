@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { checklistsDiffer, resolveChecklists } from "../src/features/checklistSync";
+import { checklistStates, checklistsDiffer, resolveChecklists } from "../src/features/checklistSync";
 import type { TrelloChecklist } from "../src/trello/client";
 
 const HEADING = "## Checklist";
@@ -143,5 +143,41 @@ describe("checklistsDiffer", () => {
 			{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver ", state: "complete" }] },
 		];
 		expect(checklistsDiffer(spaced, "## Checklist\n### Prep\n- [x] Réserver", HEADING)).toBe(false);
+	});
+});
+
+describe("resolveChecklists with a base", () => {
+	const remote = (a: "complete" | "incomplete", b: "complete" | "incomplete"): TrelloChecklist[] => [
+		{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "A", state: a }, { id: "i2", name: "B", state: b }] },
+	];
+	const note = (a: boolean, b: boolean) => `## Checklist\n### Prep\n- [${a ? "x" : " "}] A\n- [${b ? "x" : " "}] B`;
+
+	test("an item moved only in the note is pushed, even when the winner is the card", () => {
+		const result = resolveChecklists(remote("incomplete", "incomplete"), note(true, false), HEADING, "remote", { i1: false, i2: false });
+		expect(result.pushes).toEqual([{ checkItemId: "i1", state: "complete" }]);
+		expect(result.markdown).toBe("## Checklist\n### Prep\n- [x] A\n- [ ] B");
+	});
+
+	test("an item moved only on Trello is taken, even when the winner is the note", () => {
+		const result = resolveChecklists(remote("complete", "incomplete"), note(false, false), HEADING, "local", { i1: false, i2: false });
+		expect(result.pushes).toEqual([]);
+		expect(result.markdown).toBe("## Checklist\n### Prep\n- [x] A\n- [ ] B");
+	});
+
+	test("each item goes its own way", () => {
+		const result = resolveChecklists(remote("complete", "incomplete"), note(false, true), HEADING, "remote", { i1: false, i2: false });
+		expect(result.pushes).toEqual([{ checkItemId: "i2", state: "complete" }]);
+		expect(result.markdown).toBe("## Checklist\n### Prep\n- [x] A\n- [x] B");
+	});
+
+	test("an item the base does not know follows the winner", () => {
+		expect(resolveChecklists(remote("incomplete", "incomplete"), note(true, false), HEADING, "remote", {}).pushes).toEqual([]);
+		expect(resolveChecklists(remote("incomplete", "incomplete"), note(true, false), HEADING, "local", {}).pushes).toEqual([{ checkItemId: "i1", state: "complete" }]);
+	});
+
+	test("checklistStates is Trello's state with the pushes applied", () => {
+		const pushes = [{ checkItemId: "i2", state: "complete" as const }];
+		expect(checklistStates(remote("complete", "incomplete"))).toEqual({ i1: true, i2: false });
+		expect(checklistStates(remote("complete", "incomplete"), pushes)).toEqual({ i1: true, i2: true });
 	});
 });

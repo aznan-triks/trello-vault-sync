@@ -165,3 +165,20 @@ describe("baseFromState", () => {
 		expect(decideWithBase({ ...same, localBody: "more" }, recorded).direction).toBe("push");
 	});
 });
+
+describe("decideWithBase — checklists settled item by item", () => {
+	const base: SyncBase = { title: "Busy", body: bodyKey("text"), due: null, checkItems: { i1: false }, at: 0 };
+	const input = { ...same, checklistsChanged: true, remoteMtime: T + 3_600_000 };
+
+	test("a checklist-only difference picks no direction when the caller settles the items", () => {
+		expect(decideWithBase({ ...input, checklistsByItem: true }, base)).toMatchObject({ direction: "skip", reason: "checklists" });
+	});
+
+	test("without that, the clocks decide as before", () => {
+		expect(decideWithBase(input, base)).toEqual(decideSync(input));
+	});
+
+	test("a field that moved still decides the direction beside the checklists", () => {
+		expect(decideWithBase({ ...input, checklistsByItem: true, localBody: "edited" }, base)).toMatchObject({ direction: "push", fields: { body: "push" } });
+	});
+});

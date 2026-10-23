@@ -562,3 +562,134 @@ describe("lot E — decisions from the sync base", () => {
 		expect(t.state.card.desc).toBe("edited");
 	});
 });
+
+describe("lot E — checklists, item by item", () => {
+	const items = (...states: Array<"complete" | "incomplete">) =>
+		[{ id: "cl", name: "Todo", pos: 1, checkItems: states.map((state, i) => ({ id: `i${i + 1}`, name: "abcdef"[i], state, pos: i + 1 })) }] as never;
+	const note = (...ticks: boolean[]) =>
+		`---\n${REF}\n---\n\nbody\n\n## Checklist\n### Todo\n${ticks.map((t, i) => `- [${t ? "x" : " "}] ${"abcdef"[i]}`).join("\n")}`;
+	const OPTIONS = { ...BASE, syncChecklists: true };
+	function memoryBases() {
+		const map = new Map<string, SyncBase>();
+		const store: SyncBaseStore = { get: (id) => map.get(id), set: (id, base) => void map.set(id, base), drop: (id) => void map.delete(id) };
+		return { map, store };
+	}
+	const sync = (vault: ClockVault, t: ReturnType<typeof fakeTrello>, store: SyncBaseStore, options: Partial<NoteSyncOptions> = {}) =>
+		syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...OPTIONS, syncBase: store, ...options });
+	const checkPuts = (t: ReturnType<typeof fakeTrello>) => t.puts.filter((p) => p.url.includes("checkItem")).map((p) => `${/checkItem\/([^/?]+)/.exec(p.url)?.[1]}=${p.body.get("state")}`);
+	const stateOf = (t: ReturnType<typeof fakeTrello>, id: string) => t.state.card.checklists?.[0]?.checkItems.find((i) => i.id === id)?.state;
+
+	/** A primed pair: both sides show `a` and `b` unticked, the base knows it. */
+	async function primed() {
+		const vault = new ClockVault({ "Note.md": { content: note(false, false), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "body", dateLastActivity: iso(T0), checklists: items("incomplete", "incomplete") }), []);
+		const bases = memoryBases();
+		clock.now = T0 + H / 2;
+		expect((await sync(vault, t, bases.store)).direction).toBe("skip");
+		expect(bases.map.get("c1")?.checkItems).toEqual({ i1: false, i2: false });
+		return { vault, t, bases };
+	}
+
+	test("a box ticked on Trello is pulled even though the note is the more recently written side", async () => {
+		const { vault, t, bases } = await primed();
+		t.state.card.checklists = items("complete", "incomplete");
+		t.state.card.dateLastActivity = iso(T0 + H);
+		clock.now = T0 + 2 * H;
+		await vault.write(vault.note("Note.md"), vault.contentOf("Note.md")); // the note is touched later than the tick, without any change
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases.store);
+		expect(result.direction).toBe("pull");
+		expect(checkPuts(t)).toEqual([]);
+		expect(vault.contentOf("Note.md")).toContain("- [x] a");
+		expect(stateOf(t, "i1")).toBe("complete");
+	});
+
+	test("a box ticked in the note is pushed even though a comment made the card the more recently active side", async () => {
+		const { vault, t, bases } = await primed();
+		clock.now = T0 + H;
+		await vault.write(vault.note("Note.md"), note(true, false));
+		t.state.card.dateLastActivity = iso(T0 + 2 * H); // a comment
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases.store);
+		expect(result.direction).toBe("push");
+		expect(checkPuts(t)).toEqual(["i1=complete"]);
+		expect(vault.contentOf("Note.md")).toContain("- [x] a");
+		expect(t.state.card.desc).toBe("body");
+		// settled: the next cycle does nothing
+		clock.now = T0 + 4 * H;
+		const puts = t.puts.length;
+		expect((await sync(vault, t, bases.store)).direction).toBe("skip");
+		expect(t.puts).toHaveLength(puts);
+	});
+
+	test("each item follows the side that changed it: one ticked on Trello, another in the note", async () => {
+		const { vault, t, bases } = await primed();
+		t.state.card.checklists = items("complete", "incomplete");
+		t.state.card.dateLastActivity = iso(T0 + H);
+		clock.now = T0 + 2 * H;
+		await vault.write(vault.note("Note.md"), note(false, true));
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases.store);
+		expect(result.direction).toBe("merge");
+		expect(checkPuts(t)).toEqual(["i2=complete"]);
+		expect(vault.contentOf("Note.md")).toContain("- [x] a\n- [x] b");
+		expect(stateOf(t, "i1")).toBe("complete");
+		expect(stateOf(t, "i2")).toBe("complete");
+		expect(bases.map.get("c1")?.checkItems).toEqual({ i1: true, i2: true });
+	});
+
+	test("a checklist-only difference settles even when the two clocks are within the margin", async () => {
+		const { vault, t, bases } = await primed();
+		clock.now = T0 + H;
+		await vault.write(vault.note("Note.md"), note(true, false));
+		t.state.card.dateLastActivity = iso(T0 + H + 5_000);
+		clock.now = T0 + 3 * H;
+		expect((await sync(vault, t, bases.store)).direction).toBe("push");
+		expect(stateOf(t, "i1")).toBe("complete");
+	});
+
+	test("a forced pull ignores the item base and takes Trello's state", async () => {
+		const { vault, t, bases } = await primed();
+		clock.now = T0 + H;
+		await vault.write(vault.note("Note.md"), note(true, false));
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases.store, { force: "pull" });
+		expect(result.direction).toBe("pull");
+		expect(checkPuts(t)).toEqual([]);
+		expect(vault.contentOf("Note.md")).toContain("- [ ] a");
+	});
+
+	test("without item states in the base, the direction decides as in 1.25.1", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note(true, false), mtime: T0 + H } });
+		const t = fakeTrello(remoteCard({ desc: "body", dateLastActivity: iso(T0 + 2 * H), checklists: items("incomplete", "incomplete") }), []);
+		const bases = memoryBases();
+		bases.map.set("c1", { title: "Note", body: bodyKey("body"), due: null, at: 0 });
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases.store);
+		expect(result.direction).toBe("pull"); // the card shows the later activity
+		expect(vault.contentOf("Note.md")).toContain("- [ ] a");
+	});
+
+	test("the item states are not recorded when a check-item write failed", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note(false, false), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "body", dateLastActivity: iso(T0), checklists: items("incomplete", "incomplete") }), [], (b) => b.has("state"));
+		const bases = memoryBases();
+		clock.now = T0 + H / 2;
+		await sync(vault, t, bases.store);
+		await vault.write(vault.note("Note.md"), note(true, false));
+		clock.now = T0 + 3 * H;
+		await sync(vault, t, bases.store);
+		expect(bases.map.get("c1")?.checkItems).toBeUndefined();
+		expect(bases.map.get("c1")?.body).toBe(bodyKey("body"));
+	});
+
+	test("a pair with checklists off records no item states", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note(false), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "body", dateLastActivity: iso(T0), checklists: items("incomplete") }), []);
+		const bases = memoryBases();
+		clock.now = T0 + H;
+		await sync(vault, t, bases.store, { syncChecklists: false });
+		expect(bases.map.get("c1")).toBeDefined();
+		expect(bases.map.get("c1")?.checkItems).toBeUndefined();
+	});
+});
