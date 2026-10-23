@@ -432,7 +432,7 @@ export async function syncFolder(
 				knownNames.add(unlinked.basename);
 				if (!options.dryRun) {
 					createdCardIds.add(result.card.id);
-					if (sectionRules) insertCard(sections, result.card);
+					if (sectionRules) insertCard(sections, result.card, (other) => isSeparatorCard(other, sectionRules.labelName));
 				}
 			} catch (error) {
 				stats.createdCards--;

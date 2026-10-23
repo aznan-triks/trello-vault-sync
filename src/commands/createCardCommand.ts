@@ -11,6 +11,7 @@ import {
 } from "../core/phantomCardDestination";
 import {
 	insertCard,
+	isSeparatorCard,
 	mappingFolderFor,
 	missingSectionMessage,
 	sectionOfNote,
@@ -162,7 +163,7 @@ export async function batchCreateCardsFromNotesAction(
 						signal,
 					);
 					// The next note of the batch counts this card, by the pos Trello returned.
-					if (placed?.sections && !ctx.settings.dryRun) insertCard(placed.sections, card);
+					if (placed?.sections && !ctx.settings.dryRun) insertCard(placed.sections, card, (other) => isSeparatorCard(other, ctx.settings.separatorLabelName));
 					created++;
 					reporter.log("create", target?.section ? `${candidate.note.basename} — section "${target.section}"` : candidate.note.basename);
 				} catch (error) {

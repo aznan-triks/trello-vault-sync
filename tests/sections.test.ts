@@ -190,7 +190,7 @@ describe("sectionTarget", () => {
 describe("insertCard", () => {
 	test("files the card in the section its pos falls in, ahead of the next placement", () => {
 		const sections = splitSections([sep("S1", 10), item("a", 20), sep("S2", 40)], isSep);
-		insertCard(sections, item("new", 30));
+		insertCard(sections, item("new", 30), isSep);
 		expect(names(sections[0]?.cards ?? [])).toEqual(["a", "new"]);
 		expect(positionInSection(sections, "S1", "last")).toBe(35);
 		expect(positionInSection(sections, "S1", "first")).toBe(15);
@@ -198,13 +198,37 @@ describe("insertCard", () => {
 
 	test("a card at the bottom lands in the last section; none yet starts one", () => {
 		const sections = splitSections([sep("S1", 10), sep("S2", 40)], isSep);
-		insertCard(sections, item("new", 99));
+		insertCard(sections, item("new", 99), isSep);
 		expect(names(sections[1]?.cards ?? [])).toEqual(["new"]);
-		insertCard(sections, { name: "nopos" });
+		insertCard(sections, { name: "nopos" }, isSep);
 		expect(names(sections[1]?.cards ?? [])).toEqual(["new", "nopos"]);
 		const empty = splitSections<SectionCard>([], isSep);
-		insertCard(empty, item("first", 1));
+		insertCard(empty, item("first", 1), isSep);
 		expect(empty).toEqual([{ separator: null, cards: [item("first", 1)] }]);
+	});
+});
+
+describe("insertCard — a created card that is itself a separator", () => {
+	test("opens a section: the cards after it in the old section move to the new one", () => {
+		const sections = splitSections([sep("S1", 10), item("a", 20), item("b", 40), sep("S2", 60)], isSep);
+		insertCard(sections, sep("New", 30), isSep);
+		expect(sections.map((s) => [s.separator?.name, names(s.cards)])).toEqual([
+			["S1", ["a"]],
+			["New", ["b"]],
+			["S2", []],
+		]);
+		expect(positionInSection(sections, "New", "last")).toBe(50);
+	});
+
+	test("at the bottom: a new empty last section; before everything: a new first section", () => {
+		const sections = splitSections([sep("S1", 10), item("a", 20)], isSep);
+		insertCard(sections, sep("Last", 99), isSep);
+		insertCard(sections, sep("Head", 1), isSep);
+		expect(sections.map((s) => [s.separator?.name, names(s.cards)])).toEqual([
+			["Head", []],
+			["S1", ["a"]],
+			["Last", []],
+		]);
 	});
 });
 

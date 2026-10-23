@@ -182,19 +182,31 @@ export function missingSectionMessage(section: string): string {
 	return `no separator named "${section}" in the list, the card goes to the end of the list`;
 }
 
-/** Files a created card into the section its returned `pos` falls in, so the next placement of the same pass counts it. */
-export function insertCard<T extends SectionCard>(sections: Section<T>[], card: T): void {
-	let target = sections.at(-1);
-	if (!target) {
-		sections.push({ separator: null, cards: [card] });
+/**
+ * Files a created card into the section its returned `pos` falls in, so the next placement of the same pass counts it.
+ * A card that is itself a separator (its note carries the separator label) opens a section instead: the cards after it move into it.
+ */
+export function insertCard<T extends SectionCard>(sections: Section<T>[], card: T, isSeparator: (card: T) => boolean): void {
+	const { pos } = card;
+	let index = sections.length - 1;
+	if (pos !== undefined) {
+		index = -1;
+		sections.forEach((section, i) => {
+			if (section.separator === null || (section.separator.pos ?? Number.POSITIVE_INFINITY) < pos) index = i;
+		});
+	}
+	const target = sections[index];
+	if (isSeparator(card)) {
+		const later = target ? target.cards.filter((other) => byPos(other, card) > 0) : [];
+		if (target) target.cards = target.cards.filter((other) => !later.includes(other));
+		sections.splice(index + 1, 0, { separator: card, cards: later });
 		return;
 	}
-	const { pos } = card;
-	if (pos !== undefined) {
-		target =
-			sections.filter((section) => section.separator === null || (section.separator.pos ?? Number.POSITIVE_INFINITY) < pos).at(-1) ??
-			sections[0];
+	if (!target) {
+		// Before the first separator of the list (or no section yet): the section of cards nobody targets.
+		sections.unshift({ separator: null, cards: [card] });
+		return;
 	}
-	target?.cards.push(card);
-	target?.cards.sort(byPos);
+	target.cards.push(card);
+	target.cards.sort(byPos);
 }
