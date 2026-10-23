@@ -23,6 +23,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Behavior change: a checklist-only difference now reports `pull`/`push` instead of `skip`. Tests rewritten for it in `tests/syncNote.test.ts`: the old "pushes a local checkbox toggle even when the overall sync direction is skip" (the note must now be the newer side), the section-added test (`pull`), and the history test (note newer). New: a Trello tick on a newer card is pulled with no `PUT`.
   - Tests: `tests/reconciliation.test.ts` (F1, F1bis, F12), `tests/checklistSync.test.ts`, `tests/syncDecision.test.ts`.
 
+- **Plain words:** Three ways the sync used to throw away your data are closed. When Trello changed a checklist, the note was rewritten from scratch: your Templater tags and anything you had written below the checklist (a "Notes" section, say) disappeared; now only the checklist itself is rewritten, in place, and everything around it stays. Sending a label to a card used to wipe the colour-only labels (labels with no name) the card already had; they are now kept, and a label the card already holds is not swapped for another one of the same name. And a label name that does not exist on the board no longer triggers a useless update to the card at every sync (it used to make the card look freshly edited each time); it is now just noted in the console once per sync.
+  **Technical:**
+  - `core/noteBody.ts`: the checklist section is now bounded like `removeChecklistSection` (extracted as `checklistSectionEnd`, shared): through sub-headings, checkbox lines, indented lines and blanks, up to the next heading of its level or higher, or prose. `splitChecklistSection` returns that block plus `after` (when non-empty); `insertChecklistSection(rest, block, after)` and `replaceBody` put it back in place; new `rawBody` keeps Templater tags. The description sent to or pulled from Trello stays the text before the heading; what follows the section is local only and never rewritten. Closes review point Grok #4.
+  - `features/syncNote.ts`: `convergeChecklists` rebuilds from the raw body; the description is written on a pull or a push only when `decision.bodyChanged` (a checklist-only change no longer rewrites or re-sends an unchanged description).
+  - `resolveLabelIds` keeps the card's nameless labels and prefers a label the card already holds when names collide; `labelIdsToWrite` returns `null` when the resolved set equals the card's, so the merge and overwrite pushes skip the `PUT`.
+  - Test rewritten: "ignores a local name with no match on the board..." in `tests/syncNote.test.ts` expected the useless `PUT idLabels=`; it now expects no `PUT`.
+  - Tests: `tests/reconciliation.test.ts` (F10 x3, F7 x2, F8), `tests/noteBody.test.ts`.
+
 ## [1.25.0] — 2026-10-19
 
 ### Added

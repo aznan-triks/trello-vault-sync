@@ -38,27 +38,72 @@ export function splitFrontmatter(content: string): SplitNote {
 }
 
 /**
- * Splits `body` at the LAST line matching `heading` exactly (trimmed) —
- * everything from that line to the end is the checklist block, verbatim,
- * including the heading line itself. The checklist section is always the
- * LAST thing in a note's body: nothing after it is preserved separately.
+ * Index of the first line after the checklist section whose heading is at `headingIndex`. The section runs
+ * through its sub-headings, checkbox items, indented lines and blank lines, and ends at the next heading
+ * of its level or higher, or at any other prose — what follows belongs to the user, not to the checklist.
+ */
+function checklistSectionEnd(lines: string[], headingIndex: number, trimmedHeading: string): number {
+	const headingMatch = trimmedHeading.match(/^(#+)/);
+	const headingLevel = headingMatch && headingMatch[1] ? headingMatch[1].length : 0;
+
+	for (let i = headingIndex + 1; i < lines.length; i++) {
+		const line = lines[i] ?? "";
+		const trimmed = line.trim();
+
+		if (trimmed === "") continue;
+
+		const subMatch = trimmed.match(/^(#+)\s+/);
+		if (subMatch && subMatch[1]) {
+			// A deeper heading (e.g. ### under ##) is part of the section; the same or a higher level ends it.
+			if (headingLevel > 0 && subMatch[1].length > headingLevel) continue;
+			return i;
+		}
+
+		if (/^[-*]\s*\[[ xX]\]/.test(trimmed)) continue;
+		if (/^(\s{2,}|\t)/.test(line)) continue;
+
+		return i;
+	}
+	return lines.length;
+}
+
+/**
+ * Splits `body` at the LAST line matching `heading` exactly (trimmed). `checklistBlock` is the
+ * section from that line to where it ends (see `checklistSectionEnd`), verbatim, heading included;
+ * `rest` is what comes before it and `after`, present only when there is some, what comes after.
  * Matching the last occurrence (not the first) protects prose that happens to
  * mention the heading text earlier in the note from being swallowed into the
  * checklist block.
  */
-export function splitChecklistSection(body: string, heading: string): { rest: string; checklistBlock: string | null } {
+export function splitChecklistSection(
+	body: string,
+	heading: string,
+): { rest: string; checklistBlock: string | null; after?: string } {
 	const lines = body.split("\n");
 	const trimmedHeading = heading.trim();
 	const index = lines.findLastIndex((line) => line.trim() === trimmedHeading);
 	if (index === -1) return { rest: body, checklistBlock: null };
-	return { rest: lines.slice(0, index).join("\n"), checklistBlock: lines.slice(index).join("\n") };
+	const end = checklistSectionEnd(lines, index, trimmedHeading);
+	const blockLines = lines.slice(index, end);
+	while ((blockLines[blockLines.length - 1] ?? "").trim() === "") blockLines.pop();
+	const after = lines.slice(end).join("\n").trim();
+	return {
+		rest: lines.slice(0, index).join("\n"),
+		checklistBlock: blockLines.join("\n"),
+		...(after === "" ? {} : { after }),
+	};
 }
 
-/** Rebuilds a body from `rest` plus `checklistBlock` — `null` omits the section entirely. */
-export function insertChecklistSection(rest: string, checklistBlock: string | null): string {
-	if (checklistBlock === null) return rest.trim();
-	const trimmedRest = rest.replace(/\s+$/, "");
-	return trimmedRest === "" ? checklistBlock : `${trimmedRest}\n\n${checklistBlock}`;
+/** Rebuilds a body from `rest`, `checklistBlock` (`null` omits the section) and what followed it. */
+export function insertChecklistSection(rest: string, checklistBlock: string | null, after?: string): string {
+	const join = (head: string, tail: string) => (head === "" ? tail : `${head}\n\n${tail}`);
+	const withBlock = checklistBlock === null ? rest.trim() : join(rest.replace(/\s+$/, ""), checklistBlock);
+	return after ? join(withBlock, after) : withBlock;
+}
+
+/** The note body as written, frontmatter off and trimmed: Templater tags kept, for code that rewrites the note rather than reads its description. */
+export function rawBody(content: string): string {
+	return splitFrontmatter(content).body.trim();
 }
 
 /**
@@ -95,9 +140,8 @@ export function replaceBody(content: string, body: string, checklistHeading?: st
 	const { frontmatter, body: currentBody } = splitFrontmatter(content);
 	let finalBody = body;
 	if (checklistHeading) {
-		const currentRawBody = currentBody.replace(TEMPLATER_TAG, "").trim();
-		const { checklistBlock } = splitChecklistSection(currentRawBody, checklistHeading);
-		finalBody = insertChecklistSection(body, checklistBlock);
+		const { checklistBlock, after } = splitChecklistSection(currentBody.trim(), checklistHeading);
+		finalBody = insertChecklistSection(body, checklistBlock, after);
 	}
 	const next = frontmatter === null ? `${finalBody}\n` : `${frontmatter}\n\n${finalBody}`;
 	return next === content ? content : next;
@@ -132,36 +176,7 @@ export function removeChecklistSection(content: string, heading: string): string
 	const headingIndex = lines.findLastIndex((line) => line.trim() === trimmedHeading);
 	if (headingIndex === -1) return content;
 
-	const headingMatch = trimmedHeading.match(/^(#+)/);
-	const headingLevel = headingMatch && headingMatch[1] ? headingMatch[1].length : 0;
-
-	let endIndex = lines.length;
-	for (let i = headingIndex + 1; i < lines.length; i++) {
-		const line = lines[i] ?? "";
-		const trimmed = line.trim();
-
-		if (trimmed === "") continue;
-
-		const subMatch = trimmed.match(/^(#+)\s+/);
-		if (subMatch && subMatch[1]) {
-			const subLevel = subMatch[1].length;
-			if (headingLevel > 0 && subLevel > headingLevel) {
-				// Subheading under this checklist section (e.g. ### under ##)
-				continue;
-			} else {
-				// Same or higher level heading -> checklist section ended
-				endIndex = i;
-				break;
-			}
-		}
-
-		if (/^[-*]\s*\[[ xX]\]/.test(trimmed)) continue;
-		if (/^(\s{2,}|\t)/.test(line)) continue;
-
-		// Non-checklist prose encountered -> checklist section ended
-		endIndex = i;
-		break;
-	}
+	const endIndex = checklistSectionEnd(lines, headingIndex, trimmedHeading);
 
 	const beforeLines = lines.slice(0, headingIndex);
 	const afterLines = lines.slice(endIndex);

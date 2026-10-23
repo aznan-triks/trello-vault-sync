@@ -199,3 +199,63 @@ describe("lot B — issue #2: checklist state follows the decided direction", ()
 		expect(vault.contentOf("Note.md")).toContain("- [x] a");
 	});
 });
+
+describe("lot C — destructive writes", () => {
+	const todoAB = [{ id: "cl", name: "Todo", pos: 1, checkItems: [{ id: "i1", name: "a", state: "incomplete", pos: 1 }, { id: "i2", name: "b", state: "incomplete", pos: 2 }] }] as never;
+	const NOTE_WITH_TAIL = `---\n${REF}\n---\n\nintro <% tp.date.now() %>\n\n## Checklist\n### Todo\n- [ ] a\n\n## Notes perso\ntexte important`;
+
+	test("F10: an item added on Trello rewrites the checklist without touching Templater tags or the prose below it", async () => {
+		const vault = new ClockVault({ "Note.md": { content: NOTE_WITH_TAIL, mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "intro", dateLastActivity: iso(T0 + H), checklists: todoAB }), []);
+		clock.now = T0 + 2 * H;
+		await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncChecklists: true });
+		expect(vault.contentOf("Note.md")).toBe(
+			`---\n${REF}\n---\n\nintro <% tp.date.now() %>\n\n## Checklist\n### Todo\n- [ ] a\n- [ ] b\n\n## Notes perso\ntexte important`,
+		);
+	});
+
+	test("F10: a pulled description keeps the checklist and the prose below it", async () => {
+		const vault = new ClockVault({ "Note.md": { content: NOTE_WITH_TAIL, mtime: T0 } });
+		const checklist = [{ id: "cl", name: "Todo", pos: 1, checkItems: [{ id: "i1", name: "a", state: "incomplete", pos: 1 }] }] as never;
+		const t = fakeTrello(remoteCard({ desc: "new intro", dateLastActivity: iso(T0 + H), checklists: checklist }), []);
+		clock.now = T0 + 2 * H;
+		await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncChecklists: true });
+		expect(vault.contentOf("Note.md")).toBe(`---\n${REF}\n---\n\nnew intro\n\n## Checklist\n### Todo\n- [ ] a\n\n## Notes perso\ntexte important`);
+	});
+
+	test("F10: pushing the description sends neither the checklist nor the prose below it", async () => {
+		const vault = new ClockVault({ "Note.md": { content: NOTE_WITH_TAIL.replace("intro", "edited intro"), mtime: T0 + H } });
+		const checklist = [{ id: "cl", name: "Todo", pos: 1, checkItems: [{ id: "i1", name: "a", state: "incomplete", pos: 1 }] }] as never;
+		const t = fakeTrello(remoteCard({ desc: "intro", dateLastActivity: iso(T0), checklists: checklist }), []);
+		clock.now = T0 + 2 * H;
+		await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncChecklists: true });
+		expect(t.state.card.desc).toBe("edited intro");
+	});
+
+	test("F7: a label push keeps the color-only labels the card already carries", async () => {
+		const vault = new ClockVault({ "Note.md": { content: `---\n${REF}\ntrello_labels:\n  - "X"\n---\n\nsame`, mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "same", labels: [label("LR", "", "red")] }), [label("LR", "", "red"), label("LX", "X")]);
+		clock.now = T0 + H;
+		await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), BASE);
+		expect(t.state.card.labels?.map((l) => l.id).sort()).toEqual(["LR", "LX"]);
+	});
+
+	test("F7: a label push keeps the board label the card already holds when two share a name", async () => {
+		const vault = new ClockVault({ "Note.md": { content: `---\n${REF}\ntrello_labels:\n  - "X"\n  - "Y"\n---\n\nsame`, mtime: T0 } });
+		const board = [label("LX1", "X"), label("LX2", "X"), label("LY", "Y")];
+		const t = fakeTrello(remoteCard({ desc: "same", labels: [label("LX2", "X")] }), board);
+		clock.now = T0 + H;
+		await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), BASE);
+		expect(t.state.card.labels?.map((l) => l.id).sort()).toEqual(["LX2", "LY"]);
+	});
+
+	test("F8: a label name with no match on the board writes nothing, however many times it syncs", async () => {
+		const vault = new ClockVault({ "Note.md": { content: `---\n${REF}\ntrello_labels:\n  - "Ghost"\n---\n\nsame`, mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "same" }), []);
+		for (let i = 1; i <= 3; i++) {
+			clock.now = T0 + i * H;
+			await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), BASE);
+		}
+		expect(t.puts).toHaveLength(0);
+	});
+});

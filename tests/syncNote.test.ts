@@ -452,8 +452,8 @@ describe("syncNoteWithCard — labels, merge mode (default)", () => {
 		await expect(syncNoteWithCard(vault, client, vault.note(PATH), remote, options)).resolves.toBeDefined();
 
 		expect(vault.readFrontmatter(vault.note(PATH))?.[LABELS_KEY]).toEqual(["Zzz"]);
-		const update = requests.find((r) => r.method === "PUT");
-		expect(update?.body).toBe("idLabels=");
+		// the card already carries the (empty) set the name resolves to: nothing to write
+		expect(requests.filter((r) => r.method === "PUT")).toHaveLength(0);
 	});
 
 	test("drops only the unmatched name when pushing a mix of a valid and an invalid local label", async () => {

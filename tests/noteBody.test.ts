@@ -3,6 +3,7 @@ import {
 	extractBody,
 	insertChecklistSection,
 	normalizeBody,
+	rawBody,
 	replaceBody,
 	splitChecklistSection,
 	splitFrontmatter,
@@ -182,5 +183,46 @@ describe("replaceBody", () => {
 	test("writes just the new body when there was no checklist section to preserve", () => {
 		const content = "---\na: 1\n---\n\nold";
 		expect(replaceBody(content, "new", "## Checklist")).toBe("---\na: 1\n---\n\nnew");
+	});
+});
+
+describe("checklist section bounds", () => {
+	const body = "Intro\n\n## Checklist\n### Todo\n- [x] a\n  detail\n\n## Notes perso\ntexte important";
+
+	test("splitChecklistSection stops at the next heading of the same level and hands back what follows", () => {
+		expect(splitChecklistSection(body, "## Checklist")).toEqual({
+			rest: "Intro\n",
+			checklistBlock: "## Checklist\n### Todo\n- [x] a\n  detail",
+			after: "## Notes perso\ntexte important",
+		});
+	});
+
+	test("splitChecklistSection stops at prose too", () => {
+		expect(splitChecklistSection("## Checklist\n- [ ] a\nsome prose", "## Checklist")).toEqual({
+			rest: "",
+			checklistBlock: "## Checklist\n- [ ] a",
+			after: "some prose",
+		});
+	});
+
+	test("insertChecklistSection puts the block back before what followed it", () => {
+		expect(insertChecklistSection("Intro", "## Checklist\n- [ ] a", "## Notes perso")).toBe(
+			"Intro\n\n## Checklist\n- [ ] a\n\n## Notes perso",
+		);
+		expect(insertChecklistSection("Intro", null, "## Notes perso")).toBe("Intro\n\n## Notes perso");
+		expect(insertChecklistSection("", null, "## Notes perso")).toBe("## Notes perso");
+	});
+
+	test("replaceBody with a heading keeps the prose after the checklist and its Templater tags", () => {
+		const content = "---\na: 1\n---\n\nold\n\n## Checklist\n- [ ] a\n\n## Notes perso\n<% tp.date.now() %> texte";
+		expect(replaceBody(content, "new", "## Checklist")).toBe(
+			"---\na: 1\n---\n\nnew\n\n## Checklist\n- [ ] a\n\n## Notes perso\n<% tp.date.now() %> texte",
+		);
+	});
+
+	test("rawBody keeps the Templater tags extractBody drops", () => {
+		const content = "---\na: 1\n---\n\nText <% tp.date.now() %>\n";
+		expect(rawBody(content)).toBe("Text <% tp.date.now() %>");
+		expect(extractBody(content)).toBe("Text");
 	});
 });
