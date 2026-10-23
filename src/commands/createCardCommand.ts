@@ -11,28 +11,29 @@ import {
 } from "../core/phantomCardDestination";
 import {
 	insertCard,
-	isSeparatorCard,
+	mappingFolderFor,
 	missingSectionMessage,
+	sectionOfNote,
 	sectionRulesFrom,
 	sectionTarget,
-	splitSections,
 	type Section,
 	type SectionTarget,
 } from "../core/sections";
 import { fetchBoardIndex } from "../features/boardIndex";
 import { createCardFromNote } from "../features/createCardFromNote";
+import { readSections } from "../features/listSections";
 import type { NoteHandle, Reporter } from "../obsidian/gateway";
 import { TrelloError, type TrelloCard, type TrelloLabel, type TrelloList } from "../trello/client";
 import { ListPickerModal } from "../ui/ListPickerModal";
 import { MultiSelectPickerModal } from "../ui/MultiSelectPickerModal";
 import { PhantomNotePickerModal } from "../ui/PhantomNotePickerModal";
 
-/** A list's cards cut into sections, per list: filled on first use, so a run reads each list once. */
-type ListSections = Map<string, Section<TrelloCard>[]>;
+/** A list's cards cut into sections, per list: the read is started on first use and shared, so a run reads each list once, and a failed read fails every note that needs it without a new request. */
+type ListSections = Map<string, Promise<Section<TrelloCard>[]>>;
 
 /**
  * Where the card of `note` goes in `listId`; `null` while the separator label is empty (no request, the card goes to the end of the list).
- * Reads the list's cards once per list (`lists`), not once per note. A failed read fails the note rather than misplacing its card.
+ * A note naming no section never reads the list (`sections` is then absent). A failed read fails the note rather than misplacing its card.
  */
 async function sectionTargetFor(
 	ctx: CommandContext,
@@ -41,19 +42,24 @@ async function sectionTargetFor(
 	lists: ListSections,
 	note: NoteHandle,
 	listId: string,
-): Promise<SectionTarget | null> {
+): Promise<{ target: SectionTarget; sections?: Section<TrelloCard>[] } | null> {
 	const rules = sectionRulesFrom(ctx.settings);
 	if (!rules) return null;
-	let sections = lists.get(listId);
-	if (!sections) {
-		const cards = await ctx.client(reporter).getListCards(listId, signal);
-		sections = splitSections(cards, (card) => isSeparatorCard(card, rules.labelName));
-		lists.set(listId, sections);
+	const mappingFolder = mappingFolderFor(
+		note.path,
+		ctx.settings.mappings.filter((mapping) => mapping.listId === listId).map((mapping) => mapping.folder),
+	);
+	const frontmatter = ctx.vault.readFrontmatter(note);
+	if (sectionOfNote(note.path, mappingFolder, frontmatter, rules) === null) return { target: { pos: "bottom", section: null, missing: null } };
+	let pending = lists.get(listId);
+	if (!pending) {
+		pending = readSections(ctx.client(reporter), listId, rules, signal);
+		lists.set(listId, pending);
 	}
-	const mappingFolder = ctx.settings.mappings.find((mapping) => mapping.listId === listId)?.folder;
-	const target = sectionTarget(sections, note.path, mappingFolder, ctx.vault.readFrontmatter(note), rules, ctx.settings.noteNameMaxLength);
+	const sections = await pending;
+	const target = sectionTarget(sections, note.path, mappingFolder, frontmatter, rules, ctx.settings.noteNameMaxLength);
 	if (target.missing) reporter.log("warn", `${note.basename} — ${missingSectionMessage(target.missing)}`);
-	return target;
+	return { target, sections };
 }
 
 export async function createCardFromNoteAction(
@@ -68,7 +74,7 @@ export async function createCardFromNoteAction(
 			const boardLabels: TrelloLabel[] = ctx.settings.syncLabels
 				? await ctx.client(reporter).getBoardLabels(ctx.settings.boardId, signal)
 				: [];
-			const target = await sectionTargetFor(ctx, reporter, signal, new Map(), note, listId);
+			const target = (await sectionTargetFor(ctx, reporter, signal, new Map(), note, listId))?.target;
 			const result = await createCardFromNote(
 				ctx.vault,
 				ctx.client(reporter),
@@ -133,7 +139,8 @@ export async function batchCreateCardsFromNotesAction(
 				}
 
 				try {
-					const target = await sectionTargetFor(ctx, reporter, signal, lists, candidate.note, dest.listId);
+					const placed = await sectionTargetFor(ctx, reporter, signal, lists, candidate.note, dest.listId);
+					const target = placed?.target;
 					const { card } = await createCardFromNote(
 						vault,
 						ctx.client(reporter),
@@ -155,8 +162,7 @@ export async function batchCreateCardsFromNotesAction(
 						signal,
 					);
 					// The next note of the batch counts this card, by the pos Trello returned.
-					const sections = lists.get(dest.listId);
-					if (sections && !ctx.settings.dryRun) insertCard(sections, card);
+					if (placed?.sections && !ctx.settings.dryRun) insertCard(placed.sections, card);
 					created++;
 					reporter.log("create", target?.section ? `${candidate.note.basename} — section "${target.section}"` : candidate.note.basename);
 				} catch (error) {

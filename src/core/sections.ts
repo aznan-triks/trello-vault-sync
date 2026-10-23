@@ -1,4 +1,5 @@
 import { isSameCardName } from "./cardHistoryMatch";
+import { notesInFolder } from "./fileName";
 import { normalizeLabelName } from "./labelRef";
 
 /**
@@ -91,6 +92,11 @@ function propertySection(value: unknown): string | null {
 	// A section named "2024" is read by YAML as a number.
 	const text = typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
 	return text.trim() === "" ? null : text.trim();
+}
+
+/** The deepest of `folders` that holds the note, or `undefined` when none does: the folder a note's subfolder section is read under. */
+export function mappingFolderFor(path: string, folders: readonly string[]): string | undefined {
+	return folders.filter((folder) => notesInFolder([{ path }], folder).length > 0).sort((a, b) => b.length - a.length)[0];
 }
 
 /** First folder under the mapped folder when the note sits deeper than the mapped folder itself; `undefined` mapped folder = unknown, so none. */

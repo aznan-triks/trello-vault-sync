@@ -3,6 +3,7 @@ import {
 	DEFAULT_SECTION_KEY,
 	insertCard,
 	isSeparatorCard,
+	mappingFolderFor,
 	positionInSection,
 	sectionOfNote,
 	sectionRulesFrom,
@@ -206,5 +207,14 @@ describe("sectionRulesFrom", () => {
 
 	test("a label: the rules, label trimmed", () => {
 		expect(sectionRulesFrom(settings)).toEqual({ labelName: "Separator", placement: "first", source: "subfolder", frontmatterKey: "k" });
+	});
+});
+
+describe("mappingFolderFor", () => {
+	test("the longest folder holding the note; none when no folder holds it", () => {
+		expect(mappingFolderFor("World/Cities/Paris/x.md", ["World", "World/Cities", "Other"])).toBe("World/Cities");
+		expect(mappingFolderFor("World/x.md", ["World", "World/Cities"])).toBe("World");
+		expect(mappingFolderFor("Elsewhere/x.md", ["World"])).toBeUndefined();
+		expect(mappingFolderFor("Cities/x.md", ["", "Other"])).toBe("");
 	});
 });
