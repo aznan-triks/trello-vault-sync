@@ -5,6 +5,15 @@ import {
 } from "../core/labelProperty";
 import { ON_LINKED_NOTE_DELETED, type OnLinkedNoteDeleted } from "../core/deletedNotes";
 import {
+	DEFAULT_SECTION_KEY,
+	DEFAULT_SECTION_PLACEMENT,
+	DEFAULT_SECTION_SOURCE,
+	SECTION_PLACEMENTS,
+	SECTION_SOURCES,
+	type SectionPlacement,
+	type SectionSource,
+} from "../core/sections";
+import {
 	DEFAULT_ATTACHMENTS_KEY,
 	DEFAULT_COVER_KEY,
 	DEFAULT_COVER_LOCAL_FORMAT,
@@ -112,6 +121,14 @@ export interface TrelloVaultSyncSettings {
 	manualLinkCardWins: boolean;
 	/** On by default - each field is decided from what changed since the last successful sync (the "sync base"), not from the two modification times. Off: the 1.25.1 rule, the base is dropped. */
 	useSyncBase: boolean;
+	/** Name of the Trello label that marks a separator card (a section heading in a long list). Empty = sections are off and every new card goes to the end of its list. */
+	separatorLabelName: string;
+	/** Where a new card goes in its section: right after the separator, or right before the next one. */
+	separatorPlacement: SectionPlacement;
+	/** Where a note names its section: its property, its first-level subfolder under the mapped folder, or the property first and the subfolder otherwise. */
+	sectionSource: SectionSource;
+	/** Property naming the section of a note. */
+	sectionFrontmatterKey: string;
 
 	/** Minimum title similarity accepted when linking a note to a card. */
 	similarityThreshold: number;
@@ -335,6 +352,10 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	confirmUnlink: true,
 	manualLinkCardWins: true,
 	useSyncBase: true,
+	separatorLabelName: "",
+	separatorPlacement: DEFAULT_SECTION_PLACEMENT,
+	sectionSource: DEFAULT_SECTION_SOURCE,
+	sectionFrontmatterKey: DEFAULT_SECTION_KEY,
 	onLinkedNoteDeleted: "ignore-card",
 	similarityThreshold: 0.45,
 	maxRetries: 3,
@@ -572,6 +593,14 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		confirmUnlink: input.confirmUnlink !== false,
 		manualLinkCardWins: input.manualLinkCardWins !== false,
 		useSyncBase: input.useSyncBase !== false,
+		separatorLabelName: safeString(input.separatorLabelName, DEFAULT_SETTINGS.separatorLabelName).trim(),
+		separatorPlacement: SECTION_PLACEMENTS.includes(input.separatorPlacement as SectionPlacement)
+			? (input.separatorPlacement as SectionPlacement)
+			: DEFAULT_SETTINGS.separatorPlacement,
+		sectionSource: SECTION_SOURCES.includes(input.sectionSource as SectionSource)
+			? (input.sectionSource as SectionSource)
+			: DEFAULT_SETTINGS.sectionSource,
+		sectionFrontmatterKey: safeFrontmatterKey(input.sectionFrontmatterKey, DEFAULT_SETTINGS.sectionFrontmatterKey),
 		onLinkedNoteDeleted: ON_LINKED_NOTE_DELETED.includes(input.onLinkedNoteDeleted as OnLinkedNoteDeleted)
 			? (input.onLinkedNoteDeleted as OnLinkedNoteDeleted)
 			: DEFAULT_SETTINGS.onLinkedNoteDeleted,

@@ -18,6 +18,14 @@ import {
 } from "../obsidian/gateway";
 import type { TrelloAction } from "../core/auditAction";
 import { extractCardNamesFromActions, hasMatchingCardInBoardOrHistory } from "../core/cardHistoryMatch";
+import {
+	insertCard,
+	isSeparatorCard,
+	missingSectionMessage,
+	sectionTarget,
+	splitSections,
+	type SectionRules,
+} from "../core/sections";
 import type { TrelloCardCreateAction } from "../core/syncHistory";
 import type { TrelloCard, TrelloClient, TrelloLabel } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
@@ -74,6 +82,8 @@ export interface FolderSyncOptions extends NoteSyncOptions {
 	boardActions?: TrelloAction[];
 	/** Called once, after a card is created on Trello and the note is linked. */
 	onCardCreate?: (action: TrelloCardCreateAction) => void;
+	/** Puts the cards created for unlinked notes in their section of the list; `null`/missing = at the end of the list, as always. */
+	sections?: SectionRules | null;
 }
 
 /** The memory a pass needs to tell "the user deleted this note" from "a new card" - persisted by the caller, never by the engine. */
@@ -375,6 +385,10 @@ export async function syncFolder(
 			}
 		}
 
+		// The list's cards are already loaded: cut into sections once, then each created card is filed in so the next one counts it.
+		const sectionRules = options.sections;
+		const sections = sectionRules ? splitSections(cards, (card) => isSeparatorCard(card, sectionRules.labelName)) : [];
+
 		for (const unlinked of unlinkedCandidates) {
 			if (signal?.aborted) break;
 			const note = byPath.get(unlinked.path);
@@ -384,11 +398,16 @@ export async function syncFolder(
 			try {
 				stats.createdCards++;
 				stats.unlinked--;
+				const target = sectionRules
+					? sectionTarget(sections, note.path, mapping.folder, vault.readFrontmatter(note), sectionRules, options.maxNameLength)
+					: null;
+				if (target?.missing) reporter.log("warn", `${unlinked.basename} — ${missingSectionMessage(target.missing)}`);
+				const where = target?.section ? `section "${target.section}" of the list` : "list";
 				reporter.log(
 					"create",
 					options.dryRun
-						? `[Dry-run] Would create Trello card "${unlinked.basename}" in list`
-						: `Created Trello card "${unlinked.basename}" in list and linked note`,
+						? `[Dry-run] Would create Trello card "${unlinked.basename}" in ${where}`
+						: `Created Trello card "${unlinked.basename}" in ${where} and linked note`,
 				);
 				const result = await createCardFromNote(
 					vault,
@@ -405,6 +424,7 @@ export async function syncFolder(
 						labelsFrontmatterKey: options.labelsFrontmatterKey,
 						cardRefFrontmatterKey: cardRefKey,
 						dryRun: options.dryRun,
+						pos: target?.pos,
 						onCardCreate: options.onCardCreate,
 					},
 					signal,
@@ -412,6 +432,7 @@ export async function syncFolder(
 				knownNames.add(unlinked.basename);
 				if (!options.dryRun) {
 					createdCardIds.add(result.card.id);
+					if (sectionRules) insertCard(sections, result.card);
 				}
 			} catch (error) {
 				stats.createdCards--;

@@ -563,3 +563,116 @@ describe("PhantomNotePickerModal and ListPickerModal", () => {
 		expect(picked).toEqual(lists[1]);
 	});
 });
+
+describe("create a card in its section (separator cards)", () => {
+	const LIST = "inbox-list";
+	const SEPARATED = { ...DEFAULT_SETTINGS, boardId: "board-1", phantomCardListId: LIST, separatorLabelName: "Separator", mappings: [{ folder: "World", listId: LIST, templateName: "" }] };
+	// Cities (100): a (200) | Races (300): b (400)
+	const LIST_CARDS = [
+		card({ id: "s1", name: "Cities", pos: 100, labels: [{ id: "x", name: "Separator", color: null }] }),
+		card({ id: "a", name: "a", pos: 200 }),
+		card({ id: "s2", name: "Races", pos: 300, labels: [{ id: "x", name: "Separator", color: null }] }),
+		card({ id: "b", name: "b", pos: 400 }),
+	];
+
+	/** Answers every request by URL; POST /cards echoes the requested pos so the next placement can count it. */
+	function routed(listCards: unknown[]) {
+		const calls: HttpRequest[] = [];
+		let created = 0;
+		const transport = async (req: HttpRequest): Promise<HttpResponse> => {
+			calls.push(req);
+			if (req.method === "POST") {
+				const body = new URLSearchParams(req.body);
+				const pos = body.get("pos");
+				return ok(card({ id: `new-${++created}`, idBoard: "board-1", idList: body.get("idList") ?? "", name: body.get("name") ?? "", pos: pos === "bottom" ? 1e9 : Number(pos) }));
+			}
+			return ok(req.url.includes("/lists/") ? listCards : []);
+		};
+		const client = () => new TrelloClient({ apiKey: "k", token: "t" }, transport, { sleep: async () => {} });
+		const posOfPosts = () => calls.filter((c) => c.method === "POST").map((c) => new URLSearchParams(c.body).get("pos"));
+		const listReads = () => calls.filter((c) => c.method === "GET" && c.url.includes("/lists/"));
+		return { client, calls, posOfPosts, listReads };
+	}
+
+	test("separator label empty: pos=bottom as before, and the list's cards are never read", async () => {
+		const vault = new FakeVault({ "World/Cities/Paris.md": { content: "p" } });
+		const { client, posOfPosts, listReads } = routed(LIST_CARDS);
+		const { ctx } = fakeContext(vault, [], { client, settings: { ...SEPARATED, separatorLabelName: "" } });
+
+		await createCardFromNoteAction(ctx, vault.note("World/Cities/Paris.md"), LIST, "Inbox");
+
+		expect(posOfPosts()).toEqual(["bottom"]);
+		expect(listReads()).toHaveLength(0);
+	});
+
+	test("a note in a section's subfolder: one read of the list, a pos between the two separators' cards", async () => {
+		const vault = new FakeVault({ "World/Cities/Paris.md": { content: "p" } });
+		const { client, posOfPosts, listReads } = routed(LIST_CARDS);
+		const { ctx } = fakeContext(vault, [], { client, settings: SEPARATED });
+
+		await createCardFromNoteAction(ctx, vault.note("World/Cities/Paris.md"), LIST, "Inbox");
+
+		expect(listReads()).toHaveLength(1);
+		expect(posOfPosts()).toEqual(["250"]);
+	});
+
+	test("a section no separator carries: bottom, with a warning, nothing lost", async () => {
+		const vault = new FakeVault({ "World/Ghosts/Boo.md": { content: "b" } });
+		const { client, posOfPosts } = routed(LIST_CARDS);
+		const { ctx, logs } = fakeContext(vault, [], { client, settings: SEPARATED });
+
+		await createCardFromNoteAction(ctx, vault.note("World/Ghosts/Boo.md"), LIST, "Inbox");
+
+		expect(posOfPosts()).toEqual(["bottom"]);
+		expect(logs.find((l) => l.level === "warn")?.message).toContain('no separator named "Ghosts"');
+	});
+
+	test("a dry run reads the list, writes nothing and says which section", async () => {
+		const vault = new FakeVault({ "World/Races/Elf.md": { content: "e" } });
+		const { client, calls, listReads } = routed(LIST_CARDS);
+		let message: string | void = "";
+		const run: CommandContext["run"] = async (_title, body) => {
+			message = await body(recordingReporter(), new AbortController().signal);
+		};
+		const { ctx } = fakeContext(vault, [], { client, run, settings: { ...SEPARATED, dryRun: true } });
+
+		await createCardFromNoteAction(ctx, vault.note("World/Races/Elf.md"), LIST, "Inbox");
+
+		expect(listReads()).toHaveLength(1);
+		expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+		expect(message).toContain('[Dry-run] Would create Trello card "Elf" in list "Inbox" in section "Races"');
+	});
+
+	test("a batch reads each list once and the second note of a section counts the first", async () => {
+		const vault = new FakeVault({ "World/Cities/Lyon.md": { content: "l" }, "World/Cities/Paris.md": { content: "p" }, "World/Races/Elf.md": { content: "e" } });
+		const { client, posOfPosts, listReads } = routed(LIST_CARDS);
+		const { ctx } = fakeContext(vault, [], { client, settings: SEPARATED });
+
+		await batchCreateCardsFromNotesAction(
+			ctx,
+			["World/Cities/Lyon.md", "World/Cities/Paris.md", "World/Races/Elf.md"].map((path) => ({ note: vault.note(path), kind: "unlinked" as const })),
+			LIST,
+			"Inbox",
+		);
+
+		expect(listReads()).toHaveLength(1);
+		// Cities: between a (200) and Races (300), then between that card (250) and Races. Races is the last section: bottom.
+		expect(posOfPosts()).toEqual(["250", "275", "bottom"]);
+	});
+
+	test("a failed read of the list fails that note and creates nothing", async () => {
+		const vault = new FakeVault({ "World/Cities/Paris.md": { content: "p" } });
+		const calls: HttpRequest[] = [];
+		const client = () => new TrelloClient({ apiKey: "k", token: "t" }, async (req) => {
+			calls.push(req);
+			return req.url.includes("/lists/") ? { status: 400, text: "boom" } : ok([]);
+		}, { sleep: async () => {} });
+		const { ctx, logs } = fakeContext(vault, [], { client, settings: SEPARATED });
+
+		await batchCreateCardsFromNotesAction(ctx, [{ note: vault.note("World/Cities/Paris.md"), kind: "unlinked" }], LIST, "Inbox");
+
+		expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+		expect(logs.filter((l) => l.level === "error")).toHaveLength(1);
+		expect(vault.getCardRef(vault.note("World/Cities/Paris.md"))).toBeNull();
+	});
+});

@@ -591,6 +591,20 @@ describe("normalizeSettings — onLinkedNoteDeleted", () => {
 	});
 });
 
+describe("normalizeSettings — separator cards", () => {
+	test("off by default (no label), last in the section, property then subfolder", () => {
+		const s = normalizeSettings({});
+		expect([s.separatorLabelName, s.separatorPlacement, s.sectionSource, s.sectionFrontmatterKey]).toEqual(["", "last", "auto", "trello_section"]);
+	});
+
+	test("keeps good values, trims the label, falls back on bad ones", () => {
+		const good = normalizeSettings({ separatorLabelName: " Separator ", separatorPlacement: "first", sectionSource: "subfolder", sectionFrontmatterKey: "part" });
+		expect([good.separatorLabelName, good.separatorPlacement, good.sectionSource, good.sectionFrontmatterKey]).toEqual(["Separator", "first", "subfolder", "part"]);
+		const bad = normalizeSettings({ separatorLabelName: 3, separatorPlacement: "middle", sectionSource: "path", sectionFrontmatterKey: "  " } as never);
+		expect([bad.separatorLabelName, bad.separatorPlacement, bad.sectionSource, bad.sectionFrontmatterKey]).toEqual(["", "last", "auto", "trello_section"]);
+	});
+});
+
 describe("normalizeSettings — label properties", () => {
 	test("keeps well-formed rows, cleans values, drops rows without a label id", () => {
 		const s = normalizeSettings({

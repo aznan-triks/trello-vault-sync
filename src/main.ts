@@ -14,6 +14,7 @@ import { normalizePersistedData } from "./core/pluginData";
 import type { IgnoredCards } from "./core/deletedNotes";
 import type { SyncBase, SyncBaseStore } from "./core/syncBase";
 import { activeMappings } from "./core/labelProperty";
+import { sectionRulesFrom } from "./core/sections";
 import { trelloPropertyKeys } from "./core/trelloProperties";
 import { appendSyncRun, type SyncAction, type SyncRun } from "./core/syncHistory";
 import type { AuditOptions } from "./features/auditShared";
@@ -382,6 +383,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 			},
 			allowCreate: this.settings.allowCreate,
 			allowCreateCards: this.settings.allowCreateCards,
+			sections: sectionRulesFrom(this.settings),
 			historyCardNames: new Set([
 				...Object.values(this.ignoredCards).map((c) => c.name),
 				...this.history.flatMap((run) =>
