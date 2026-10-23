@@ -1,4 +1,4 @@
-import { sanitizeFileName } from "./fileName";
+import { isCollisionVariant, sanitizeFileName } from "./fileName";
 import { sameLabelSet } from "./labelRef";
 import { normalizeBody } from "./noteBody";
 
@@ -62,6 +62,16 @@ function normalizeDue(value: string | null): string | null {
 	return value === "" ? null : value;
 }
 
+/** Same instant counts as the same due date, whatever the ISO spelling ("…:00Z" vs "…:00.000Z"); text that does not parse is compared as written. */
+function sameDue(a: string | null, b: string | null): boolean {
+	const x = normalizeDue(a);
+	const y = normalizeDue(b);
+	if (x === y) return true;
+	if (x === null || y === null) return false;
+	const instant = Date.parse(x);
+	return !Number.isNaN(instant) && instant === Date.parse(y);
+}
+
 /**
  * Decide what a linked note/card pair needs, without touching either side.
  *
@@ -75,8 +85,11 @@ export function decideSync(input: SyncInput): SyncDecision {
 	// title is always filesystem-sanitized, so comparing against the raw card
 	// title would flag every special-character title as "changed" forever and
 	// push the sanitized filename back to Trello as if it were a real rename.
-	const titleChanged = input.syncTitle !== false && input.localTitle.trim() !== sanitizeFileName(input.remoteTitle, input.maxNameLength).trim();
-	const dueChanged = input.syncDue !== false && normalizeDue(input.localDue) !== normalizeDue(input.remoteDue);
+	// A " (2)" on the note is the collision suffix a pull added, not a rename to push back.
+	const remoteName = sanitizeFileName(input.remoteTitle, input.maxNameLength).trim();
+	const localName = input.localTitle.trim();
+	const titleChanged = input.syncTitle !== false && localName !== remoteName && !isCollisionVariant(localName, remoteName);
+	const dueChanged = input.syncDue !== false && !sameDue(input.localDue, input.remoteDue);
 	// A "merge" (or unset) mode never surfaces a label divergence as a reason to
 	// sync or conflict — the labels converge as a non-destructive side effect
 	// wherever the direction ends up, never a cause of it.

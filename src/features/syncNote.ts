@@ -51,7 +51,7 @@ import { downloadAttachments } from "./attachmentDownload";
 import { checklistsDiffer, resolveChecklists, type ChecklistWinner } from "./checklistSync";
 import { SAFE_ALIGN_CATEGORIES, type AlignSettings } from "../core/staleProperties";
 import { alignNote } from "./alignNotes";
-import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
+import type { CardRefStore, NoteHandle, VaultGateway, WriteOptions } from "../obsidian/gateway";
 import { applyNoteFate, isUnderAny } from "./noteFate";
 import { decideNoteFate, type CardChange } from "../core/cardFate";
 import {
@@ -285,6 +285,12 @@ function resolveLabelIds(names: string[], boardLabels: TrelloLabel[], held: Trel
 	return [...new Set(ids)];
 }
 
+/**
+ * A note write that only copies Trello data into the note. It is not a local edit, so it must not move the
+ * note's mtime: the next cycle would read it as "the note is newer" and push a stale body over the card.
+ */
+const COPY_FROM_TRELLO: WriteOptions = { keepMtime: true };
+
 /** Write a resolved label list into a note's frontmatter, deleting the key when empty. */
 async function writeLocalLabels(
 	vault: VaultGateway,
@@ -292,11 +298,15 @@ async function writeLocalLabels(
 	labels: string[],
 	labelsKey: string,
 ): Promise<void> {
-	await vault.writeFrontmatter(note, (frontmatter) => {
-		const formatted = formatLabelsRef(labels);
-		if (formatted === null) delete frontmatter[labelsKey];
-		else frontmatter[labelsKey] = formatted;
-	});
+	await vault.writeFrontmatter(
+		note,
+		(frontmatter) => {
+			const formatted = formatLabelsRef(labels);
+			if (formatted === null) delete frontmatter[labelsKey];
+			else frontmatter[labelsKey] = formatted;
+		},
+		COPY_FROM_TRELLO,
+	);
 }
 
 /**
@@ -325,9 +335,13 @@ async function convergeLabelProperties(
 	if (toNote && direction !== "push") {
 		const next = { ...frontmatter };
 		if (applyLabelsToProperties(next, cardIds, mappings, removeValues && direction === "pull")) {
-			await vault.writeFrontmatter(note, (fm) => {
-				applyLabelsToProperties(fm, cardIds, mappings, removeValues && direction === "pull");
-			});
+			await vault.writeFrontmatter(
+				note,
+				(fm) => {
+					applyLabelsToProperties(fm, cardIds, mappings, removeValues && direction === "pull");
+				},
+				COPY_FROM_TRELLO,
+			);
 			wroteNote = true;
 		}
 	}
@@ -353,16 +367,21 @@ async function resolveLabelIdsForCard(
 	return resolveLabelIds(labels, boardLabels, card.labels);
 }
 
-/** The ids to write for these names, or `null` when the card already carries exactly that set: no write, no new activity on the card. */
+/**
+ * The ids to write for these names, or `null` when the card already carries exactly that set: no write, no new activity on the card.
+ * `propertyOwned` are the labels a mapped property owns: a name left in the list never adds one the card does not hold.
+ */
 async function labelIdsToWrite(
 	client: TrelloClient,
 	card: TrelloCard,
 	labels: string[],
 	signal?: AbortSignal,
+	propertyOwned: ReadonlySet<string> = new Set(),
 ): Promise<string[] | null> {
-	const ids = await resolveLabelIdsForCard(client, card, labels, signal);
+	const heldIds = (card.labels ?? []).map((label) => label.id);
+	const ids = (await resolveLabelIdsForCard(client, card, labels, signal)).filter((id) => !propertyOwned.has(id) || heldIds.includes(id));
 	// Ids are lowercase hex, so the name comparison is exact for them too.
-	return sameLabelSet(ids, (card.labels ?? []).map((label) => label.id)) ? null : ids;
+	return sameLabelSet(ids, heldIds) ? null : ids;
 }
 
 /**
@@ -371,6 +390,7 @@ async function labelIdsToWrite(
  * side is never lost. No-op under `overwrite` mode, where labels instead ride
  * the pull/push branches below like `due` does. Writes the note's side itself; the
  * card's side is only resolved to ids (null when nothing to send), for the caller to write once.
+ * `propertyOwned`: see `labelIdsToWrite` - without it, the name `trello_labels` keeps after a property removal put the label back.
  */
 async function convergeLabelsOnMerge(
 	vault: VaultGateway,
@@ -380,12 +400,13 @@ async function convergeLabelsOnMerge(
 	localLabels: string[],
 	remoteLabels: string[],
 	labelsKey: string,
+	propertyOwned: ReadonlySet<string>,
 	signal?: AbortSignal,
 ): Promise<{ wroteLocal: boolean; ids: string[] | null }> {
 	const { nextLocal, nextRemote } = resolveLabelSync(localLabels, remoteLabels, "merge", "pull");
 	const wroteLocal = nextLocal !== null && !signal?.aborted;
 	if (wroteLocal) await writeLocalLabels(vault, note, nextLocal, labelsKey);
-	const ids = nextRemote !== null && !signal?.aborted ? await labelIdsToWrite(client, card, nextRemote, signal) : null;
+	const ids = nextRemote !== null && !signal?.aborted ? await labelIdsToWrite(client, card, nextRemote, signal, propertyOwned) : null;
 	return { wroteLocal, ids };
 }
 
@@ -461,17 +482,21 @@ async function convergeAttachments(
 		if (sameOrderedList(currentUrls, urls) && sameOrderedList(currentLinkedCards, nextLinkedCards)) return false;
 		if (signal?.aborted) return false;
 
-		await vault.writeFrontmatter(note, (fm) => {
-			const formattedUrls = formatAttachmentsRef(urls);
-			if (formattedUrls === null) delete fm[attachmentsKey];
-			else fm[attachmentsKey] = formattedUrls;
+		await vault.writeFrontmatter(
+			note,
+			(fm) => {
+				const formattedUrls = formatAttachmentsRef(urls);
+				if (formattedUrls === null) delete fm[attachmentsKey];
+				else fm[attachmentsKey] = formattedUrls;
 
-			if (syncLinkedCards) {
-				const formattedLinkedCards = formatLinkedCardsRef(linkedCards);
-				if (formattedLinkedCards === null) delete fm[linkedCardsKey];
-				else fm[linkedCardsKey] = formattedLinkedCards;
-			}
-		});
+				if (syncLinkedCards) {
+					const formattedLinkedCards = formatLinkedCardsRef(linkedCards);
+					if (formattedLinkedCards === null) delete fm[linkedCardsKey];
+					else fm[linkedCardsKey] = formattedLinkedCards;
+				}
+			},
+			COPY_FROM_TRELLO,
+		);
 		return true;
 	} catch (error) {
 		warnUnlessAborted(
@@ -573,7 +598,7 @@ async function convergeChecklists(
 		if (markdown === checklistBlock) return { stale: false, pushCheckItems };
 		const nextContent = replaceBody(content, insertChecklistSection(rest, markdown, after));
 		if (nextContent === content) return { stale: false, pushCheckItems };
-		await vault.write(note, nextContent);
+		await vault.write(note, nextContent, COPY_FROM_TRELLO);
 		return { stale: true, pushCheckItems };
 	} catch (error) {
 		failure(error);
@@ -638,10 +663,14 @@ async function convergeCover(
 	const current = vault.readFrontmatter(note)?.[coverKey];
 	if (current === desired || (desired === null && current === undefined)) return false;
 	if (signal?.aborted) return false;
-	await vault.writeFrontmatter(note, (frontmatter) => {
-		if (desired === null) delete frontmatter[coverKey];
-		else frontmatter[coverKey] = desired;
-	});
+	await vault.writeFrontmatter(
+		note,
+		(frontmatter) => {
+			if (desired === null) delete frontmatter[coverKey];
+			else frontmatter[coverKey] = desired;
+		},
+		COPY_FROM_TRELLO,
+	);
 	return true;
 }
 
@@ -679,11 +708,15 @@ async function convergeMembers(
 		if (sameOrderedList(current, names)) return false;
 		if (signal?.aborted) return false;
 
-		await vault.writeFrontmatter(note, (frontmatter) => {
-			const formatted = formatMembersRef(names);
-			if (formatted === null) delete frontmatter[membersKey];
-			else frontmatter[membersKey] = formatted;
-		});
+		await vault.writeFrontmatter(
+			note,
+			(frontmatter) => {
+				const formatted = formatMembersRef(names);
+				if (formatted === null) delete frontmatter[membersKey];
+				else frontmatter[membersKey] = formatted;
+			},
+			COPY_FROM_TRELLO,
+		);
 		return true;
 	} catch (error) {
 		warnUnlessAborted(
@@ -747,11 +780,15 @@ async function convergeCustomFields(
 		if (sameRecord(current, resolved)) return false;
 		if (signal?.aborted) return false;
 
-		await vault.writeFrontmatter(note, (frontmatter) => {
-			const formatted = formatCustomFieldsRef(resolved);
-			if (formatted === null) delete frontmatter[customFieldsKey];
-			else frontmatter[customFieldsKey] = formatted;
-		});
+		await vault.writeFrontmatter(
+			note,
+			(frontmatter) => {
+				const formatted = formatCustomFieldsRef(resolved);
+				if (formatted === null) delete frontmatter[customFieldsKey];
+				else frontmatter[customFieldsKey] = formatted;
+			},
+			COPY_FROM_TRELLO,
+		);
 		return true;
 	} catch (error) {
 		warnUnlessAborted(
@@ -919,7 +956,9 @@ async function syncNoteWithCardUnguarded(
 	let nextLabelIds: string[] | null = null;
 	if (syncLabels && writesAllowed && !signal?.aborted) {
 		if (labelsSyncMode === "merge") {
-			const merged = await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, signal);
+			// Properties that flow to Trello own their mapped labels; with "to-note" only, the merge is still the way in.
+			const propertyOwned = options.labelProperties && options.labelProperties.direction !== "to-note" ? mappedLabelIds(options.labelProperties.mappings) : new Set<string>();
+			const merged = await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, propertyOwned, signal);
 			stale = stale || merged.wroteLocal;
 			nextLabelIds = merged.ids;
 		} else if (direction === "push") {

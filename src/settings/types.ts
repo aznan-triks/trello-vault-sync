@@ -108,6 +108,8 @@ export interface TrelloVaultSyncSettings {
 	onLinkedNoteDeleted: OnLinkedNoteDeleted;
 	/** On by default — asks before "Unlink this note from its card" removes the Trello properties. */
 	confirmUnlink: boolean;
+	/** On by default - linking a note to a card by hand pulls the card's content into the note right away, as an adopted note in a folder sync does. Off: the first sync goes by whichever side is newer. */
+	manualLinkCardWins: boolean;
 
 	/** Minimum title similarity accepted when linking a note to a card. */
 	similarityThreshold: number;
@@ -329,6 +331,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	archiveFolderCreateMissing: false,
 	archiveFolderRestoreOnUnarchive: true,
 	confirmUnlink: true,
+	manualLinkCardWins: true,
 	onLinkedNoteDeleted: "ignore-card",
 	similarityThreshold: 0.45,
 	maxRetries: 3,
@@ -564,6 +567,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		archiveFolderCreateMissing: input.archiveFolderCreateMissing === true,
 		archiveFolderRestoreOnUnarchive: input.archiveFolderRestoreOnUnarchive !== false,
 		confirmUnlink: input.confirmUnlink !== false,
+		manualLinkCardWins: input.manualLinkCardWins !== false,
 		onLinkedNoteDeleted: ON_LINKED_NOTE_DELETED.includes(input.onLinkedNoteDeleted as OnLinkedNoteDeleted)
 			? (input.onLinkedNoteDeleted as OnLinkedNoteDeleted)
 			: DEFAULT_SETTINGS.onLinkedNoteDeleted,

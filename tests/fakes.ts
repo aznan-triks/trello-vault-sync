@@ -174,9 +174,13 @@ export class FakeVault implements VaultGateway, CardRefStore, TemplateResolver {
 	}
 
 	async setCardRef(note: NoteHandle, ref: CardRef): Promise<void> {
-		await this.writeFrontmatter(note, (frontmatter) => {
-			frontmatter[this.cardRefKey] = formatCardRef(ref.boardId, ref.cardId);
-		});
+		await this.writeFrontmatter(
+			note,
+			(frontmatter) => {
+				frontmatter[this.cardRefKey] = formatCardRef(ref.boardId, ref.cardId);
+			},
+			{ keepMtime: true },
+		);
 	}
 
 	async read(note: NoteHandle): Promise<string> {
