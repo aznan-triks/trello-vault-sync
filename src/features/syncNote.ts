@@ -50,7 +50,7 @@ import type { TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/sync
 import { buildCardIndex, resolveAttachments } from "./attachmentSync";
 import { downloadAttachments } from "./attachmentDownload";
 import { checklistStates, checklistsDiffer, resolveChecklists, type ChecklistWinner } from "./checklistSync";
-import { SAFE_ALIGN_CATEGORIES, type AlignSettings } from "../core/staleProperties";
+import { SAFE_ALIGN_CATEGORIES, conflictingMigrations, migrationConflictMessage, type AlignSettings } from "../core/staleProperties";
 import { alignNote } from "./alignNotes";
 import type { CardRefStore, NoteHandle, VaultGateway, WriteOptions } from "../obsidian/gateway";
 import { applyNoteFate, isUnderAny } from "./noteFate";
@@ -222,6 +222,8 @@ export interface NoteSyncResult {
 	reason: string;
 	/** Stale property keys pruned or migrated during in-stream alignment. */
 	cleaned?: string[];
+	/** Things the run's report should say about this note without it being an error (an old key left alone by the cleanup, say). */
+	warnings?: string[];
 }
 
 /**
@@ -1121,6 +1123,7 @@ async function syncNoteWithCardUnguarded(
 	}
 
 	let cleaned: string[] | undefined;
+	let warnings: string[] | undefined;
 	const shouldCleanUp = options.cleanUpDuringSync === true;
 	if (shouldCleanUp && !signal?.aborted) {
 		const alignSettings: AlignSettings = {
@@ -1157,6 +1160,10 @@ async function syncNoteWithCardUnguarded(
 					stale = true;
 				}
 			}
+			// Same wording as the batch cleanup: a migration the note's own value blocks is reported, not dropped in silence.
+			const migrations = options.keyMigrations ?? {};
+			const blocked = conflictingMigrations(vault.readFrontmatter(note) ?? {}, migrations);
+			if (blocked.length > 0) warnings = blocked.map((oldKey) => migrationConflictMessage(oldKey, migrations[oldKey] ?? ""));
 		} catch (error) {
 			if (!signal?.aborted) {
 				console.warn(`[trello-vault-sync] Could not clean up note "${note.path}": ${errorMessage(error)}`);
@@ -1166,7 +1173,10 @@ async function syncNoteWithCardUnguarded(
 
 	if (stale) content = await vault.read(note);
 
-	const extra = cleaned && cleaned.length > 0 ? { cleaned } : {};
+	const extra = {
+		...(cleaned && cleaned.length > 0 ? { cleaned } : {}),
+		...(warnings ? { warnings } : {}),
+	};
 	if (direction === "conflict") return { direction, renamed: false, note, reason: decision.reason, ...extra };
 
 	if (options.dryRun) {
@@ -1271,6 +1281,7 @@ async function syncNoteWithCardUnguarded(
 async function noteWithGoneCard(
 	vault: VaultGateway & CardRefStore,
 	note: NoteHandle,
+	cardId: string,
 	change: CardChange,
 	options: NoteSyncOptions,
 ): Promise<NoteSyncResult> {
@@ -1286,6 +1297,7 @@ async function noteWithGoneCard(
 		dryRun: options.dryRun,
 		reporter: { log: () => {} }, // the caller reports `reason`
 	});
+	if (!options.dryRun) options.syncBase?.drop(cardId);
 	return { direction: "unlinked", renamed: false, note: outcome.note, reason: outcome.message };
 }
 
@@ -1312,10 +1324,10 @@ export async function syncNote(
 		card = await client.getCard(ref.cardId, signal, cardIncludesFor(options));
 	} catch (error) {
 		if (options.cardFate && error instanceof TrelloError && error.status === 404) {
-			return noteWithGoneCard(vault, note, "deleted", options);
+			return noteWithGoneCard(vault, note, ref.cardId, "deleted", options);
 		}
 		throw error;
 	}
-	if (card.closed === true && options.cardFate) return noteWithGoneCard(vault, note, "archived", options);
+	if (card.closed === true && options.cardFate) return noteWithGoneCard(vault, note, ref.cardId, "archived", options);
 	return syncNoteWithCard(vault, client, note, card, options, undefined, undefined, undefined, signal);
 }

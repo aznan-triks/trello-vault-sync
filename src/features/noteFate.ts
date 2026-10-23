@@ -1,6 +1,7 @@
 import { decideNoteFate, type CardChange, type CardFateRules, type NoteFate } from "../core/cardFate";
 import { errorMessage } from "../core/errorMessage";
 import { joinPath, notesInFolder } from "../core/fileName";
+import type { SyncBaseStore } from "../core/syncBase";
 import type { NoteHandle, Reporter, VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
 import { classifyGoneCards, type KnownCard } from "./goneCards";
@@ -104,6 +105,8 @@ export async function handleGoneNotes(
 		stats: GoneNoteStats;
 		signal?: AbortSignal;
 		known?: ReadonlyMap<string, KnownCard>;
+		/** An archived or deleted card is gone for good as far as its recorded base goes: dropped when its fate is applied. */
+		syncBase?: Pick<SyncBaseStore, "drop">;
 	},
 ): Promise<void> {
 	if (gone.length === 0) return;
@@ -132,6 +135,7 @@ export async function handleGoneNotes(
 				dryRun: context.dryRun,
 				reporter,
 			});
+			if (!context.dryRun && change !== "moved") context.syncBase?.drop(cardId);
 			if (outcome.result === "detached") stats.detached++;
 			else if (outcome.result === "deleted") stats.deleted++;
 			else if (outcome.result === "relocated") stats.relocated++;

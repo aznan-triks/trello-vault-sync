@@ -6,6 +6,8 @@ export interface TallyableResult {
 	renamed: boolean;
 	direction: "skip" | "pull" | "push" | "merge" | "conflict" | "unlinked";
 	reason?: string;
+	/** Lines for the report that are not errors — logged as warnings next to the note's own line. */
+	warnings?: string[];
 }
 
 export interface NoteTallyStats {
@@ -29,6 +31,7 @@ export function tallyNoteResult(
 	label: string,
 ): void {
 	if (result.renamed) stats.renamed++;
+	for (const warning of result.warnings ?? []) log("warn", `${label} — ${warning}`);
 	if (result.direction === "pull") {
 		stats.pulled++;
 		log("pull", label);

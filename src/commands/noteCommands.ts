@@ -109,6 +109,8 @@ export async function unlinkActive(ctx: CommandContext): Promise<void> {
 			ctx.run(`Unlink — ${note.basename}`, async () => {
 				const keys = ctx.noteOptions().trelloPropertyKeys ?? [];
 				const removed = await withHistoryRecording(ctx, note.path, (vault) => unlinkNote(vault, note, keys, ctx.settings.dryRun));
+				// Nothing links the note to the card any more: what was recorded about the pair no longer describes anything.
+				if (!ctx.settings.dryRun) ctx.noteOptions().syncBase?.drop(cardId);
 				if (!ctx.settings.dryRun && cardId in ctx.settings.cardView.perCard) {
 					// The card is no longer shown for this note: its per-card sections go with the link.
 					Reflect.deleteProperty(ctx.settings.cardView.perCard, cardId);

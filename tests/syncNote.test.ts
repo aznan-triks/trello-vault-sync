@@ -2282,6 +2282,19 @@ describe("syncNote — the card is archived or deleted", () => {
 		expect(vault.contentOf(PATH)).toBe(FRONTMATTER + "corps");
 	});
 
+	test("the pair's sync base is dropped with the link, but not in a dry run", async () => {
+		const run = async (dryRun: boolean) => {
+			const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "corps", mtime: at("2026-01-01") } });
+			const { transport } = routedTransport({ "/cards/c1": card({ id: "c1", closed: true }) });
+			const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+			const drop = vi.fn();
+			await syncNote(vault, client, vault.note(PATH), { ...options, ...fate, dryRun, syncBase: { get: () => undefined, set: () => {}, drop } });
+			return drop;
+		};
+		expect(await run(false)).toHaveBeenCalledWith("c1");
+		expect(await run(true)).not.toHaveBeenCalled();
+	});
+
 	test("without rules an archived card keeps syncing like any other", async () => {
 		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER + "old", mtime: at("2026-01-01") } });
 		const { transport } = routedTransport({ "/cards/c1": card({ id: "c1", name: "Sagondo", desc: "new", closed: true, dateLastActivity: "2026-02-01" }) });

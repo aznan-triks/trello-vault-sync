@@ -11,6 +11,7 @@ import {
 	ALIGN_CATEGORIES,
 	conflictingMigrations,
 	detectStaleChanges,
+	migrationConflictMessage,
 	type AlignCategory,
 	type AlignChange,
 	type AlignSettings,
@@ -238,7 +239,7 @@ export async function alignNotes(
 
 			if (categories.includes("key-migration") && settings.keyMigrations) {
 				for (const oldKey of conflictingMigrations(vault.readFrontmatter(note) ?? {}, settings.keyMigrations)) {
-					reporter?.log("warn", `${note.basename} — "${oldKey}" not migrated: "${settings.keyMigrations[oldKey]}" already holds a different value, both kept`);
+					reporter?.log("warn", `${note.basename} — ${migrationConflictMessage(oldKey, settings.keyMigrations[oldKey] ?? "")}`);
 				}
 			}
 		} catch (error) {

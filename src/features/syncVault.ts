@@ -139,6 +139,7 @@ export async function syncVault(
 			reporter,
 			stats,
 			signal,
+			syncBase: options.syncBase,
 		});
 	}
 	return stats;

@@ -127,6 +127,11 @@ export function conflictingMigrations(frontmatter: Record<string, unknown>, keyM
 		.map(([oldKey]) => oldKey);
 }
 
+/** What a report says about an old key `conflictingMigrations` left alone. */
+export function migrationConflictMessage(oldKey: string, targetKey: string): string {
+	return `"${oldKey}" not migrated: "${targetKey}" already holds a different value, both kept`;
+}
+
 /**
  * Parameters passed to `detectStaleChanges`.
  */

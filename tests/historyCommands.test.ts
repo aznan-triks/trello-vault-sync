@@ -381,3 +381,26 @@ describe("historyRevertTrelloWrites", () => {
 		expect(logs.some((entry) => entry.message.includes("needs a connection"))).toBe(false);
 	});
 });
+
+describe("undo forgets the sync bases of what it reverted", () => {
+	test("a reverted note write drops its card's base; an action the undo skipped keeps it", async () => {
+		const vault = new FakeVault({
+			"a.md": { content: '---\ntrello_board_card_id: "board;ca"\n---\noriginal' },
+			"b.md": { content: "b-original" },
+		});
+		const actions: SyncAction[] = [];
+		const wrapped = wrapWithHistoryRecorder(vault, (a) => actions.push(a));
+		await wrapped.write(vault.note("a.md"), '---\ntrello_board_card_id: "board;ca"\n---\nsynced');
+		actions.push({ kind: "trello-card", path: "b.md", cardId: "cb", previous: {}, written: {} });
+		const bases = new Set(["ca", "cb", "cc"]);
+		const syncBase = { get: () => undefined, set: () => {}, drop: (id: string) => void bases.delete(id) };
+
+		await undoLastSyncRun(fakeContext({
+			vault,
+			history: [{ timestamp: "t", scope: "", actions }],
+			noteOptions: () => ({ policy: "newer-wins", marginMs: 0, syncTitle: true, dryRun: false, syncBase }),
+		}));
+
+		expect([...bases]).toEqual(["cb", "cc"]);
+	});
+});
