@@ -100,7 +100,9 @@ describe("sectionOfNote", () => {
 		expect(sectionOfNote("World/x.md", "World", { section: "  " }, rules)).toBeNull();
 		expect(sectionOfNote("World/x.md", "World", { section: " Cities 🏙️ " }, rules)).toBe("Cities 🏙️");
 		expect(sectionOfNote("World/x.md", "World", { section: 2024 }, rules)).toBe("2024");
-		expect(sectionOfNote("World/x.md", "World", { section: ["a"] }, rules)).toBeNull();
+		expect(sectionOfNote("World/x.md", "World", { section: ["Cities"] }, rules)).toBe("Cities");
+		expect(sectionOfNote("World/x.md", "World", { section: ["a", "b"] }, rules)).toBeNull();
+		expect(sectionOfNote("World/x.md", "World", { section: [{}] }, rules)).toBeNull();
 	});
 
 	test("subfolder only: the property is ignored", () => {
@@ -152,6 +154,14 @@ describe("positionInSection", () => {
 		const emoji = splitSections([sep("Villes 🏙️", 10), sep("Légion: Anti-démons", 20), item("a", 30)], isSep);
 		expect(positionInSection(emoji, "villes 🏙️ ", "first")).toBe(15);
 		expect(positionInSection(emoji, "Légion- Anti-démons", "first")).toBe(25);
+	});
+
+	test("an emoji with or without its variation selector, composed or decomposed accents, are the same name", () => {
+		const cities = splitSections([sep("Villes 🏙", 10), sep("Légion", 20), item("a", 30)], isSep);
+		expect(positionInSection(cities, "Villes 🏙️", "first")).toBe(15);
+		expect(positionInSection(cities, "Légion", "first")).toBe(25);
+		const withSelector = splitSections([sep("Villes 🏙️", 10), item("a", 30)], isSep);
+		expect(positionInSection(withSelector, "Villes 🏙", "first")).toBe(20);
 	});
 
 	test("no separator by that name: null; no usable pos: bottom", () => {

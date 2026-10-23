@@ -88,8 +88,9 @@ export function splitSections<T extends SectionCard>(cards: readonly T[], isSepa
 	return sections;
 }
 
-function propertySection(value: unknown): string | null {
-	// A section named "2024" is read by YAML as a number.
+function propertySection(raw: unknown): string | null {
+	// A list property holding one item (`[Cities]`) names that item; a section named "2024" is read by YAML as a number.
+	const value = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
 	const text = typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
 	return text.trim() === "" ? null : text.trim();
 }
@@ -125,6 +126,9 @@ function middle(left: number | undefined, right: number | undefined): number | "
 	return left !== undefined && right !== undefined && Number.isFinite(left) && Number.isFinite(right) ? (left + right) / 2 : "bottom";
 }
 
+/** A name as the filesystem and Trello may each have spelled it: composed accents, and no emoji variation selector (Trello may add or drop it). */
+const foldName = (name: string): string => name.normalize("NFC").replace(/️/g, "");
+
 /**
  * The `pos` that puts a card first or last in the section headed by a separator named `sectionName`
  * (compared like a note name, see `isSameCardName`). `"bottom"` when that section is the last one and
@@ -137,7 +141,7 @@ export function positionInSection(
 	maxNameLength?: number,
 ): number | "bottom" | null {
 	const index = sections.findIndex(
-		(section) => section.separator !== null && isSameCardName(section.separator.name, sectionName, maxNameLength),
+		(section) => section.separator !== null && isSameCardName(foldName(section.separator.name), foldName(sectionName), maxNameLength),
 	);
 	const section = sections[index];
 	if (!section?.separator) return null;
