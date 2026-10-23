@@ -1,7 +1,7 @@
 {
 	"name": "trello-vault-sync",
 	"version": "1.25.1",
-	"description": "Two-way Trello sync and link auditing for Obsidian worldbuilding vaults.",
+	"description": "Two-way sync between Obsidian notes and Trello cards: card side panel, folder mapping, link audits and undoable runs.",
 	"main": "main.js",
 	"type": "module",
 	"private": true,

@@ -1,6 +1,6 @@
 # Trello Vault Sync
 
-Two-way Trello synchronization, an interactive card sidebar, link auditing, and safe conflict handling for Obsidian.
+Two-way sync between Obsidian notes and Trello cards: card side panel, folder mapping, link audits and undoable runs.
 
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A51.7.2-7c3aed)
