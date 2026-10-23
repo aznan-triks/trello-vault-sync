@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Plain words:** A long Trello list organised with heading cards ("separators": `Cities`, `Races`, `NEUTRAL`...) can now receive new cards in the right section. Pick the label that marks your separators, and a card created from a note is no longer dropped at the bottom of the list: it goes right after its separator, or right before the next one (your choice). The section is the note's first-level subfolder under the mapped folder, or a property of the note, or the property first and the subfolder otherwise. A note that names a section no separator carries still goes to the bottom, with a warning in the journal. Off by default (the label is empty): nothing changes until you fill it in. Not tried against a real board yet.
+  **Technical:**
+  - `core/sections.ts` (new, pure): `splitSections` cuts the cards, sorted by `pos`, into `{ separator, cards }[]`; `sectionOfNote` reads the section name from the property and/or the first subfolder under the mapped folder; `positionInSection` returns the `pos` halfway between the two neighbours (`"bottom"` for the last section, `null` when no separator carries the name); `sectionTarget` chains them; `insertCard` files a created card by its returned `pos`; `sectionRulesFrom` is `null` while the label is empty. Names are compared with `isSameCardName`.
+  - Settings `separatorLabelName` (`""`), `separatorPlacement` (`"last"`), `sectionSource` (`"auto"`), `sectionFrontmatterKey` (`DEFAULT_SECTION_KEY`), with `normalizeSettings` fallbacks.
+  - Tests: `tests/sections.test.ts`, `tests/settings.test.ts`.
+
 ## [1.25.1] — 2026-10-23
 
 ### Fixed
