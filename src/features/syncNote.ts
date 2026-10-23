@@ -44,8 +44,8 @@ import {
 } from "../core/memberRef";
 import { extractBody, insertChecklistSection, rawBody, replaceBody, splitChecklistSection } from "../core/noteBody";
 import type { CardFateRules } from "../core/cardFate";
-import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
-import type { SyncBaseStore } from "../core/syncBase";
+import { baseFromState, decideWithBase, type SyncBaseStore } from "../core/syncBase";
+import { sidesFor, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
 import type { TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/syncHistory";
 import { buildCardIndex, resolveAttachments } from "./attachmentSync";
 import { downloadAttachments } from "./attachmentDownload";
@@ -240,7 +240,7 @@ export function decideForCard(
 	localBody: string,
 	options: Pick<
 		NoteSyncOptions,
-		"policy" | "marginMs" | "labelsSyncMode" | "syncTitle" | "maxNameLength" | "syncDescription" | "syncDue" | "syncLabels"
+		"policy" | "marginMs" | "labelsSyncMode" | "syncTitle" | "maxNameLength" | "syncDescription" | "syncDue" | "syncLabels" | "syncBase"
 	>,
 	localDue: string | null,
 	localLabels: string[] = [],
@@ -252,7 +252,7 @@ export function decideForCard(
 			`Card "${card.name}" (${card.id}) has an unreadable dateLastActivity: "${card.dateLastActivity}" — refusing to guess a sync direction.`,
 		);
 	}
-	return decideSync({
+	const input = {
 		localTitle: note.basename,
 		localBody,
 		localMtime: note.mtime,
@@ -272,7 +272,8 @@ export function decideForCard(
 		checklistsChanged,
 		policy: options.policy,
 		marginMs: options.marginMs,
-	});
+	};
+	return decideWithBase(input, options.syncBase?.get(card.id));
 }
 
 /**
@@ -937,6 +938,11 @@ async function syncNoteWithCardUnguarded(
 				? "conflict"
 				: (options.force ?? decision.direction);
 
+	// A forced direction takes every field that differs, as it always did; otherwise each field goes the way the decision says (a `merge` has both).
+	const sides = options.force && direction !== "skip" && direction !== "conflict" ? sidesFor(direction, decision) : decision.fields;
+	const pulling = direction === "pull" || direction === "merge";
+	const pushing = direction === "push" || direction === "merge";
+
 	const syncDescription = options.syncDescription !== false;
 	const syncDue = options.syncDue !== false;
 	const syncLabels = options.syncLabels !== false;
@@ -968,7 +974,7 @@ async function syncNoteWithCardUnguarded(
 			const merged = await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, propertyOwned, signal);
 			stale = stale || merged.wroteLocal;
 			nextLabelIds = merged.ids;
-		} else if (direction === "push") {
+		} else if (sides.labels === "push") {
 			const { nextRemote } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "push");
 			if (nextRemote !== null) nextLabelIds = await labelIdsToWrite(client, card, nextRemote, signal);
 		}
@@ -984,7 +990,7 @@ async function syncNoteWithCardUnguarded(
 	// On a push the labels ride the card write below, and the check items go after it: if that write fails,
 	// the card has not been touched, so the next cycle does not mistake it for the newer side and pull over the local edit.
 	let pushCheckItems = async (): Promise<void> => {};
-	if (nextLabelIds && direction !== "push" && !signal?.aborted) {
+	if (nextLabelIds && !pushing && !signal?.aborted) {
 		await writeCardFields(client, note, card, { idLabels: nextLabelIds }, options.onTrelloWrite, signal);
 	}
 
@@ -1007,11 +1013,12 @@ async function syncNoteWithCardUnguarded(
 		stale = stale || wrote;
 	}
 
-	if (remoteChecklists && (direction === "pull" || direction === "push") && writesAllowed && !signal?.aborted) {
+	if (remoteChecklists && (pulling || pushing) && writesAllowed && !signal?.aborted) {
 		if (stale) {
 			content = await vault.read(note);
 			stale = false;
 		}
+		// shortcut: a merge has no single winner, so Trello's checked states win (nothing of the note's is pushed), until the items have a base to be decided on.
 		const winner = direction === "push" ? "local" : "remote";
 		const checklists = await convergeChecklists(vault, client, note, card, remoteChecklists, winner, checklistHeading, content, options.onTrelloWrite, signal);
 		stale = checklists.stale;
@@ -1131,21 +1138,32 @@ async function syncNoteWithCardUnguarded(
 
 	if (stale) content = await vault.read(note);
 
-	if (direction === "skip" || direction === "conflict") {
-		return { direction, renamed: false, note, reason: decision.reason, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
-	}
+	const extra = cleaned && cleaned.length > 0 ? { cleaned } : {};
+	if (direction === "conflict") return { direction, renamed: false, note, reason: decision.reason, ...extra };
 
 	if (options.dryRun) {
-		return { direction, renamed: false, note, reason: `${decision.reason} (simulation)`, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
+		return { direction, renamed: false, note, reason: direction === "skip" ? decision.reason : `${decision.reason} (simulation)`, ...extra };
 	}
 
 	if (signal?.aborted) {
-		return { direction, renamed: false, note, reason: `${decision.reason} (aborted)`, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
+		return { direction, renamed: false, note, reason: direction === "skip" ? decision.reason : `${decision.reason} (aborted)`, ...extra };
 	}
 
-	if (direction === "pull") {
-		let current = note;
-		if (syncDescription && decision.bodyChanged) {
+	// On a merge the card write goes first: if it fails nothing in the note has been touched yet.
+	if (pushing) {
+		const fields: CardFieldUpdate = {};
+		if (syncDescription && sides.body === "push") fields.desc = localBody;
+		if (options.syncTitle && sides.title === "push") fields.name = note.basename;
+		if (syncDue && sides.due === "push") fields.due = localDue;
+		if (nextLabelIds) fields.idLabels = nextLabelIds;
+		await writeCardFields(client, note, card, fields, options.onTrelloWrite, signal);
+		await pushCheckItems();
+	}
+
+	let current = note;
+	let renamed = false;
+	if (pulling) {
+		if (syncDescription && sides.body === "pull") {
 			// Same reasoning as `localBody` above: preserve a leftover checklist
 			// section on pull regardless of `syncChecklists`, so turning the toggle
 			// off never destroys it.
@@ -1153,7 +1171,7 @@ async function syncNoteWithCardUnguarded(
 			if (nextContent !== content && !signal?.aborted) await vault.write(current, nextContent);
 		}
 
-		if (syncDue && decision.dueChanged && !signal?.aborted) {
+		if (syncDue && sides.due === "pull" && !signal?.aborted) {
 			await vault.writeFrontmatter(current, (frontmatter) => {
 				const formatted = formatDueRef(card.due);
 				if (formatted === null) delete frontmatter[dueKey];
@@ -1161,13 +1179,18 @@ async function syncNoteWithCardUnguarded(
 			});
 		}
 
-		if (syncLabels && labelsSyncMode === "overwrite" && !signal?.aborted) {
+		if (syncLabels && labelsSyncMode === "overwrite" && sides.labels === "pull" && !signal?.aborted) {
 			const { nextLocal } = resolveLabelSync(localLabels, remoteLabels, "overwrite", "pull");
 			if (nextLocal !== null) await writeLocalLabels(vault, current, nextLocal, labelsKey);
 		}
 
-		let renamed = false;
-		if (options.syncTitle && sanitizeFileName(card.name, options.maxNameLength) !== current.basename && !signal?.aborted) {
+		// A merge renames only on a pulled title; a plain pull keeps its own rule (the note's name follows the card's).
+		if (
+			options.syncTitle &&
+			(direction === "pull" || sides.title === "pull") &&
+			sanitizeFileName(card.name, options.maxNameLength) !== current.basename &&
+			!signal?.aborted
+		) {
 			const target = uniqueNotePath(
 				current.folder,
 				sanitizeFileName(card.name, options.maxNameLength),
@@ -1179,17 +1202,31 @@ async function syncNoteWithCardUnguarded(
 				renamed = true;
 			}
 		}
-		return { direction, renamed, note: current, reason: decision.reason, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
 	}
 
-	const fields: CardFieldUpdate = {};
-	if (syncDescription && decision.bodyChanged) fields.desc = localBody;
-	if (options.syncTitle && decision.titleChanged) fields.name = note.basename;
-	if (syncDue && decision.dueChanged) fields.due = localDue;
-	if (nextLabelIds) fields.idLabels = nextLabelIds;
-	await writeCardFields(client, note, card, fields, options.onTrelloWrite, signal);
-	await pushCheckItems();
-	return { direction, renamed: false, note, reason: decision.reason, ...(cleaned && cleaned.length > 0 ? { cleaned } : {}) };
+	// The one place a base is recorded: the pair was fully handled (not a conflict, a simulation, an abort or a failure,
+	// all of which left above or threw), so what each side holds now is what was written, not what was read.
+	if (options.syncBase && !signal?.aborted) {
+		options.syncBase.set(
+			card.id,
+			baseFromState(
+				{
+					localTitle: sides.title === "pull" ? current.basename : note.basename,
+					remoteTitle: sides.title === "push" ? note.basename : card.name,
+					maxNameLength: options.maxNameLength,
+					localBody: sides.body === "pull" ? (card.desc ?? "") : localBody,
+					remoteBody: sides.body === "push" ? localBody : (card.desc ?? ""),
+					localDue: sides.due === "pull" ? card.due : localDue,
+					remoteDue: sides.due === "push" ? localDue : card.due,
+					syncTitle: options.syncTitle,
+					syncDescription,
+					syncDue,
+				},
+				Date.now(),
+			),
+		);
+	}
+	return { direction, renamed, note: current, reason: decision.reason, ...extra };
 }
 
 /**

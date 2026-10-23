@@ -2,6 +2,7 @@
 // one stateful fake Trello card whose every write bumps `dateLastActivity`, and a vault whose writes
 // stamp `mtime` from a shared clock — the two clocks `decideSync` compares across cycles.
 import { describe, expect, test } from "vitest";
+import { bodyKey, type SyncBase, type SyncBaseStore } from "../src/core/syncBase";
 import { syncNoteWithCard, type NoteSyncOptions } from "../src/features/syncNote";
 import type { NoteHandle, WriteOptions } from "../src/obsidian/gateway";
 import { TrelloClient, type HttpRequest, type HttpResponse, type TrelloCard, type TrelloLabel } from "../src/trello/client";
@@ -342,8 +343,222 @@ describe("lot D — the plugin's own writes are not local edits", () => {
 	});
 });
 
-// Lot E (base snapshot, planned apart): these two proofs of the audit stay unfixed, so they are markers, not tests.
-describe("lot E — not fixed yet", () => {
-	test.todo("F2a: an unrelated activity on the card (a comment) must not make an unchanged card win over a local body edit");
-	test.todo("F2b: a body edit in the note must not overwrite a due date edited on Trello earlier");
+describe("lot E — decisions from the sync base", () => {
+	function memoryBases() {
+		const map = new Map<string, SyncBase>();
+		const store: SyncBaseStore = { get: (id) => map.get(id), set: (id, base) => void map.set(id, base), drop: (id) => void map.delete(id) };
+		return { map, store };
+	}
+	const note = (body: string, extra = "") => `---\n${REF}\n${extra}---\n\n${body}`;
+	const sync = (vault: ClockVault, t: ReturnType<typeof fakeTrello>, bases: { store: SyncBaseStore }, options: Partial<NoteSyncOptions> = {}) =>
+		syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncBase: bases.store, ...options });
+
+	test("F2a: an unrelated activity on the card (a comment) does not make the unchanged card win over a local body edit", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("old"), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0) }), []);
+		const bases = memoryBases();
+		clock.now = T0 + H / 2;
+		expect((await sync(vault, t, bases)).direction).toBe("skip"); // primes the base
+		clock.now = T0 + H;
+		await vault.write(vault.note("Note.md"), note("edited"));
+		t.state.card.dateLastActivity = iso(T0 + 2 * H); // a comment: only the activity clock moves
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases);
+		expect(result.direction).toBe("push");
+		expect(t.state.card.desc).toBe("edited");
+		expect(vault.contentOf("Note.md")).toBe(note("edited"));
+	});
+
+	test("F2a mirrored: an unrelated write in the note does not make the unchanged note win over a card edit", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("old"), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0) }), []);
+		const bases = memoryBases();
+		clock.now = T0 + H / 2;
+		await sync(vault, t, bases);
+		t.state.card.desc = "edited on Trello";
+		t.state.card.dateLastActivity = iso(T0 + H);
+		clock.now = T0 + 2 * H;
+		await vault.write(vault.note("Note.md"), note("old", "tag: x\n")); // frontmatter only: the body is the old one, the note is the newer side
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases);
+		expect(result.direction).toBe("pull");
+		expect(vault.contentOf("Note.md")).toContain("edited on Trello");
+		expect(vault.contentOf("Note.md")).toContain("tag: x");
+		expect(t.puts).toHaveLength(0);
+	});
+
+	test("F2b: a body edit in the note does not overwrite a due date edited on Trello earlier", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("old"), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0) }), []);
+		const bases = memoryBases();
+		clock.now = T0 + H / 2;
+		await sync(vault, t, bases);
+		t.state.card.due = "2026-11-01T00:00:00.000Z";
+		t.state.card.dateLastActivity = iso(T0 + H);
+		clock.now = T0 + 2 * H;
+		await vault.write(vault.note("Note.md"), note("edited")); // the note is the newer side
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases);
+		expect(result.direction).toBe("merge");
+		expect(t.state.card.desc).toBe("edited");
+		expect(t.state.card.due).toBe("2026-11-01T00:00:00.000Z");
+		expect(String(vault.readFrontmatter(vault.note("Note.md"))?.trello_due)).toContain("2026-11-01");
+		expect(vault.contentOf("Note.md")).toContain("edited");
+		// and it settles: the next cycle has nothing to do
+		clock.now = T0 + 4 * H;
+		const puts = t.puts.length;
+		expect((await sync(vault, t, bases)).direction).toBe("skip");
+		expect(t.puts).toHaveLength(puts);
+	});
+
+	test("a title renamed on the card is pulled (note renamed) while the body edited in the note is pushed", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("old"), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ name: "Note", desc: "old", dateLastActivity: iso(T0) }), []);
+		const bases = memoryBases();
+		clock.now = T0 + H / 2;
+		await sync(vault, t, bases);
+		t.state.card.name = "Renamed";
+		t.state.card.dateLastActivity = iso(T0 + H);
+		clock.now = T0 + 2 * H;
+		await vault.write(vault.note("Note.md"), note("edited"));
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases);
+		expect(result).toMatchObject({ direction: "merge", renamed: true });
+		expect(result.note.path).toBe("Renamed.md");
+		expect(t.state.card.desc).toBe("edited");
+		expect(t.state.card.name).toBe("Renamed");
+	});
+
+	test("both sides changed the body apart, outside the margin: the newer side still wins that field", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("old"), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0) }), []);
+		const bases = memoryBases();
+		clock.now = T0 + H / 2;
+		await sync(vault, t, bases);
+		t.state.card.desc = "theirs";
+		t.state.card.dateLastActivity = iso(T0 + H);
+		clock.now = T0 + 2 * H;
+		await vault.write(vault.note("Note.md"), note("mine"));
+		clock.now = T0 + 3 * H;
+		expect((await sync(vault, t, bases)).direction).toBe("push");
+		expect(t.state.card.desc).toBe("mine");
+	});
+
+	test("both sides changed the body apart within the margin: a conflict, nothing written, no base recorded", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("old"), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0) }), []);
+		const bases = memoryBases();
+		clock.now = T0 + H / 2;
+		await sync(vault, t, bases);
+		const before = structuredClone(bases.map.get("c1"));
+		t.state.card.desc = "theirs";
+		t.state.card.dateLastActivity = iso(T0 + H + 10_000);
+		clock.now = T0 + H;
+		await vault.write(vault.note("Note.md"), note("mine"));
+		clock.now = T0 + 3 * H;
+		expect((await sync(vault, t, bases)).direction).toBe("conflict");
+		expect(t.puts).toHaveLength(0);
+		expect(vault.contentOf("Note.md")).toBe(note("mine"));
+		expect(bases.map.get("c1")).toEqual(before);
+	});
+
+	test("a forced pull still overwrites every field that differs, whatever the base says", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("old"), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0) }), []);
+		const bases = memoryBases();
+		clock.now = T0 + H / 2;
+		await sync(vault, t, bases);
+		await vault.write(vault.note("Note.md"), note("local edit"));
+		t.state.card.due = "2026-11-01T00:00:00.000Z";
+		clock.now = T0 + 2 * H;
+		const result = await sync(vault, t, bases, { force: "pull" });
+		expect(result.direction).toBe("pull");
+		expect(vault.contentOf("Note.md")).toContain("old");
+		expect(vault.contentOf("Note.md")).not.toContain("local edit");
+		expect(t.puts).toHaveLength(0);
+	});
+
+	describe("when the base is recorded", () => {
+		test("after a successful sync of an identical pair, a pull and a push", async () => {
+			const vault = new ClockVault({ "Note.md": { content: note("old"), mtime: T0 } });
+			const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0) }), []);
+			const bases = memoryBases();
+			clock.now = T0 + H / 2;
+			await sync(vault, t, bases);
+			expect(bases.map.get("c1")).toMatchObject({ title: "Note", body: bodyKey("old"), due: null });
+			t.state.card.desc = "from Trello";
+			t.state.card.dateLastActivity = iso(T0 + H);
+			clock.now = T0 + 2 * H;
+			expect((await sync(vault, t, bases)).direction).toBe("pull");
+			expect(bases.map.get("c1")?.body).toBe(bodyKey("from Trello"));
+			clock.now = T0 + 3 * H;
+			await vault.write(vault.note("Note.md"), note("from the note"));
+			clock.now = T0 + 4 * H;
+			expect((await sync(vault, t, bases)).direction).toBe("push");
+			expect(bases.map.get("c1")?.body).toBe(bodyKey("from the note"));
+		});
+
+		test("not after a dry run, an abort, or a failed write", async () => {
+			const vault = new ClockVault({ "Note.md": { content: note("edited"), mtime: T0 + H } });
+			const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0) }), [], (b) => b.has("desc"));
+			const bases = memoryBases();
+			clock.now = T0 + 2 * H;
+			await sync(vault, t, bases, { dryRun: true });
+			expect(bases.map.size).toBe(0);
+			const controller = new AbortController();
+			controller.abort();
+			await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncBase: bases.store }, undefined, undefined, undefined, controller.signal);
+			expect(bases.map.size).toBe(0);
+			await expect(sync(vault, t, bases)).rejects.toThrow();
+			expect(bases.map.size).toBe(0);
+		});
+
+		test("not when the signal is aborted while the pair is being written", async () => {
+			const vault = new ClockVault({ "Note.md": { content: note("old"), mtime: T0 } });
+			const t = fakeTrello(remoteCard({ desc: "from Trello", dateLastActivity: iso(T0 + H) }), []);
+			const bases = memoryBases();
+			const controller = new AbortController();
+			const write = vault.write.bind(vault);
+			vault.write = async (...args: Parameters<typeof write>) => {
+				controller.abort();
+				return write(...args);
+			};
+			clock.now = T0 + 2 * H;
+			await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncBase: bases.store }, undefined, undefined, undefined, controller.signal);
+			expect(bases.map.size).toBe(0);
+		});
+	});
+
+	test("without a store the old rule applies: the comment makes the card win, as in 1.25.1", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("edited"), mtime: T0 + H } });
+		const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0 + 2 * H) }), []);
+		clock.now = T0 + 3 * H;
+		expect((await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), BASE)).direction).toBe("pull");
+	});
+
+	test("a pair whose recorded base is missing a field falls back to the clocks for it", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("edited"), mtime: T0 + H } });
+		const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0 + 2 * H) }), []);
+		const bases = memoryBases();
+		bases.map.set("c1", { at: 0 });
+		clock.now = T0 + 3 * H;
+		expect((await sync(vault, t, bases)).direction).toBe("pull");
+	});
+
+	test("the plugin's own writes are not edits: after labels converge both ways, a comment and a later local edit still push", async () => {
+		const vault = new ClockVault({ "Note.md": { content: note("old", 'trello_labels:\n  - "X"\n'), mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "old", dateLastActivity: iso(T0), labels: [label("LY", "Y")] }), [label("LX", "X"), label("LY", "Y")]);
+		const bases = memoryBases();
+		clock.now = T0 + H;
+		await sync(vault, t, bases); // writes both sides (label X to the card, Y to the note)
+		expect(t.state.card.labels?.map((l) => l.id).sort()).toEqual(["LX", "LY"]);
+		clock.now = T0 + 2 * H;
+		expect((await sync(vault, t, bases)).direction).toBe("skip");
+		clock.now = T0 + 4 * H;
+		await vault.write(vault.note("Note.md"), vault.contentOf("Note.md").replace("old", "edited"));
+		t.state.card.dateLastActivity = iso(T0 + 5 * H); // a comment, after the edit
+		clock.now = T0 + 6 * H;
+		expect((await sync(vault, t, bases)).direction).toBe("push");
+		expect(t.state.card.desc).toBe("edited");
+	});
 });
