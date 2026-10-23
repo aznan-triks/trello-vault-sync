@@ -45,6 +45,7 @@ import {
 import { extractBody, insertChecklistSection, rawBody, replaceBody, splitChecklistSection } from "../core/noteBody";
 import type { CardFateRules } from "../core/cardFate";
 import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection } from "../core/syncDecision";
+import type { SyncBaseStore } from "../core/syncBase";
 import type { TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/syncHistory";
 import { buildCardIndex, resolveAttachments } from "./attachmentSync";
 import { downloadAttachments } from "./attachmentDownload";
@@ -185,6 +186,12 @@ export interface NoteSyncOptions {
 	labelPropertyMappings?: readonly { key: string; values: readonly string[] }[];
 	obsoleteLabelPropertyKeys?: readonly string[];
 	keyMigrations?: Record<string, string>;
+	/**
+	 * What each linked pair looked like after its last successful sync — with it, every field is decided from what
+	 * changed since, not from the two modification times. Absent (setting off, tests, headless callers): the
+	 * modification-time rule alone, exactly as before the bases existed.
+	 */
+	syncBase?: SyncBaseStore;
 }
 
 /**

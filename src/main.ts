@@ -12,6 +12,7 @@ import { appendJournalEntry, prefixDryRunMessage, type JournalEntry, type LogLev
 import { OperationGuard } from "./core/operationGuard";
 import { normalizePersistedData } from "./core/pluginData";
 import type { IgnoredCards } from "./core/deletedNotes";
+import type { SyncBase, SyncBaseStore } from "./core/syncBase";
 import { activeMappings } from "./core/labelProperty";
 import { trelloPropertyKeys } from "./core/trelloProperties";
 import { appendSyncRun, type SyncAction, type SyncRun } from "./core/syncHistory";
@@ -51,6 +52,8 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	/** See `PersistedData`: how a deleted note is told from a new card. Public so the settings tab can list and clear the ignored cards. */
 	knownLinks: Record<string, string[]> = {};
 	ignoredCards: IgnoredCards = {};
+	/** See `PersistedData`: what each linked pair looked like after its last successful sync, by card id. */
+	syncBases: Record<string, SyncBase> = {};
 	/** Auto-syncs that ended in error in a row — `autoSyncPauseAfterFailures` pauses auto-sync when reached. */
 	private autoSyncFailures = 0;
 	/** Paused after too many failures; cleared by re-enabling auto-sync or by any successful sync. In memory: a restart retries. */
@@ -69,10 +72,11 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	override async onload(): Promise<void> {
 		this.registerView(VIEW_TYPE_TVS_SIDEBAR, (leaf) => new SidebarView(leaf, this));
 
-		const { settingsRaw, journal, history, lastSyncAt, knownLinks, ignoredCards } = normalizePersistedData(await this.loadData());
+		const { settingsRaw, journal, history, lastSyncAt, knownLinks, ignoredCards, syncBases } = normalizePersistedData(await this.loadData());
 		this.lastSyncAt = lastSyncAt;
 		this.knownLinks = knownLinks;
 		this.ignoredCards = ignoredCards;
+		this.syncBases = syncBases;
 		this.settings = normalizeSettings(settingsRaw);
 		configureYieldEvery(this.settings.yieldEveryNotes);
 		if (this.settings.cardView.enabled) {
@@ -119,6 +123,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				lastSyncAt: this.lastSyncAt,
 				knownLinks: this.knownLinks,
 				ignoredCards: this.ignoredCards,
+				syncBases: this.syncBases,
 			}),
 		);
 		this.persistQueue = write.catch(() => undefined);
@@ -267,8 +272,16 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		return { Authorization: `OAuth oauth_consumer_key="${this.settings.apiKey}", oauth_token="${this.settings.token}"` };
 	}
 
+	/** The bases as the engines see them. With the setting off nothing is read and every write drops the pair's base, so re-enabling starts from a clean slate instead of an old base. */
+	private syncBaseStore(): SyncBaseStore {
+		const drop = (cardId: string) => void Reflect.deleteProperty(this.syncBases, cardId);
+		if (!this.settings.useSyncBase) return { get: () => undefined, set: drop, drop };
+		return { get: (cardId) => this.syncBases[cardId], set: (cardId, base) => void (this.syncBases[cardId] = base), drop };
+	}
+
 	noteOptions(force?: "pull" | "push", bypassConflict?: boolean): NoteSyncOptions {
 		return {
+			syncBase: this.syncBaseStore(),
 			policy: this.settings.policy,
 			marginMs: this.settings.marginSeconds * 1000,
 			syncTitle: this.settings.syncTitle,

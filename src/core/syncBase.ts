@@ -82,6 +82,25 @@ export function baseFromState(state: SyncedState, at: number): SyncBase {
 	return base;
 }
 
+/** Reads the bases back from `data.json`. Whatever is unreadable is left out — a missing field or base only means "fall back to the clocks", never an error. */
+export function normalizeSyncBases(raw: unknown): Record<string, SyncBase> {
+	const out: Record<string, SyncBase> = {};
+	if (typeof raw !== "object" || raw === null) return out;
+	for (const [cardId, entry] of Object.entries(raw)) {
+		if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+		const e = entry as Record<string, unknown>;
+		const base: SyncBase = { at: typeof e.at === "number" && Number.isFinite(e.at) ? e.at : 0 };
+		if (typeof e.title === "string") base.title = e.title;
+		if (typeof e.body === "string") base.body = e.body;
+		if (e.due === null || typeof e.due === "string" || (typeof e.due === "number" && Number.isFinite(e.due))) base.due = e.due;
+		if (typeof e.checkItems === "object" && e.checkItems !== null && !Array.isArray(e.checkItems)) {
+			base.checkItems = Object.fromEntries(Object.entries(e.checkItems).filter((item): item is [string, boolean] => typeof item[1] === "boolean"));
+		}
+		out[cardId] = base;
+	}
+	return out;
+}
+
 const FIELDS = ["title", "body", "due"] as const;
 type Field = (typeof FIELDS)[number];
 

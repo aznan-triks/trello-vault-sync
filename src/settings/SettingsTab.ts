@@ -2550,6 +2550,16 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		const expert = root.createEl("details", { cls: "tvs-settings__expert" });
 		expert.createEl("summary", { text: "Expert settings - network retries, timings, report wording" });
 
+		this.track(new Setting(expert)
+			.setName("Decide from what changed since the last sync")
+			.setDesc("Decide each field from what changed since the last sync, instead of comparing modification times. A comment on a card or an unrelated edit then no longer makes the older text win. Off: the previous rule, which compares the note's and the card's last-modified times for the whole note; the remembered state of each pair is dropped.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.useSyncBase).onChange((value) => {
+					this.plugin.settings.useSyncBase = value;
+					void this.save();
+				}),
+			), "useSyncBase");
+
 		this.track(new Setting(root)
 			.setName("Similarity threshold")
 			.setDesc("Minimum score (0 to 1) to automatically match a note to a card.")

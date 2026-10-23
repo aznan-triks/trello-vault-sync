@@ -13,7 +13,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `core/syncBase.ts` (new, pure): `SyncBase` (title, body fingerprint + length, due instant, check items by id), `baseFromState`, `decideWithBase`. One side moved from the base: it wins, whatever the clocks say. Both moved to the same value: nothing. Both moved apart: the policy and the clocks settle that field, a tie being a conflict of the pair. No base, or a synced field the base lacks: exactly `decideSync`.
   - `core/syncDecision.ts`: `SyncDecision.fields` (`title`/`body`/`due`/`labels`: `pull`, `push` or `none`) and the new direction `merge` (some fields pulled, others pushed); `decideSync` fills `fields` from its single direction. Exports `sidesFor`, `comparableTitle`, `normalizeDue`, `sameDue`.
   - `core/syncTally.ts`: a `merge` counts as one note pulled and one pushed, logged "(merged)"; `describeSyncOutcome` says "Merged".
-  - Tests: `tests/syncBase.test.ts`.
+  - `core/pluginData.ts`: `PersistedData.syncBases` (card id → base), read defensively by `normalizeSyncBases` (an unreadable base or field is left out, never an error); a 1.25.1 `data.json` loads unchanged. `main.ts` loads and saves it next to `knownLinks` and hands the engines a `syncBase` store through `NoteSyncOptions`.
+  - New setting `useSyncBase` (Advanced → Expert settings, default on): off, the store reads nothing and every write drops the pair's base, so the 1.25.1 rule applies exactly and re-enabling starts clean.
+  - Tests: `tests/syncBase.test.ts`, `tests/pluginData.test.ts`, `tests/mainPersist.test.ts`, `tests/settings.test.ts`.
 
 ## [1.25.1] — 2026-10-23
 
