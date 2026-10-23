@@ -783,16 +783,17 @@ describe("syncNoteWithCard — checklists (opt-in via syncChecklists)", () => {
 			syncChecklists: true,
 		});
 
-		expect(result.direction).toBe("skip");
+		// the checklist is the only difference, and the card is the newer side
+		expect(result.direction).toBe("pull");
 		expect(vault.contentOf(PATH)).toBe(
 			FRONTMATTER + "same\n\n" + DEFAULT_CHECKLIST_HEADING + "\n### Prep\n- [x] Réserver",
 		);
 	});
 
-	test("pushes a local checkbox toggle even when the overall sync direction is skip", async () => {
+	test("pushes a local checkbox toggle when the note is the newer side", async () => {
 		const withChecklist =
 			FRONTMATTER + `same\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [x] Réserver`;
-		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-01-01") } });
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-03-01") } });
 		const { transport, requests } = routedTransport({
 			"/cards/c1/checklists": [
 				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "incomplete" }] },
@@ -806,10 +807,32 @@ describe("syncNoteWithCard — checklists (opt-in via syncChecklists)", () => {
 			syncChecklists: true,
 		});
 
-		expect(result.direction).toBe("skip");
-		const update = requests.find((r) => r.method === "PUT");
+		expect(result.direction).toBe("push");
+		const update = requests.find((r) => r.method === "PUT" && r.url.includes("/checkItem/"));
 		expect(update?.url).toContain("/cards/c1/checkItem/i1");
 		expect(update?.body).toBe("state=complete");
+	});
+
+	test("takes the card's state for a box ticked on Trello when the card is the newer side, and pushes nothing", async () => {
+		const withChecklist =
+			FRONTMATTER + `same\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [ ] Réserver`;
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({
+			"/cards/c1/checklists": [
+				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "complete" }] },
+			],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01" });
+
+		const result = await syncNoteWithCard(vault, client, vault.note(PATH), remote, {
+			...options,
+			syncChecklists: true,
+		});
+
+		expect(result.direction).toBe("pull");
+		expect(requests.filter((r) => r.method === "PUT")).toHaveLength(0);
+		expect(vault.contentOf(PATH)).toContain("- [x] Réserver");
 	});
 
 	test("picks up an item added on the remote checklist", async () => {
@@ -1790,7 +1813,7 @@ describe("Trello write recording", () => {
 	test("a checklist item flip records a trello-checkitem action with the right previous/written state", async () => {
 		const withChecklist =
 			FRONTMATTER + `same\n\n${DEFAULT_CHECKLIST_HEADING}\n### Prep\n- [x] Réserver`;
-		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-01-01") } });
+		const vault = new FakeVault({ [PATH]: { content: withChecklist, mtime: at("2026-03-01") } });
 		const { transport } = routedTransport({
 			"/cards/c1/checklists": [
 				{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "incomplete" }] },

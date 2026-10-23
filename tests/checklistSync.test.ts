@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { resolveChecklists } from "../src/features/checklistSync";
+import { checklistsDiffer, resolveChecklists } from "../src/features/checklistSync";
 import type { TrelloChecklist } from "../src/trello/client";
 
 const HEADING = "## Checklist";
@@ -90,5 +90,58 @@ describe("resolveChecklists", () => {
 
 		expect(result.markdown).toBe("## Checklist\n### Prep\n- [ ] Réserver");
 		expect(result.pushes).toEqual([]);
+	});
+});
+
+describe("resolveChecklists — remote wins", () => {
+	test("takes the remote state of an item known to both sides and pushes nothing", () => {
+		const remote: TrelloChecklist[] = [
+			{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "complete" }] },
+		];
+		const local = "## Checklist\n### Prep\n- [ ] Réserver";
+
+		const result = resolveChecklists(remote, local, HEADING, "remote");
+
+		expect(result.pushes).toEqual([]);
+		expect(result.markdown).toBe("## Checklist\n### Prep\n- [x] Réserver");
+	});
+
+	test("matches names ignoring surrounding spaces on the Trello side", () => {
+		const remote: TrelloChecklist[] = [
+			{ id: "cl1", name: "Prep ", checkItems: [{ id: "i1", name: "Réserver ", state: "incomplete" }] },
+		];
+		const local = "## Checklist\n### Prep\n- [x] Réserver";
+
+		const result = resolveChecklists(remote, local, HEADING);
+
+		expect(result.pushes).toEqual([{ checkItemId: "i1", state: "complete" }]);
+		expect(result.markdown).toBe("## Checklist\n### Prep\n- [x] Réserver");
+	});
+});
+
+describe("checklistsDiffer", () => {
+	const remote: TrelloChecklist[] = [
+		{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver", state: "complete" }] },
+	];
+
+	test("is false when the note shows the same items in the same states", () => {
+		expect(checklistsDiffer(remote, "## Checklist\n### Prep\n- [x] Réserver", HEADING)).toBe(false);
+	});
+
+	test("is true for a different state, a missing item or a missing section", () => {
+		expect(checklistsDiffer(remote, "## Checklist\n### Prep\n- [ ] Réserver", HEADING)).toBe(true);
+		expect(checklistsDiffer(remote, "## Checklist\n### Prep", HEADING)).toBe(true);
+		expect(checklistsDiffer(remote, null, HEADING)).toBe(true);
+	});
+
+	test("is false when neither side has a checklist", () => {
+		expect(checklistsDiffer([], null, HEADING)).toBe(false);
+	});
+
+	test("ignores spaces around a Trello name", () => {
+		const spaced: TrelloChecklist[] = [
+			{ id: "cl1", name: "Prep", checkItems: [{ id: "i1", name: "Réserver ", state: "complete" }] },
+		];
+		expect(checklistsDiffer(spaced, "## Checklist\n### Prep\n- [x] Réserver", HEADING)).toBe(false);
 	});
 });

@@ -48,7 +48,7 @@ import { decideSync, type ConflictPolicy, type SyncDecision, type SyncDirection 
 import type { TrelloCardUpdateAction, TrelloCheckItemAction } from "../core/syncHistory";
 import { buildCardIndex, resolveAttachments } from "./attachmentSync";
 import { downloadAttachments } from "./attachmentDownload";
-import { resolveChecklists } from "./checklistSync";
+import { checklistsDiffer, resolveChecklists, type ChecklistWinner } from "./checklistSync";
 import { SAFE_ALIGN_CATEGORIES, type AlignSettings } from "../core/staleProperties";
 import { alignNote } from "./alignNotes";
 import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
@@ -237,6 +237,7 @@ export function decideForCard(
 	>,
 	localDue: string | null,
 	localLabels: string[] = [],
+	checklistsChanged = false,
 ): SyncDecision {
 	const remoteMtime = new Date(card.dateLastActivity).getTime();
 	if (!Number.isFinite(remoteMtime)) {
@@ -261,6 +262,7 @@ export function decideForCard(
 		syncDescription: options.syncDescription,
 		syncDue: options.syncDue,
 		syncLabels: options.syncLabels,
+		checklistsChanged,
 		policy: options.policy,
 		marginMs: options.marginMs,
 	});
@@ -464,15 +466,40 @@ async function convergeAttachments(
 }
 
 /**
+ * The card's checklists in Trello's order — from the card request when it carried them, otherwise one request.
+ * `null` when there is none to read (dry run: no request is made) or the request fails: best-effort, logged
+ * like every other step, never throws.
+ */
+async function loadChecklists(
+	client: TrelloClient,
+	card: TrelloCard,
+	dryRun: boolean,
+	signal?: AbortSignal,
+): Promise<TrelloChecklist[] | null> {
+	try {
+		if (card.checklists) return orderedChecklists(card.checklists);
+		if (dryRun || signal?.aborted) return null;
+		return orderedChecklists(await client.getCardChecklists(card.id, signal));
+	} catch (error) {
+		warnUnlessAborted(
+			signal,
+			`[trello-vault-sync] Could not sync checklists for card "${card.name}" (${card.id}): ${errorMessage(error)}`,
+		);
+		return null;
+	}
+}
+
+/**
  * Converges a note's checklist section from the card's current checklists.
- * Same hook point and failure handling as `convergeAttachments` — runs
- * independently of the title/body/due direction (a checkbox toggle must reach
- * Trello even when that direction is "skip"), never throws.
+ * Same hook point and failure handling as `convergeAttachments` — never throws.
+ * Runs only on a pull or a push: a checklist difference is part of what decides
+ * the direction (see `checklistsDiffer`), so the checked state follows it like
+ * the rest of the card.
  *
- * Obsidian wins the checked state of an item known to both sides (pushed via
- * `resolveChecklists`'s `pushes`); Trello wins which items/checklists exist at
- * all, so the section is always rewritten to Trello's own structure — see
- * `resolveChecklists` for the full reconciliation rule. `content` is the note's
+ * `winner` says whose checked state an item known to both sides takes: the note's
+ * on a push (sent to Trello via `resolveChecklists`'s `pushes`), the card's on a pull.
+ * Trello always wins which items/checklists exist, so the section is rewritten to
+ * Trello's own structure — see `resolveChecklists` for the full reconciliation rule. `content` is the note's
  * current text, already read by the caller. Returns whether the note may have changed, and the
  * check-item writes to Trello as a step of their own: the caller decides when they go out.
  */
@@ -481,6 +508,8 @@ async function convergeChecklists(
 	client: TrelloClient,
 	note: NoteHandle,
 	card: TrelloCard,
+	remoteChecklists: TrelloChecklist[],
+	winner: ChecklistWinner,
 	heading: string,
 	content: string,
 	onTrelloWrite: NoteSyncOptions["onTrelloWrite"],
@@ -497,8 +526,7 @@ async function convergeChecklists(
 		const fullBody = extractBody(content);
 		const { rest: description, checklistBlock } = splitChecklistSection(fullBody, heading);
 
-		const remoteChecklists = orderedChecklists(card.checklists ?? (await client.getCardChecklists(card.id, signal)));
-		const { markdown, pushes } = resolveChecklists(remoteChecklists, checklistBlock, heading);
+		const { markdown, pushes } = resolveChecklists(remoteChecklists, checklistBlock, heading, winner);
 		const remoteStateById = new Map(
 			remoteChecklists.flatMap((group) => group.checkItems.map((item) => [item.id, item.state] as const)),
 		);
@@ -825,7 +853,13 @@ async function syncNoteWithCardUnguarded(
 	const remoteLabels = remoteLabelsOf(card);
 	const labelsSyncMode = options.labelsSyncMode ?? DEFAULT_LABELS_SYNC_MODE;
 
-	const decision = decideForCard(note, card, localBody, options, localDue, localLabels);
+	// Read before deciding: a checklist that differs is a change like any other, and it picks the direction.
+	const remoteChecklists = syncChecklists ? await loadChecklists(client, card, options.dryRun, signal) : null;
+	const checklistsChanged =
+		remoteChecklists !== null &&
+		checklistsDiffer(remoteChecklists, splitChecklistSection(extractBody(content), checklistHeading).checklistBlock, checklistHeading);
+
+	const decision = decideForCard(note, card, localBody, options, localDue, localLabels, checklistsChanged);
 	// `decision.direction === "skip"` only ever means "identical" (see
 	// `core/syncDecision.ts`) — even a forced pull/push must not overwrite
 	// either side, or bump a note's mtime, when there is genuinely nothing to
@@ -909,15 +943,15 @@ async function syncNoteWithCardUnguarded(
 		stale = stale || wrote;
 	}
 
-	if (syncChecklists && writesAllowed && !signal?.aborted) {
+	if (remoteChecklists && (direction === "pull" || direction === "push") && writesAllowed && !signal?.aborted) {
 		if (stale) {
 			content = await vault.read(note);
 			stale = false;
 		}
-		const checklists = await convergeChecklists(vault, client, note, card, checklistHeading, content, options.onTrelloWrite, signal);
+		const winner = direction === "push" ? "local" : "remote";
+		const checklists = await convergeChecklists(vault, client, note, card, remoteChecklists, winner, checklistHeading, content, options.onTrelloWrite, signal);
 		stale = checklists.stale;
-		if (direction === "push") pushCheckItems = checklists.pushCheckItems;
-		else await checklists.pushCheckItems();
+		pushCheckItems = checklists.pushCheckItems;
 	}
 
 	if (options.downloadAttachments && writesAllowed && !signal?.aborted) {

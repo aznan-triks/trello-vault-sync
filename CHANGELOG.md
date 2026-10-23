@@ -15,6 +15,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `convergeChecklists` returns its check-item writes as a deferred `pushCheckItems`; on a push they go out after the card write.
   - Tests: `tests/reconciliation.test.ts` (F3a, F3b, F3 checklists, F4 x3, F6).
 
+- **Plain words:** A box ticked on Trello is no longer unticked by the next sync (GitHub issue #2). Until now the note always won the checked state of a checklist item and a checklist-only change was invisible to the sync, so the tick made on Trello was rolled back and the note and the card flipped over and over. A checklist difference now counts like any other change: the newer side wins, so a tick made on Trello reaches the note, and a tick made in the note reaches Trello. Names with a stray space on Trello now match the note. Still open: if anything else happens on the card after your edit (a comment, a member), Trello is still seen as newer and your unsynced edit can lose; that needs the base-snapshot change, planned separately.
+  **Technical:**
+  - `core/syncDecision.ts`: new input `checklistsChanged` takes part in the `identical` short-circuit; `decideForCard` takes it as a trailing parameter.
+  - `features/checklistSync.ts`: `resolveChecklists(..., winner)` — `"local"` (default, push) keeps the old rule, `"remote"` (pull) takes Trello's state and pushes nothing; names compared `trim()`med on both sides; new `checklistsDiffer`.
+  - `features/syncNote.ts`: the card's checklists are read once before the decision (`loadChecklists`, no request in dry run unless the card carried them); the checklist step runs only on `pull` (remote wins) or `push` (note wins), never on `skip` or `conflict`.
+  - Behavior change: a checklist-only difference now reports `pull`/`push` instead of `skip`. Tests rewritten for it in `tests/syncNote.test.ts`: the old "pushes a local checkbox toggle even when the overall sync direction is skip" (the note must now be the newer side), the section-added test (`pull`), and the history test (note newer). New: a Trello tick on a newer card is pulled with no `PUT`.
+  - Tests: `tests/reconciliation.test.ts` (F1, F1bis, F12), `tests/checklistSync.test.ts`, `tests/syncDecision.test.ts`.
+
 ## [1.25.0] — 2026-10-19
 
 ### Added

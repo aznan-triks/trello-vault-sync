@@ -158,3 +158,44 @@ describe("lot A — nothing is written during a conflict, and the main write goe
 		expect(t.state.card.labels?.map((l) => l.id)).toEqual(["LX", "LP"]);
 	});
 });
+
+describe("lot B — issue #2: checklist state follows the decided direction", () => {
+	const todo = (state: "complete" | "incomplete", name = "a") =>
+		[{ id: "cl", name: "Todo", pos: 1, checkItems: [{ id: "i1", name, state, pos: 1 }] }] as never;
+
+	test("F1: a box ticked on Trello (card newer) is pulled into the note, never rolled back", async () => {
+		clock.now = T0 + 2 * H;
+		const vault = new ClockVault({ "Note.md": { content: `---\n${REF}\n---\n\nbody\n\n## Checklist\n### Todo\n- [ ] a`, mtime: T0 } });
+		const t = fakeTrello(remoteCard({ desc: "body", dateLastActivity: iso(T0 + H), checklists: todo("complete") }), []);
+		const result = await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncChecklists: true });
+		expect(result.direction).toBe("pull");
+		expect(t.puts).toHaveLength(0);
+		expect(vault.contentOf("Note.md")).toContain("- [x] a");
+		// next cycle: both sides agree, so nothing moves and Trello stays ticked
+		clock.now = T0 + 3 * H;
+		const again = await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncChecklists: true });
+		expect(again.direction).toBe("skip");
+		expect(t.puts).toHaveLength(0);
+		expect(t.state.card.checklists?.[0]?.checkItems[0]?.state).toBe("complete");
+	});
+
+	test("F1bis: a box ticked in the note (note newer) is pushed to Trello", async () => {
+		clock.now = T0 + 2 * H;
+		const vault = new ClockVault({ "Note.md": { content: `---\n${REF}\n---\n\nbody\n\n## Checklist\n### Todo\n- [x] a`, mtime: T0 + H } });
+		const t = fakeTrello(remoteCard({ desc: "body", dateLastActivity: iso(T0), checklists: todo("incomplete") }), []);
+		const result = await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncChecklists: true });
+		expect(result.direction).toBe("push");
+		expect(t.puts.filter((p) => p.url.includes("checkItem")).map((p) => p.body.get("state"))).toEqual(["complete"]);
+		expect(t.state.card.checklists?.[0]?.checkItems[0]?.state).toBe("complete");
+		expect(vault.contentOf("Note.md")).toContain("- [x] a");
+	});
+
+	test("F12: an item whose Trello name ends with a space still matches the note's trimmed item", async () => {
+		clock.now = T0 + 3 * H;
+		const vault = new ClockVault({ "Note.md": { content: `---\n${REF}\n---\n\nintro\n\n## Checklist\n### Todo\n- [x] a`, mtime: T0 + 2 * H } });
+		const t = fakeTrello(remoteCard({ desc: "intro", checklists: todo("incomplete", "a ") }), []);
+		await syncNoteWithCard(vault, t.client, vault.note("Note.md"), t.fresh(), { ...BASE, syncChecklists: true });
+		expect(t.puts.filter((p) => p.url.includes("checkItem")).map((p) => p.body.get("state"))).toEqual(["complete"]);
+		expect(vault.contentOf("Note.md")).toContain("- [x] a");
+	});
+});
