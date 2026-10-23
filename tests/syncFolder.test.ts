@@ -1250,3 +1250,103 @@ describe("syncFolder — what a pass remembers (Grok #2)", () => {
 	});
 });
 
+
+describe("syncFolder — new cards go in their section (separator cards)", () => {
+	const SECTIONS = { labelName: "Separator", placement: "last", source: "auto", frontmatterKey: "trello_section" } as const;
+	const withLabel = (c: ReturnType<typeof card>) => ({ ...c, labels: [{ id: "x", name: "Separator", color: null }] });
+	// Villes 🏙️ (100): a (200) | Races (300): b (400)
+	const LIST_CARDS = [
+		withLabel(card({ id: "s1", name: "Villes 🏙️", pos: 100, idList: "l1" })),
+		card({ id: "a", name: "a", pos: 200, idList: "l1" }),
+		withLabel(card({ id: "s2", name: "Races", pos: 300, idList: "l1" })),
+		card({ id: "b", name: "b", pos: 400, idList: "l1" }),
+	];
+
+	/** The list's cards, the board's cards, and a POST /cards that echoes the requested pos — as Trello does. */
+	function clientWithEcho() {
+		const requests: HttpRequest[] = [];
+		let created = 0;
+		const transport = async (req: HttpRequest): Promise<HttpResponse> => {
+			requests.push(req);
+			if (req.method === "POST") {
+				const body = new URLSearchParams(req.body);
+				const pos = body.get("pos");
+				const card = { id: `new-${++created}`, idBoard: "board", idList: "l1", name: body.get("name"), desc: "", url: "u", dateLastActivity: "2026-10-23T00:00:00.000Z", due: null, pos: pos === "bottom" ? 1e9 : Number(pos) };
+				return { status: 200, text: JSON.stringify(card) };
+			}
+			if (req.url.includes("/lists/l1/cards")) return { status: 200, text: JSON.stringify(LIST_CARDS) };
+			if (req.url.includes("/boards/board/cards")) return { status: 200, text: JSON.stringify(LIST_CARDS) };
+			return { status: 200, text: "[]" };
+		};
+		const posted = () => requests.filter((r) => r.method === "POST").map((r) => [new URLSearchParams(r.body).get("name"), new URLSearchParams(r.body).get("pos")]);
+		return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), posted };
+	}
+	const run = (vault: FakeVault, client: TrelloClient, sections: FolderSyncOptions["sections"], dryRun = false) => {
+		const reporter = recordingReporter();
+		return syncFolder(vault, client, MAPPING, { ...options, allowCreateCards: true, sections, dryRun }, reporter).then((stats) => ({ stats, logs: reporter.logs }));
+	};
+
+	test("two orphan notes of one subfolder, created in one pass, arrive in order between their separator and the next", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Villes 🏙️/Lyon.md`]: { content: "l" },
+			[`${FOLDER}/Villes 🏙️/Paris.md`]: { content: "p" },
+		});
+		const { client, posted } = clientWithEcho();
+
+		const { stats } = await run(vault, client, SECTIONS);
+
+		expect(stats.createdCards).toBe(2);
+		// The 2nd lands between the 1st (250, as Trello returned it) and the next separator (300), not at 250 again.
+		expect(posted()).toEqual([["Lyon", "250"], ["Paris", "275"]]);
+	});
+
+	test("first placement: right after the separator", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Villes 🏙️/Lyon.md`]: { content: "l" } });
+		const { client, posted } = clientWithEcho();
+
+		await run(vault, client, { ...SECTIONS, placement: "first" });
+
+		expect(posted()).toEqual([["Lyon", "150"]]);
+	});
+
+	test("the property wins over the subfolder; the last section takes the bottom", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Villes 🏙️/Elf.md`]: { content: '---\ntrello_section: "Races"\n---\n\nelf' } });
+		const { client, posted } = clientWithEcho();
+
+		await run(vault, client, SECTIONS);
+
+		expect(posted()).toEqual([["Elf", "bottom"]]);
+	});
+
+	test("a section whose separator was renamed: end of the list, one warning, the note is still linked", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Cities/Lyon.md`]: { content: "l" } });
+		const { client, posted } = clientWithEcho();
+
+		const { stats, logs } = await run(vault, client, SECTIONS);
+
+		expect(posted()).toEqual([["Lyon", "bottom"]]);
+		expect(stats.createdCards).toBe(1);
+		expect(logs.filter((l) => l.level === "warn").map((l) => l.message)).toEqual([expect.stringContaining('no separator named "Cities"')]);
+		expect(vault.contentOf(`${FOLDER}/Cities/Lyon.md`)).toContain('trello_board_card_id: "board;new-1"');
+	});
+
+	test("sections off (null): every card at the bottom, no section in the journal", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Villes 🏙️/Lyon.md`]: { content: "l" } });
+		const { client, posted } = clientWithEcho();
+
+		const { logs } = await run(vault, client, null);
+
+		expect(posted()).toEqual([["Lyon", "bottom"]]);
+		expect(logs.find((l) => l.message.includes("Trello card"))?.message).toBe('Created Trello card "Lyon" in list and linked note');
+	});
+
+	test("dry run: the journal names the section, nothing is posted", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Villes 🏙️/Lyon.md`]: { content: "l" } });
+		const { client, posted } = clientWithEcho();
+
+		const { logs } = await run(vault, client, SECTIONS, true);
+
+		expect(posted()).toEqual([]);
+		expect(logs.find((l) => l.message.includes("Trello card"))?.message).toBe('[Dry-run] Would create Trello card "Lyon" in section "Villes 🏙️" of the list');
+	});
+});
