@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Plain words:** (lot E, in progress) The sync now remembers what each linked note and card looked like the last time it succeeded, and decides field by field which side changed since, instead of comparing two "last activity" times. A comment posted on a card no longer makes the old description win over your edit, and a text edit in the note no longer overwrites a due date changed on Trello.
+  **Technical:**
+  - `core/syncBase.ts` (new, pure): `SyncBase` (title, body fingerprint + length, due instant, check items by id), `baseFromState`, `decideWithBase`. One side moved from the base: it wins, whatever the clocks say. Both moved to the same value: nothing. Both moved apart: the policy and the clocks settle that field, a tie being a conflict of the pair. No base, or a synced field the base lacks: exactly `decideSync`.
+  - `core/syncDecision.ts`: `SyncDecision.fields` (`title`/`body`/`due`/`labels`: `pull`, `push` or `none`) and the new direction `merge` (some fields pulled, others pushed); `decideSync` fills `fields` from its single direction. Exports `sidesFor`, `comparableTitle`, `normalizeDue`, `sameDue`.
+  - `core/syncTally.ts`: a `merge` counts as one note pulled and one pushed, logged "(merged)"; `describeSyncOutcome` says "Merged".
+  - Tests: `tests/syncBase.test.ts`.
+
 ## [1.25.1] — 2026-10-23
 
 ### Fixed

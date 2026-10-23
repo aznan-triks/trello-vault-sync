@@ -5,7 +5,20 @@ import { normalizeBody } from "./noteBody";
 /** How to resolve a note and a card that both changed. */
 export type ConflictPolicy = "newer-wins" | "prefer-local" | "prefer-remote";
 
-export type SyncDirection = "skip" | "pull" | "push" | "conflict";
+/** `merge`: some fields come from the card and others go to it (only a decision made against a base can say so). */
+export type SyncDirection = "skip" | "pull" | "push" | "conflict" | "merge";
+
+/** Which way one field travels. */
+export type Side = "pull" | "push" | "none";
+
+/** What happens to each field the decision covers. */
+export interface FieldSides {
+	title: Side;
+	body: Side;
+	due: Side;
+	/** Only ever set in `overwrite` mode — in `merge` mode labels converge outside the decision. */
+	labels: Side;
+}
 
 export interface SyncInput {
 	localTitle: string;
@@ -54,16 +67,38 @@ export interface SyncDecision {
 	titleChanged: boolean;
 	dueChanged: boolean;
 	labelsChanged: boolean;
-	reason: "identical" | "remote-newer" | "local-newer" | "within-margin" | "policy";
+	fields: FieldSides;
+	reason: "identical" | "remote-newer" | "local-newer" | "within-margin" | "policy" | "remote-changed" | "local-changed" | "both-changed";
+}
+
+const NO_SIDES: FieldSides = { title: "none", body: "none", due: "none", labels: "none" };
+
+/** A single-direction `direction` applied to the fields that differ (what `decideSync`, and a forced pull/push, mean by it). */
+export function sidesFor(
+	direction: SyncDirection,
+	changed: Pick<SyncDecision, "titleChanged" | "bodyChanged" | "dueChanged" | "labelsChanged">,
+): FieldSides {
+	if (direction !== "pull" && direction !== "push") return NO_SIDES;
+	return {
+		title: changed.titleChanged ? direction : "none",
+		body: changed.bodyChanged ? direction : "none",
+		due: changed.dueChanged ? direction : "none",
+		labels: changed.labelsChanged ? direction : "none",
+	};
+}
+
+/** The card title as the note's file name would carry it — the form titles are compared in. */
+export function comparableTitle(title: string, maxNameLength?: number): string {
+	return sanitizeFileName(title, maxNameLength).trim();
 }
 
 /** Empty string and absent are the same "no due date" for comparison purposes. */
-function normalizeDue(value: string | null): string | null {
+export function normalizeDue(value: string | null): string | null {
 	return value === "" ? null : value;
 }
 
 /** Same instant counts as the same due date, whatever the ISO spelling ("…:00Z" vs "…:00.000Z"); text that does not parse is compared as written. */
-function sameDue(a: string | null, b: string | null): boolean {
+export function sameDue(a: string | null, b: string | null): boolean {
 	const x = normalizeDue(a);
 	const y = normalizeDue(b);
 	if (x === y) return true;
@@ -86,7 +121,7 @@ export function decideSync(input: SyncInput): SyncDecision {
 	// title would flag every special-character title as "changed" forever and
 	// push the sanitized filename back to Trello as if it were a real rename.
 	// A " (2)" on the note is the collision suffix a pull added, not a rename to push back.
-	const remoteName = sanitizeFileName(input.remoteTitle, input.maxNameLength).trim();
+	const remoteName = comparableTitle(input.remoteTitle, input.maxNameLength);
 	const localName = input.localTitle.trim();
 	const titleChanged = input.syncTitle !== false && localName !== remoteName && !isCollisionVariant(localName, remoteName);
 	const dueChanged = input.syncDue !== false && !sameDue(input.localDue, input.remoteDue);
@@ -98,15 +133,25 @@ export function decideSync(input: SyncInput): SyncDecision {
 		input.labelsSyncMode === "overwrite" &&
 		!sameLabelSet(input.localLabels ?? [], input.remoteLabels ?? []);
 
+	const finish = (direction: SyncDirection, reason: SyncDecision["reason"]): SyncDecision => ({
+		direction,
+		bodyChanged,
+		titleChanged,
+		dueChanged,
+		labelsChanged,
+		fields: sidesFor(direction, { titleChanged, bodyChanged, dueChanged, labelsChanged }),
+		reason,
+	});
+
 	if (!bodyChanged && !titleChanged && !dueChanged && !labelsChanged && input.checklistsChanged !== true) {
-		return { direction: "skip", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "identical" };
+		return finish("skip", "identical");
 	}
 
 	if (input.policy === "prefer-local") {
-		return { direction: "push", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "policy" };
+		return finish("push", "policy");
 	}
 	if (input.policy === "prefer-remote") {
-		return { direction: "pull", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "policy" };
+		return finish("pull", "policy");
 	}
 
 	const delta = input.remoteMtime - input.localMtime;
@@ -114,9 +159,9 @@ export function decideSync(input: SyncInput): SyncDecision {
 	// no clock-skew tolerance to apply, and picking a direction here would just
 	// misreport an arbitrary side as "newer" when neither is.
 	if (delta === 0 || (Math.abs(delta) <= input.marginMs && input.marginMs > 0)) {
-		return { direction: "conflict", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "within-margin" };
+		return finish("conflict", "within-margin");
 	}
 	return delta > 0
-		? { direction: "pull", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "remote-newer" }
-		: { direction: "push", bodyChanged, titleChanged, dueChanged, labelsChanged, reason: "local-newer" };
+		? finish("pull", "remote-newer")
+		: finish("push", "local-newer");
 }
