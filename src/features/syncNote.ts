@@ -1266,7 +1266,7 @@ async function syncNoteWithCardUnguarded(
 
 	// The one place a base is recorded: the pair was fully handled (not a conflict, a simulation, an abort or a failure,
 	// all of which left above or threw), so what each side holds now is what was written, not what was read.
-	// shortcut: the base is keyed by card, so two notes linked to the same card share one — the second's sync reads what the first recorded; upgrade by keying on the note path if such pairs prove common (the link audit already reports them).
+	// shortcut: the base is keyed by card, so two notes linked to the same card share one — the second's sync reads what the first recorded; upgrade by keying on the note path if such pairs prove common.
 	if (options.syncBase && !signal?.aborted) {
 		options.syncBase.set(
 			card.id,
