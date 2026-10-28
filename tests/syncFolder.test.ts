@@ -68,6 +68,24 @@ function clientWithCreation(listCards: unknown[], boardCards: unknown[] = listCa
 const linked = (cardId: string, body: string) =>
 	`---\ntype: idée\ntrello_board_card_id: "board;${cardId}"\n---\n\n${body}`;
 
+describe("syncFolder — a card copy older than the pair's last sync", () => {
+	const run = async (recordedAt: number) => {
+		const vault = new FakeVault({ [`${FOLDER}/Sagondo.md`]: { content: linked("c1", "old"), mtime: at("2026-01-01") } });
+		const { client } = clientFor([card({ id: "c1", name: "Sagondo", desc: "new", dateLastActivity: "2026-03-01" })]);
+		const syncBase = { get: () => ({ at: recordedAt }), set: () => {}, drop: () => {} };
+		await syncFolder(vault, client, MAPPING, { ...options, syncBase });
+		return vault.contentOf(`${FOLDER}/Sagondo.md`);
+	};
+
+	test("is not used: another operation synced the pair after the list was read, the pair is skipped", async () => {
+		expect(await run(Date.now() + 60_000)).toContain("old");
+	});
+
+	test("a base recorded before the list was read changes nothing", async () => {
+		expect(await run(1)).toContain("new");
+	});
+});
+
 describe("syncFolder — creation", () => {
 	test("creates a missing note from the template, placeholders filled", async () => {
 		const vault = new FakeVault();

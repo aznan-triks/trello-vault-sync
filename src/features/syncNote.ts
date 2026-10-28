@@ -192,6 +192,11 @@ export interface NoteSyncOptions {
 	 * modification-time rule alone, exactly as before the bases existed.
 	 */
 	syncBase?: SyncBaseStore;
+	/**
+	 * When a folder or vault pass started reading its cards (epoch ms). A pair whose base was recorded after that was
+	 * synced by another operation meanwhile: the card copy in hand is stale, so the pair is left for the next pass.
+	 */
+	cardsFetchedAt?: number;
 }
 
 /**
@@ -895,13 +900,19 @@ export async function syncNoteWithCard(
 	signal?: AbortSignal,
 ): Promise<NoteSyncResult> {
 	const { guard } = options;
+	const changedMeanwhile = (): NoteSyncResult | null =>
+		options.cardsFetchedAt !== undefined && (options.syncBase?.get(card.id)?.at ?? 0) > options.cardsFetchedAt
+			? { direction: "skip", renamed: false, note, reason: "changed by another operation" }
+			: null;
 	if (!guard) {
-		return syncNoteWithCardUnguarded(vault, client, note, card, options, cardIndex, memberDirectory, customFieldDefinitions, signal);
+		return changedMeanwhile() ?? syncNoteWithCardUnguarded(vault, client, note, card, options, cardIndex, memberDirectory, customFieldDefinitions, signal);
 	}
 	return guard.withKey(`card:${card.id}`, async () => {
 		const current = vault.noteAt(note.path);
 		// Renamed or removed by the operation that held the turn before us: nothing left to sync at this path.
 		if (!current) return { direction: "skip" as const, renamed: false, note, reason: "changed by another operation" };
+		const stale = changedMeanwhile();
+		if (stale) return stale;
 		return syncNoteWithCardUnguarded(vault, client, current, card, options, cardIndex, memberDirectory, customFieldDefinitions, signal);
 	});
 }
