@@ -47,8 +47,8 @@ describe("sync bases", () => {
 		const { instance } = plugin();
 		const store = instance.noteOptions().syncBase;
 		store?.set("c1", { at: 1 });
-		expect(store?.get("c1")).toEqual({ at: 1 });
-		expect(instance.syncBases.c1).toEqual({ at: 1 });
+		expect(store?.get("c1")).toEqual({ at: 1, env: expect.any(String) });
+		expect(instance.syncBases.c1).toEqual({ at: 1, env: expect.any(String) });
 		store?.drop("c1");
 		expect(instance.syncBases.c1).toBeUndefined();
 	});
@@ -61,6 +61,24 @@ describe("sync bases", () => {
 		expect(store?.get("c1")).toBeUndefined();
 		store?.set("c1", { at: 2 });
 		expect(instance.syncBases.c1).toBeUndefined();
+	});
+});
+
+describe("sync bases and the settings the compared values depend on", () => {
+	test.each([
+		["dueFrontmatterKey", "my_due"],
+		["checklistHeading", "## Tasks"],
+		["noteNameMaxLength", 40],
+	] as const)("changing %s makes the recorded bases unreadable (clock fallback), until the next sync records them again", (key, value) => {
+		const { instance } = plugin();
+		instance.noteOptions().syncBase?.set("c1", { title: "A", at: 1 });
+		expect(instance.noteOptions().syncBase?.get("c1")).toEqual(expect.objectContaining({ title: "A" }));
+
+		Object.assign(instance.settings, { [key]: value });
+		const store = instance.noteOptions().syncBase;
+		expect(store?.get("c1")).toBeUndefined();
+		store?.set("c1", { title: "A", at: 2 });
+		expect(store?.get("c1")).toEqual(expect.objectContaining({ at: 2 }));
 	});
 });
 
