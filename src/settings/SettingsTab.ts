@@ -5,6 +5,7 @@ import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_COVER_KEY, DEFAULT_LINKED_CARDS_KEY } 
 import { DEFAULT_CUSTOM_FIELDS_KEY } from "../core/customFieldRef";
 import { DEFAULT_MEMBERS_KEY } from "../core/memberRef";
 import { DEFAULT_CARD_REF_KEY, DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY, parseCardRef } from "../core/cardRef";
+import { boardForMapping, registeredBoards } from "../core/boardResolve";
 import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
@@ -484,7 +485,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 		button.setDisabled(true);
 		try {
 			const lists = await this.plugin.client().getBoardLists(this.plugin.settings.boardId);
-			this.listNames = new Map(lists.map((list) => [list.id, list.name]));
+			for (const list of lists) this.listNames.set(list.id, list.name);
 			new Notice(`✅ Connected — ${lists.length} list(s) on the board.`);
 			this.display();
 		} catch (error) {
@@ -583,6 +584,8 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				);
 			});
 
+		this.renderAdditionalBoards(root);
+
 		new Setting(root)
 			.setName("Test connection")
 			.setDesc("Checks the key, the token, and access to the board.")
@@ -591,6 +594,50 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 					void this.testConnection(button);
 				}),
 			);
+	}
+
+	private renderAdditionalBoards(root: HTMLElement): void {
+		const settings = this.plugin.settings;
+		new Setting(root)
+			.setName("Additional boards")
+			.setDesc(
+				"Other boards you sync with. The board above stays the default: every note, folder or command that names no board uses it. " +
+					"A folder mapping picks one of these boards below.",
+			);
+
+		settings.boards.forEach((board, index) => {
+			new Setting(root)
+				.setClass("tvs-mapping")
+				.setName(board.name || board.id)
+				.setDesc(board.id)
+				.addExtraButton((button) =>
+					button.setIcon("trash").setTooltip("Remove this board").onClick(() => {
+						settings.boards.splice(index, 1);
+						void this.save();
+						this.display();
+					}),
+				);
+		});
+
+		new Setting(root)
+			.setName("Add a board")
+			.setDesc("Start typing to see your Trello boards by name.")
+			.addText((text) => {
+				text.setPlaceholder("Board name");
+				new TrelloPickerSuggest(
+					this.app,
+					text.inputEl,
+					async () => {
+						const taken = new Set(registeredBoards(settings).map((board) => board.id));
+						return (await this.plugin.client().getMyBoards()).filter((board) => !taken.has(board.id));
+					},
+					(board) => {
+						settings.boards.push({ id: board.id, name: board.name });
+						void this.save();
+						this.display();
+					},
+				);
+			});
 	}
 
 	private renderScope(root: HTMLElement): void {
@@ -2005,7 +2052,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 							throw new Error("Set the board id above first.");
 						}
 						const lists = await this.plugin.client().getBoardLists(this.plugin.settings.boardId);
-						this.listNames = new Map(lists.map((list) => [list.id, list.name]));
+						for (const list of lists) this.listNames.set(list.id, list.name);
 						return lists;
 					},
 					(list) => {
@@ -2311,6 +2358,41 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 
 			const cardBody = card.createDiv({ cls: "tvs-mapping-card__body" });
 
+			const settings = this.plugin.settings;
+			const resolution = boardForMapping(mapping, settings);
+			const ownBoard = registeredBoards(settings).find((board) => board.id === resolution.boardId);
+			new Setting(cardBody)
+				.setName("Trello board")
+				.setDesc(
+					resolution.fellBack
+						? `⚠ This board is no longer registered under "Additional boards": the default board is used instead.`
+						: mapping.boardId
+							? `→ ${ownBoard?.name || mapping.boardId}`
+							: "Empty = the default board. Start typing to pick one of your registered boards.",
+				)
+				.addText((text) => {
+					text
+						.setPlaceholder("Default board")
+						.setValue(mapping.boardId ?? "")
+						.onChange((value) => {
+							const id = value.trim();
+							if (id === "") delete mapping.boardId;
+							else mapping.boardId = id;
+							void this.save();
+						});
+					new TrelloPickerSuggest(
+						this.app,
+						text.inputEl,
+						() => Promise.resolve(registeredBoards(settings).map((board) => ({ id: board.id, name: board.name || board.id }))),
+						(board) => {
+							if (board.id === settings.boardId) delete mapping.boardId;
+							else mapping.boardId = board.id;
+							void this.save();
+							this.display();
+						},
+					);
+				});
+
 			new Setting(cardBody)
 				.setName("Trello list")
 				.setDesc(
@@ -2330,11 +2412,12 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						this.app,
 						text.inputEl,
 						async () => {
-							if (this.plugin.settings.boardId.trim() === "") {
+							const { boardId } = boardForMapping(mapping, settings);
+							if (boardId.trim() === "") {
 								throw new Error("Set the board id above first.");
 							}
-							const lists = await this.plugin.client().getBoardLists(this.plugin.settings.boardId);
-							this.listNames = new Map(lists.map((list) => [list.id, list.name]));
+							const lists = await this.plugin.client().getBoardLists(boardId);
+							for (const list of lists) this.listNames.set(list.id, list.name);
 							return lists;
 						},
 						(list) => {

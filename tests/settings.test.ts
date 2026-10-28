@@ -721,3 +721,30 @@ describe("normalizeSettings — Milestone 5 settings alignment", () => {
 		).toEqual([]);
 	});
 });
+
+describe("normalizeSettings: boards (multi-board)", () => {
+	test("a 1.25 payload reloads unchanged: no boards, no board on mappings", () => {
+		const legacy = {
+			boardId: "b1",
+			mappings: [{ listId: "l1", folder: "Projects", templateName: "T" }],
+		};
+		const settings = normalizeSettings(legacy);
+		expect(settings.boards).toEqual([]);
+		expect(settings.boardId).toBe("b1");
+		expect("boardId" in (settings.mappings[0] ?? {})).toBe(false);
+		expect(normalizeSettings(JSON.parse(JSON.stringify(settings)))).toEqual(settings);
+	});
+
+	test("keeps a mapping's board and the registered boards, dropping unusable entries and duplicates", () => {
+		const settings = normalizeSettings({
+			boards: [{ id: " b2 ", name: "Second" }, { id: "b2", name: "dup" }, { id: "", name: "x" }, 7, null, { id: 9 }],
+			mappings: [{ listId: "l", folder: "F", templateName: "", boardId: " b2 " }],
+		} as never);
+		expect(settings.boards).toEqual([{ id: "b2", name: "Second" }]);
+		expect(settings.mappings[0]?.boardId).toBe("b2");
+	});
+
+	test("a corrupted boards field falls back to none", () => {
+		expect(normalizeSettings({ boards: "nope" } as never).boards).toEqual([]);
+	});
+});

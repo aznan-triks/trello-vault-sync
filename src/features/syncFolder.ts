@@ -43,6 +43,8 @@ import {
 /** One Trello list mirrored into one vault folder. */
 export interface FolderMapping {
 	listId: string;
+	/** Board of the list; absent = the default board (`settings.boardId`). */
+	boardId?: string;
 	folder: string;
 	/** Template note used for new files; "" or missing means a bare description. */
 	templateName: string;

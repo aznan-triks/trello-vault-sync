@@ -52,6 +52,7 @@ import type { OrphanCardScope } from "../core/orphanCardDestination";
 import type { PhantomNoteScope } from "../core/phantomCardDestination";
 import type { ConflictPolicy } from "../core/syncDecision";
 import type { FolderMapping } from "../features/syncFolder";
+import type { BoardRef } from "../core/boardResolve";
 
 export type { CoverLocalFormat, OrphanCardScope, PhantomNoteScope };
 
@@ -62,7 +63,10 @@ export interface TrelloVaultSyncSettings {
 	/** The single Trello credential pair used by every command. */
 	apiKey: string;
 	token: string;
+	/** The default board: used by every note, mapping and command that names no board. */
 	boardId: string;
+	/** Other boards the user works with (the default board needs no entry here). */
+	boards: BoardRef[];
 
 	/** Folder the vault-wide commands walk; "" means the whole vault. */
 	scope: string;
@@ -322,6 +326,7 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	apiKey: "",
 	token: "",
 	boardId: "",
+	boards: [],
 	scope: "",
 	excludedFolders: [],
 	reportPath: "",
@@ -576,6 +581,18 @@ function normalizeObsoleteLabelPropertyKeys(raw: unknown): string[] {
 		.filter((k) => k !== "");
 }
 
+function normalizeBoards(raw: unknown): BoardRef[] {
+	const seen = new Set<string>();
+	const boards: BoardRef[] = [];
+	for (const entry of Array.isArray(raw) ? raw : []) {
+		const id = safeString(entry?.id).trim();
+		if (id === "" || seen.has(id)) continue;
+		seen.add(id);
+		boards.push({ id, name: safeString(entry?.name).trim() });
+	}
+	return boards;
+}
+
 /** Settings merged over the defaults, tolerating a partial or legacy payload. */
 export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 	const input = { ...((raw ?? {}) as Partial<TrelloVaultSyncSettings>) };
@@ -607,6 +624,7 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		apiKey: safeString(input.apiKey, DEFAULT_SETTINGS.apiKey),
 		token: safeString(input.token, DEFAULT_SETTINGS.token),
 		boardId: safeString(input.boardId, DEFAULT_SETTINGS.boardId),
+		boards: normalizeBoards(input.boards),
 		scope: normalizeVaultPath(safeString(input.scope, DEFAULT_SETTINGS.scope)),
 		excludedFolders: (Array.isArray(input.excludedFolders) ? input.excludedFolders : [])
 			.map((folder) => normalizeVaultPath(safeString(folder)))
@@ -725,6 +743,8 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		ribbonIconColors: normalizeRibbonIconColors(input.ribbonIconColors),
 		mappings: mappings.map((mapping) => ({
 			listId: safeString(mapping?.listId),
+			// Written only when set: a vault saved before multi-board reloads byte for byte.
+			...(safeString(mapping?.boardId).trim() !== "" && { boardId: safeString(mapping?.boardId).trim() }),
 			folder: normalizeVaultPath(safeString(mapping?.folder)),
 			templateName: safeString(mapping?.templateName),
 			allowCreateOverride: safeOverrideMode(mapping?.allowCreateOverride),

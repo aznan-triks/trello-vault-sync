@@ -25,6 +25,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Plain words:** You can now declare several Trello boards in the settings and give each folder mapping its own board. The board in "Trello connection" stays the default one, so nothing changes for you until you add a second board. This first step only lets you choose; the sync itself still reads the default board until the next steps land (not released on its own).
+  **Technical:**
+  - `core/boardResolve.ts` (new, pure): `BoardRef`, `registeredBoards` (default first, ids unique), `boardForMapping` (`{ boardId, fellBack }`: no board or the default one -> default; unregistered board -> default with `fellBack: true`), `boardForRef` (the note's own `boardId`, else the default).
+  - `settings/types.ts`: `boards: BoardRef[]` (default `[]`, cleaned by `normalizeBoards`), `FolderMapping.boardId` (written only when set: a 1.25.1 `data.json` reloads unchanged).
+  - `settings/SettingsTab.ts`: "Additional boards" list in Trello connection (add through `TrelloPickerSuggest` on `getMyBoards()`, remove line by line); each mapping gets a "Trello board" field and its list picker reads that board's lists (`listNames` now accumulates across boards).
+  - Tests: `tests/boardResolve.test.ts`, `tests/settings.test.ts`.
+
 - **Plain words:** A long Trello list organised with heading cards ("separators": `Cities`, `Races`, `NEUTRAL`...) can now receive new cards in the right section. Pick the label that marks your separators, and a card created from a note is no longer dropped at the bottom of the list: it goes right after its separator, or right before the next one (your choice). The section is the note's first-level subfolder under the mapped folder, or a property of the note, or the property first and the subfolder otherwise. A note that names a section no separator carries still goes to the bottom, with a warning in the journal. Off by default (the label is empty): nothing changes until you fill it in. Not tried against a real board yet.
   **Technical:**
   - `core/sections.ts` (new, pure): `splitSections` cuts the cards, sorted by `pos`, into `{ separator, cards }[]`; `sectionOfNote` reads the section name from the property and/or the first subfolder under the mapped folder; `positionInSection` returns the `pos` halfway between the two neighbours (`"bottom"` for the last section, `null` when no separator carries the name); `sectionTarget` chains them; `insertCard` files a created card by its returned `pos`; `sectionRulesFrom` is `null` while the label is empty. Names are compared with `isSameCardName`.
