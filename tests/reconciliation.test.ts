@@ -683,6 +683,29 @@ describe("lot E — checklists, item by item", () => {
 		expect(bases.map.get("c1")?.body).toBe(bodyKey("body"));
 	});
 
+	test("a dry run does not call 'already up to date' a pair whose boxes are about to move", async () => {
+		const { vault, t, bases } = await primed();
+		await vault.write(vault.note("Note.md"), note(true, false)); // ticked in the note
+		clock.now = T0 + 3 * H;
+		const result = await sync(vault, t, bases.store, { dryRun: true });
+		expect(result.direction).toBe("push");
+		expect(result.reason).toContain("(simulation)");
+		expect(checkPuts(t)).toEqual([]);
+
+		t.state.card.checklists = items("complete", "incomplete"); // ticked on Trello instead
+		await vault.write(vault.note("Note.md"), note(false, false));
+		expect((await sync(vault, t, bases.store, { dryRun: true })).direction).toBe("pull");
+	});
+
+	test("a failed checklist read keeps the item states of the previous base", async () => {
+		const { vault, t, bases } = await primed();
+		const down = new TrelloClient({ apiKey: "k", token: "t" }, async () => ({ status: 500, text: "down" }), { maxRetries: 0 } as never);
+		const card = { ...t.fresh(), checklists: undefined };
+		clock.now = T0 + H;
+		await syncNoteWithCard(vault, down, vault.note("Note.md"), card, { ...OPTIONS, syncBase: bases.store });
+		expect(bases.map.get("c1")?.checkItems).toEqual({ i1: false, i2: false });
+	});
+
 	test("a pair with checklists off records no item states", async () => {
 		const vault = new ClockVault({ "Note.md": { content: note(false), mtime: T0 } });
 		const t = fakeTrello(remoteCard({ desc: "body", dateLastActivity: iso(T0), checklists: items("incomplete") }), []);

@@ -1014,6 +1014,7 @@ async function syncNoteWithCardUnguarded(
 		}
 	}
 
+	// shortcut: on a merge (some fields pulled, others pushed) mapped properties and the card's labels only grow towards each other, as on a skip; a removal travels on a plain pull or push, upgrade by taking the labels' own side.
 	if (options.labelProperties && writesAllowed && !signal?.aborted) {
 		const currentIds = (card.labels ?? []).map((label) => label.id);
 		const props = await convergeLabelProperties(vault, note, card, options.labelProperties, labelDirection, nextLabelIds ?? currentIds, signal);
@@ -1191,7 +1192,15 @@ async function syncNoteWithCardUnguarded(
 	if (direction === "conflict") return { direction, renamed: false, note, reason: decision.reason, ...extra };
 
 	if (options.dryRun) {
-		return { direction, renamed: false, note, reason: direction === "skip" ? decision.reason : `${decision.reason} (simulation)`, ...extra };
+		// A checklist-only difference has no direction of its own: say what the boxes would do, not "up to date".
+		let simulated: SyncDirection = direction;
+		if (direction === "skip" && remoteChecklists && checklistsChanged) {
+			const block = splitChecklistSection(rawBody(content), checklistHeading).checklistBlock;
+			const { markdown, pushes } = resolveChecklists(remoteChecklists, block, checklistHeading, "remote", options.force ? undefined : options.syncBase?.get(card.id)?.checkItems);
+			const wouldPull = markdown !== block;
+			simulated = wouldPull && pushes.length > 0 ? "merge" : wouldPull ? "pull" : pushes.length > 0 ? "push" : "skip";
+		}
+		return { direction: simulated, renamed: false, note, reason: simulated === "skip" ? decision.reason : `${decision.reason} (simulation)`, ...extra };
 	}
 
 	if (signal?.aborted) {
@@ -1257,6 +1266,7 @@ async function syncNoteWithCardUnguarded(
 
 	// The one place a base is recorded: the pair was fully handled (not a conflict, a simulation, an abort or a failure,
 	// all of which left above or threw), so what each side holds now is what was written, not what was read.
+	// shortcut: the base is keyed by card, so two notes linked to the same card share one — the second's sync reads what the first recorded; upgrade by keying on the note path if such pairs prove common (the link audit already reports them).
 	if (options.syncBase && !signal?.aborted) {
 		options.syncBase.set(
 			card.id,
@@ -1272,7 +1282,8 @@ async function syncNoteWithCardUnguarded(
 					syncTitle: options.syncTitle,
 					syncDescription,
 					syncDue,
-					checkItems,
+					// A checklist read that failed says nothing about the items: what was recorded stays true until a read succeeds.
+					checkItems: checkItems ?? (syncChecklists && remoteChecklists === null ? options.syncBase.get(card.id)?.checkItems : undefined),
 				},
 				Date.now(),
 			),
