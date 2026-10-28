@@ -199,6 +199,25 @@ describe("linking a note by hand (F13)", () => {
 		expect(vault.contentOf(PATH)).not.toContain("note text");
 	});
 
+	test("linking forgets what was recorded for the card, so an old base is not reused", async () => {
+		const bases = new Set(["c1", "other"]);
+		const syncBase = { get: () => undefined, set: () => {}, drop: (id: string) => void bases.delete(id) };
+		const { ctx } = linkContext(false);
+		await linkActive({ ...ctx, noteOptions: () => ({ ...ctx.noteOptions(), syncBase }) });
+		expect([...bases]).toEqual(["other"]);
+	});
+
+	test("picking another card forgets the base of the card the note was linked to, and of the new one", async () => {
+		const bases = new Set(["old", "c1", "other"]);
+		const syncBase = { get: () => undefined, set: () => {}, drop: (id: string) => void bases.delete(id) };
+		const { vault, ctx } = linkContext(false);
+		await vault.setCardRef(vault.note(PATH), { boardId: "board", cardId: "old" });
+		await linkActivePick({ ...ctx, noteOptions: () => ({ ...ctx.noteOptions(), syncBase }) });
+		picker.pick?.(CARD);
+		await vi.waitFor(() => expect(vault.getCardRef(vault.note(PATH))?.cardId).toBe("c1"));
+		await vi.waitFor(() => expect([...bases]).toEqual(["other"]));
+	});
+
 	test("picking a card leaves the note's text alone when the setting is off", async () => {
 		const { vault, ctx } = linkContext(false);
 		await linkActivePick(ctx);

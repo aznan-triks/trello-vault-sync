@@ -12,7 +12,7 @@ import { appendJournalEntry, prefixDryRunMessage, type JournalEntry, type LogLev
 import { OperationGuard } from "./core/operationGuard";
 import { normalizePersistedData } from "./core/pluginData";
 import type { IgnoredCards } from "./core/deletedNotes";
-import type { SyncBase, SyncBaseStore } from "./core/syncBase";
+import { scopedSyncBases, syncBaseEnv, type SyncBase, type SyncBaseStore } from "./core/syncBase";
 import { activeMappings } from "./core/labelProperty";
 import { sectionRulesFrom } from "./core/sections";
 import { trelloPropertyKeys } from "./core/trelloProperties";
@@ -277,7 +277,11 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 	private syncBaseStore(): SyncBaseStore {
 		const drop = (cardId: string) => void Reflect.deleteProperty(this.syncBases, cardId);
 		if (!this.settings.useSyncBase) return { get: () => undefined, set: drop, drop };
-		return { get: (cardId) => this.syncBases[cardId], set: (cardId, base) => void (this.syncBases[cardId] = base), drop };
+		const { dueFrontmatterKey, checklistHeading, noteNameMaxLength } = this.settings;
+		return scopedSyncBases(
+			{ get: (cardId) => this.syncBases[cardId], set: (cardId, base) => void (this.syncBases[cardId] = base), drop },
+			syncBaseEnv(dueFrontmatterKey, checklistHeading, noteNameMaxLength),
+		);
 	}
 
 	noteOptions(force?: "pull" | "push", bypassConflict?: boolean): NoteSyncOptions {

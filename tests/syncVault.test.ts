@@ -32,6 +32,24 @@ function clientFor(cards: unknown[], members: unknown[] = [], customFields: unkn
 	return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
 }
 
+describe("syncVault — a card copy older than the pair's last sync", () => {
+	const run = async (recordedAt: number) => {
+		const vault = new FakeVault({ "WoT/a.md": { content: linked("c1", "old"), mtime: at("2026-01-01") } });
+		const { client } = clientFor([card({ id: "c1", name: "a", desc: "new", dateLastActivity: "2026-03-01" })]);
+		const syncBase = { get: () => ({ at: recordedAt }), set: () => {}, drop: () => {} };
+		await syncVault(vault, client, { scope: "WoT", boardId: "board" }, { ...options, syncBase });
+		return vault.contentOf("WoT/a.md");
+	};
+
+	test("is not used: another operation synced the pair after the cards were read, the pair is skipped", async () => {
+		expect(await run(Date.now() + 60_000)).toContain("old");
+	});
+
+	test("a base recorded before the cards were read changes nothing", async () => {
+		expect(await run(1)).toContain("new");
+	});
+});
+
 describe("syncVault", () => {
 	test("fetches the whole board once instead of one call per note", async () => {
 		const vault = new FakeVault({

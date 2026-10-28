@@ -27,6 +27,8 @@ export interface SyncBase {
 	due?: number | string | null;
 	/** `checkItemId` → checked, for every item both sides agreed on. */
 	checkItems?: Record<string, boolean>;
+	/** Fingerprint of the settings the recorded values depend on (`syncBaseEnv`): a base recorded under other settings is not read. */
+	env?: string;
 	/** Epoch ms of the recording — diagnostics only, never a decision clock. */
 	at: number;
 }
@@ -36,6 +38,26 @@ export interface SyncBaseStore {
 	get(cardId: string): SyncBase | undefined;
 	set(cardId: string, base: SyncBase): void;
 	drop(cardId: string): void;
+}
+
+/** The settings that decide what a compared value is: the note's due key, the checklist heading cutting the body, the title length cap. */
+export function syncBaseEnv(dueFrontmatterKey: string, checklistHeading: string, noteNameMaxLength: number | undefined): string {
+	return JSON.stringify([dueFrontmatterKey, checklistHeading, noteNameMaxLength ?? null]);
+}
+
+/**
+ * The store as seen under one set of settings: it stamps what it records, and reads back only what was recorded under
+ * the same ones — after a change of key, heading or length the bases describe other values, so the clocks decide again.
+ */
+export function scopedSyncBases(store: SyncBaseStore, env: string): SyncBaseStore {
+	return {
+		get: (cardId) => {
+			const base = store.get(cardId);
+			return base?.env === env ? base : undefined;
+		},
+		set: (cardId, base) => store.set(cardId, { ...base, env }),
+		drop: (cardId) => store.drop(cardId),
+	};
 }
 
 /**
@@ -92,6 +114,7 @@ export function normalizeSyncBases(raw: unknown): Record<string, SyncBase> {
 		const base: SyncBase = { at: typeof e.at === "number" && Number.isFinite(e.at) ? e.at : 0 };
 		if (typeof e.title === "string") base.title = e.title;
 		if (typeof e.body === "string") base.body = e.body;
+		if (typeof e.env === "string") base.env = e.env;
 		if (e.due === null || typeof e.due === "string" || (typeof e.due === "number" && Number.isFinite(e.due))) base.due = e.due;
 		if (typeof e.checkItems === "object" && e.checkItems !== null && !Array.isArray(e.checkItems)) {
 			base.checkItems = Object.fromEntries(Object.entries(e.checkItems).filter((item): item is [string, boolean] => typeof item[1] === "boolean"));

@@ -108,7 +108,7 @@ describe("normalizePersistedData — sync bases", () => {
 	});
 
 	test("keeps well-formed bases", () => {
-		const base = { title: "Busy", body: "0a1b2c3d:4", due: 1_700_000_000_000, checkItems: { i1: true, i2: false }, at: 7 };
+		const base = { title: "Busy", body: "0a1b2c3d:4", due: 1_700_000_000_000, checkItems: { i1: true, i2: false }, env: '["trello_due","## Checklists",null]', at: 7 };
 		expect(normalizePersistedData({ settings: {}, syncBases: { c1: base, c2: { due: null, at: 1 } } }).syncBases).toEqual({ c1: base, c2: { due: null, at: 1 } });
 	});
 

@@ -77,6 +77,7 @@ export async function syncVault(
 	});
 	stats.unlinked = notes.length - linked.length;
 
+	const noteOptions = { ...options, cardsFetchedAt: Date.now() };
 	const cards = await client.getBoardCards(target.boardId, "visible", signal, cardIncludesFor(options));
 	const byId = new Map(cards.map((card) => [card.id, card]));
 	reporter.log("info", `${cards.length} card(s) on the board, ${linked.length} linked note(s)`);
@@ -114,7 +115,7 @@ export async function syncVault(
 				client,
 				note,
 				card,
-				options,
+				noteOptions,
 				cardIndex,
 				memberDirectory,
 				customFieldDefinitions,

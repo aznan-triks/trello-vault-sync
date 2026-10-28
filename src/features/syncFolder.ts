@@ -176,6 +176,7 @@ export async function syncFolder(
 		options.force !== "pull" &&
 		resolveOverride(mapping.allowCreateCardOverride, options.allowCreateCards ?? false);
 	const trashAllowed = mapping.allowDeleteOverride !== "off";
+	const cardsFetchedAt = Date.now();
 	const cards = await client.getListCards(mapping.listId, signal, cardIncludesFor(options));
 	reporter.log("info", `${cards.length} card(s) in the list`);
 
@@ -246,6 +247,7 @@ export async function syncFolder(
 				pair.card,
 				{
 					...options,
+					cardsFetchedAt,
 					...(pair.adopted ? { force: "pull" as const } : {}),
 				},
 				attachmentsCardIndex,
@@ -296,7 +298,7 @@ export async function syncFolder(
 			}
 			reporter.step(card.name);
 			try {
-				await adoptNoteFromElsewhere(vault, client, mapping, options, card, existing, stats, reporter, {
+				await adoptNoteFromElsewhere(vault, client, mapping, { ...options, cardsFetchedAt }, card, existing, stats, reporter, {
 					attachmentsCardIndex,
 					members,
 					customFields,

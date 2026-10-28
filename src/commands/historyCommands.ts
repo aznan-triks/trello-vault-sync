@@ -26,20 +26,26 @@ function undoClientFor(ctx: CommandContext, reporter: Reporter): { client: Trell
 	return { client: ctx.client(reporter), trelloRevertDisabled: false };
 }
 
+/** The card each action touched, read before an undo: an undo may trash or move the very note that names the card. */
+function cardIdsOf(ctx: CommandContext, run: SyncRun): Map<SyncAction, string> {
+	const ids = new Map<SyncAction, string>();
+	for (const action of run.actions) {
+		const note = "cardId" in action ? null : (ctx.vault.noteAt(action.path) ?? (action.kind === "rename" ? ctx.vault.noteAt(action.previousPath) : null));
+		const cardId = "cardId" in action ? action.cardId : note ? ctx.vault.getCardRef(note)?.cardId : undefined;
+		if (cardId) ids.set(action, cardId);
+	}
+	return ids;
+}
+
 /**
  * After an undo, what each side holds is no longer what the recorded sync base describes: drop the base of every
  * card an undone action touched, so the next sync decides those pairs by the clocks again (the safe fallback).
  */
-function forgetBases(ctx: CommandContext, reverted: readonly SyncAction[]): void {
+function forgetBases(ctx: CommandContext, ids: ReadonlyMap<SyncAction, string>, reverted: readonly SyncAction[]): void {
 	const store = ctx.noteOptions().syncBase;
 	if (!store) return;
 	for (const action of reverted) {
-		if ("cardId" in action) {
-			store.drop(action.cardId);
-			continue;
-		}
-		const note = ctx.vault.noteAt(action.path) ?? (action.kind === "rename" ? ctx.vault.noteAt(action.previousPath) : null);
-		const cardId = note ? ctx.vault.getCardRef(note)?.cardId : undefined;
+		const cardId = ids.get(action);
 		if (cardId) store.drop(cardId);
 	}
 }
@@ -78,6 +84,7 @@ export async function undoLastSyncRun(ctx: CommandContext): Promise<void> {
 	const doUndo = async () => {
 		await ctx.run(`Undo — ${last.scope || "vault"}`, async (reporter, signal) => {
 			const { client, trelloRevertDisabled } = undoClientFor(ctx, reporter);
+			const ids = cardIdsOf(ctx, last);
 			const { stats, remainingRun, reverted } = await undoRun(
 				ctx.vault,
 				last,
@@ -86,7 +93,7 @@ export async function undoLastSyncRun(ctx: CommandContext): Promise<void> {
 				client,
 				trelloRevertDisabled,
 			);
-			forgetBases(ctx, reverted);
+			forgetBases(ctx, ids, reverted);
 			await ctx.setHistory(replaceRunAt(ctx.history, ctx.history.length - 1, remainingRun));
 			return describeUndoStats(stats);
 		});
@@ -119,6 +126,7 @@ export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<vo
 	const doUndo = async () => {
 		await ctx.run(`Undo — ${note.basename}`, async (reporter, signal) => {
 			const { client, trelloRevertDisabled } = undoClientFor(ctx, reporter);
+			const ids = cardIdsOf(ctx, last);
 			const { stats, remainingRun, reverted } = await undoRunForNote(
 				ctx.vault,
 				last,
@@ -128,7 +136,7 @@ export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<vo
 				client,
 				trelloRevertDisabled,
 			);
-			forgetBases(ctx, reverted);
+			forgetBases(ctx, ids, reverted);
 			await ctx.setHistory(replaceRunAt(ctx.history, ctx.history.length - 1, remainingRun));
 			return describeUndoStats(stats);
 		});
@@ -149,6 +157,7 @@ export async function undoLastSyncForActiveNote(ctx: CommandContext): Promise<vo
 async function undoPickedActions(ctx: CommandContext, run: SyncRun, selectedIndices: ReadonlySet<number>): Promise<void> {
 	await ctx.run(`Undo — ${run.scope || "vault"}`, async (reporter, signal) => {
 		const { client, trelloRevertDisabled } = undoClientFor(ctx, reporter);
+		const ids = cardIdsOf(ctx, run);
 		const { stats, remainingRun, reverted } = await undoSelectedActions(
 			ctx.vault,
 			run,
@@ -158,7 +167,7 @@ async function undoPickedActions(ctx: CommandContext, run: SyncRun, selectedIndi
 			client,
 			trelloRevertDisabled,
 		);
-		forgetBases(ctx, reverted);
+		forgetBases(ctx, ids, reverted);
 		// The run object is the very one taken from `ctx.history` when the picker
 		// opened; `indexOf` finds it by identity. If history moved on in the
 		// meantime (another undo, a new sync) and it's no longer there, there is
