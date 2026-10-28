@@ -1,4 +1,5 @@
 import { isSameCardName } from "./cardHistoryMatch";
+import { notesInFolder } from "./fileName";
 import { normalizeLabelName } from "./labelRef";
 
 /**
@@ -87,10 +88,16 @@ export function splitSections<T extends SectionCard>(cards: readonly T[], isSepa
 	return sections;
 }
 
-function propertySection(value: unknown): string | null {
-	// A section named "2024" is read by YAML as a number.
+function propertySection(raw: unknown): string | null {
+	// A list property holding one item (`[Cities]`) names that item; a section named "2024" is read by YAML as a number.
+	const value = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
 	const text = typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
 	return text.trim() === "" ? null : text.trim();
+}
+
+/** The deepest of `folders` that holds the note, or `undefined` when none does: the folder a note's subfolder section is read under. */
+export function mappingFolderFor(path: string, folders: readonly string[]): string | undefined {
+	return folders.filter((folder) => notesInFolder([{ path }], folder).length > 0).sort((a, b) => b.length - a.length)[0];
 }
 
 /** First folder under the mapped folder when the note sits deeper than the mapped folder itself; `undefined` mapped folder = unknown, so none. */
@@ -119,6 +126,9 @@ function middle(left: number | undefined, right: number | undefined): number | "
 	return left !== undefined && right !== undefined && Number.isFinite(left) && Number.isFinite(right) ? (left + right) / 2 : "bottom";
 }
 
+/** A name as the filesystem and Trello may each have spelled it: composed accents, and no emoji variation selector (Trello may add or drop it). */
+const foldName = (name: string): string => name.normalize("NFC").replace(/️/g, "");
+
 /**
  * The `pos` that puts a card first or last in the section headed by a separator named `sectionName`
  * (compared like a note name, see `isSameCardName`). `"bottom"` when that section is the last one and
@@ -131,7 +141,7 @@ export function positionInSection(
 	maxNameLength?: number,
 ): number | "bottom" | null {
 	const index = sections.findIndex(
-		(section) => section.separator !== null && isSameCardName(section.separator.name, sectionName, maxNameLength),
+		(section) => section.separator !== null && isSameCardName(foldName(section.separator.name), foldName(sectionName), maxNameLength),
 	);
 	const section = sections[index];
 	if (!section?.separator) return null;
@@ -172,19 +182,31 @@ export function missingSectionMessage(section: string): string {
 	return `no separator named "${section}" in the list, the card goes to the end of the list`;
 }
 
-/** Files a created card into the section its returned `pos` falls in, so the next placement of the same pass counts it. */
-export function insertCard<T extends SectionCard>(sections: Section<T>[], card: T): void {
-	let target = sections.at(-1);
-	if (!target) {
-		sections.push({ separator: null, cards: [card] });
+/**
+ * Files a created card into the section its returned `pos` falls in, so the next placement of the same pass counts it.
+ * A card that is itself a separator (its note carries the separator label) opens a section instead: the cards after it move into it.
+ */
+export function insertCard<T extends SectionCard>(sections: Section<T>[], card: T, isSeparator: (card: T) => boolean): void {
+	const { pos } = card;
+	let index = sections.length - 1;
+	if (pos !== undefined) {
+		index = -1;
+		sections.forEach((section, i) => {
+			if (section.separator === null || (section.separator.pos ?? Number.POSITIVE_INFINITY) < pos) index = i;
+		});
+	}
+	const target = sections[index];
+	if (isSeparator(card)) {
+		const later = target ? target.cards.filter((other) => byPos(other, card) > 0) : [];
+		if (target) target.cards = target.cards.filter((other) => !later.includes(other));
+		sections.splice(index + 1, 0, { separator: card, cards: later });
 		return;
 	}
-	const { pos } = card;
-	if (pos !== undefined) {
-		target =
-			sections.filter((section) => section.separator === null || (section.separator.pos ?? Number.POSITIVE_INFINITY) < pos).at(-1) ??
-			sections[0];
+	if (!target) {
+		// Before the first separator of the list (or no section yet): the section of cards nobody targets.
+		sections.unshift({ separator: null, cards: [card] });
+		return;
 	}
-	target?.cards.push(card);
-	target?.cards.sort(byPos);
+	target.cards.push(card);
+	target.cards.sort(byPos);
 }

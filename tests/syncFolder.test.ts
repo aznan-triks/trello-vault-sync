@@ -1349,4 +1349,38 @@ describe("syncFolder — new cards go in their section (separator cards)", () =>
 		expect(posted()).toEqual([]);
 		expect(logs.find((l) => l.message.includes("Trello card"))?.message).toBe('[Dry-run] Would create Trello card "Lyon" in section "Villes 🏙️" of the list');
 	});
+
+	test("when Trello renumbers the list, the list is read again so the next note lands in the right place", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Villes 🏙️/Lyon.md`]: { content: "l" },
+			[`${FOLDER}/Villes 🏙️/Paris.md`]: { content: "p" },
+		});
+		const requests: HttpRequest[] = [];
+		let renumbered = false;
+		const renumberedCards = [
+			withLabel(card({ id: "s1", name: "Villes 🏙️", pos: 65536, idList: "l1" })),
+			card({ id: "a", name: "a", pos: 131072, idList: "l1" }),
+			card({ id: "new-1", name: "Lyon", pos: 196608, idList: "l1" }),
+			withLabel(card({ id: "s2", name: "Races", pos: 262144, idList: "l1" })),
+			card({ id: "b", name: "b", pos: 327680, idList: "l1" }),
+		];
+		const transport = async (req: HttpRequest): Promise<HttpResponse> => {
+			requests.push(req);
+			if (req.method === "POST") {
+				renumbered = true;
+				const name = new URLSearchParams(req.body).get("name");
+				// Trello answers with the card's new number, not the one asked for.
+				return { status: 200, text: JSON.stringify({ id: `new-${requests.filter((r) => r.method === "POST").length}`, idBoard: "board", idList: "l1", name, desc: "", url: "u", dateLastActivity: "2026-10-23T00:00:00.000Z", due: null, pos: 196608 }) };
+			}
+			if (req.url.includes("/lists/l1/cards")) return { status: 200, text: JSON.stringify(renumbered ? renumberedCards : LIST_CARDS) };
+			if (req.url.includes("/boards/board/cards")) return { status: 200, text: JSON.stringify(LIST_CARDS) };
+			return { status: 200, text: "[]" };
+		};
+
+		await run(vault, new TrelloClient({ apiKey: "k", token: "t" }, transport), SECTIONS);
+
+		const posts = requests.filter((r) => r.method === "POST").map((r) => new URLSearchParams(r.body).get("pos"));
+		expect(posts).toEqual(["250", "229376"]);
+		expect(requests.filter((r) => r.method === "GET" && r.url.includes("/lists/l1/cards"))).toHaveLength(3); // first read, then one per creation (the mocked Trello renumbers every time)
+	});
 });

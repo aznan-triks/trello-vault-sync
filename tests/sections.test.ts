@@ -3,6 +3,7 @@ import {
 	DEFAULT_SECTION_KEY,
 	insertCard,
 	isSeparatorCard,
+	mappingFolderFor,
 	positionInSection,
 	sectionOfNote,
 	sectionRulesFrom,
@@ -99,7 +100,9 @@ describe("sectionOfNote", () => {
 		expect(sectionOfNote("World/x.md", "World", { section: "  " }, rules)).toBeNull();
 		expect(sectionOfNote("World/x.md", "World", { section: " Cities 🏙️ " }, rules)).toBe("Cities 🏙️");
 		expect(sectionOfNote("World/x.md", "World", { section: 2024 }, rules)).toBe("2024");
-		expect(sectionOfNote("World/x.md", "World", { section: ["a"] }, rules)).toBeNull();
+		expect(sectionOfNote("World/x.md", "World", { section: ["Cities"] }, rules)).toBe("Cities");
+		expect(sectionOfNote("World/x.md", "World", { section: ["a", "b"] }, rules)).toBeNull();
+		expect(sectionOfNote("World/x.md", "World", { section: [{}] }, rules)).toBeNull();
 	});
 
 	test("subfolder only: the property is ignored", () => {
@@ -153,6 +156,14 @@ describe("positionInSection", () => {
 		expect(positionInSection(emoji, "Légion- Anti-démons", "first")).toBe(25);
 	});
 
+	test("an emoji with or without its variation selector, composed or decomposed accents, are the same name", () => {
+		const cities = splitSections([sep("Villes 🏙", 10), sep("Légion", 20), item("a", 30)], isSep);
+		expect(positionInSection(cities, "Villes 🏙️", "first")).toBe(15);
+		expect(positionInSection(cities, "Légion", "first")).toBe(25);
+		const withSelector = splitSections([sep("Villes 🏙️", 10), item("a", 30)], isSep);
+		expect(positionInSection(withSelector, "Villes 🏙", "first")).toBe(20);
+	});
+
 	test("no separator by that name: null; no usable pos: bottom", () => {
 		expect(positionInSection(sections(), "Nope", "last")).toBeNull();
 		expect(positionInSection(splitSections([sep("S1", 10)], isSep), "S1", "first")).toBe("bottom");
@@ -179,7 +190,7 @@ describe("sectionTarget", () => {
 describe("insertCard", () => {
 	test("files the card in the section its pos falls in, ahead of the next placement", () => {
 		const sections = splitSections([sep("S1", 10), item("a", 20), sep("S2", 40)], isSep);
-		insertCard(sections, item("new", 30));
+		insertCard(sections, item("new", 30), isSep);
 		expect(names(sections[0]?.cards ?? [])).toEqual(["a", "new"]);
 		expect(positionInSection(sections, "S1", "last")).toBe(35);
 		expect(positionInSection(sections, "S1", "first")).toBe(15);
@@ -187,13 +198,37 @@ describe("insertCard", () => {
 
 	test("a card at the bottom lands in the last section; none yet starts one", () => {
 		const sections = splitSections([sep("S1", 10), sep("S2", 40)], isSep);
-		insertCard(sections, item("new", 99));
+		insertCard(sections, item("new", 99), isSep);
 		expect(names(sections[1]?.cards ?? [])).toEqual(["new"]);
-		insertCard(sections, { name: "nopos" });
+		insertCard(sections, { name: "nopos" }, isSep);
 		expect(names(sections[1]?.cards ?? [])).toEqual(["new", "nopos"]);
 		const empty = splitSections<SectionCard>([], isSep);
-		insertCard(empty, item("first", 1));
+		insertCard(empty, item("first", 1), isSep);
 		expect(empty).toEqual([{ separator: null, cards: [item("first", 1)] }]);
+	});
+});
+
+describe("insertCard — a created card that is itself a separator", () => {
+	test("opens a section: the cards after it in the old section move to the new one", () => {
+		const sections = splitSections([sep("S1", 10), item("a", 20), item("b", 40), sep("S2", 60)], isSep);
+		insertCard(sections, sep("New", 30), isSep);
+		expect(sections.map((s) => [s.separator?.name, names(s.cards)])).toEqual([
+			["S1", ["a"]],
+			["New", ["b"]],
+			["S2", []],
+		]);
+		expect(positionInSection(sections, "New", "last")).toBe(50);
+	});
+
+	test("at the bottom: a new empty last section; before everything: a new first section", () => {
+		const sections = splitSections([sep("S1", 10), item("a", 20)], isSep);
+		insertCard(sections, sep("Last", 99), isSep);
+		insertCard(sections, sep("Head", 1), isSep);
+		expect(sections.map((s) => [s.separator?.name, names(s.cards)])).toEqual([
+			["Head", []],
+			["S1", ["a"]],
+			["Last", []],
+		]);
 	});
 });
 
@@ -206,5 +241,14 @@ describe("sectionRulesFrom", () => {
 
 	test("a label: the rules, label trimmed", () => {
 		expect(sectionRulesFrom(settings)).toEqual({ labelName: "Separator", placement: "first", source: "subfolder", frontmatterKey: "k" });
+	});
+});
+
+describe("mappingFolderFor", () => {
+	test("the longest folder holding the note; none when no folder holds it", () => {
+		expect(mappingFolderFor("World/Cities/Paris/x.md", ["World", "World/Cities", "Other"])).toBe("World/Cities");
+		expect(mappingFolderFor("World/x.md", ["World", "World/Cities"])).toBe("World");
+		expect(mappingFolderFor("Elsewhere/x.md", ["World"])).toBeUndefined();
+		expect(mappingFolderFor("Cities/x.md", ["", "Other"])).toBe("");
 	});
 });

@@ -675,4 +675,73 @@ describe("create a card in its section (separator cards)", () => {
 		expect(logs.filter((l) => l.level === "error")).toHaveLength(1);
 		expect(vault.getCardRef(vault.note("World/Cities/Paris.md"))).toBeNull();
 	});
+
+	test("a note naming no section: bottom, and the list is not even read", async () => {
+		const vault = new FakeVault({ "World/Paris.md": { content: "p" } });
+		const { client, posOfPosts, listReads } = routed(LIST_CARDS);
+		const { ctx } = fakeContext(vault, [], { client, settings: SEPARATED });
+
+		await createCardFromNoteAction(ctx, vault.note("World/Paris.md"), LIST, "Inbox");
+
+		expect(posOfPosts()).toEqual(["bottom"]);
+		expect(listReads()).toHaveLength(0);
+	});
+
+	test("a batch with a failing list read asks once and fails every note that needed it", async () => {
+		const vault = new FakeVault({ "World/Cities/A.md": { content: "a" }, "World/Cities/B.md": { content: "b" }, "World/Plain.md": { content: "c" } });
+		const calls: HttpRequest[] = [];
+		const client = () => new TrelloClient({ apiKey: "k", token: "t" }, async (req) => {
+			calls.push(req);
+			if (req.method === "POST") return ok(card({ id: "n", idBoard: "board-1", name: "Plain", pos: 1e9 }));
+			return req.url.includes("/lists/") ? { status: 400, text: "boom" } : ok([]);
+		}, { sleep: async () => {} });
+		const { ctx, logs } = fakeContext(vault, [], { client, settings: SEPARATED });
+
+		await batchCreateCardsFromNotesAction(ctx, ["World/Cities/A.md", "World/Cities/B.md", "World/Plain.md"].map((path) => ({ note: vault.note(path), kind: "unlinked" as const })), LIST, "Inbox");
+
+		expect(calls.filter((c) => c.method === "GET" && c.url.includes("/lists/"))).toHaveLength(1);
+		expect(logs.filter((l) => l.level === "error")).toHaveLength(2);
+		expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+	});
+
+	test("with nested mappings of one list, the subfolder is read under the deepest folder holding the note", async () => {
+		const vault = new FakeVault({ "World/Cities/Paris/x.md": { content: "x" } });
+		const cards = [
+			card({ id: "s1", name: "Cities", pos: 100, labels: [{ id: "x", name: "Separator", color: null }] }),
+			card({ id: "s2", name: "Paris", pos: 200, labels: [{ id: "x", name: "Separator", color: null }] }),
+			card({ id: "s3", name: "Lyon", pos: 300, labels: [{ id: "x", name: "Separator", color: null }] }),
+		];
+		const { client, posOfPosts } = routed(cards);
+		const mappings = [{ folder: "World", listId: LIST, templateName: "" }, { folder: "World/Cities", listId: LIST, templateName: "" }];
+		const { ctx } = fakeContext(vault, [], { client, settings: { ...SEPARATED, mappings } });
+
+		await createCardFromNoteAction(ctx, vault.note("World/Cities/Paris/x.md"), LIST, "Inbox");
+
+		expect(posOfPosts()).toEqual(["250"]);
+	});
+
+	test("a batch reads the list again when Trello renumbers it, so the next note counts the new numbers", async () => {
+		const vault = new FakeVault({ "World/Cities/Lyon.md": { content: "l" }, "World/Cities/Paris.md": { content: "p" } });
+		const calls: HttpRequest[] = [];
+		let renumbered = false;
+		const fresh = [
+			card({ id: "s1", name: "Cities", pos: 65536, labels: [{ id: "x", name: "Separator", color: null }] }),
+			card({ id: "a", name: "a", pos: 131072 }),
+			card({ id: "new", name: "Lyon", pos: 196608 }),
+			card({ id: "s2", name: "Races", pos: 262144, labels: [{ id: "x", name: "Separator", color: null }] }),
+		];
+		const client = () => new TrelloClient({ apiKey: "k", token: "t" }, async (req) => {
+			calls.push(req);
+			if (req.method === "POST") {
+				renumbered = true;
+				return ok(card({ id: "new", idBoard: "board-1", name: "Lyon", pos: 196608 }));
+			}
+			return ok(req.url.includes("/lists/") ? (renumbered ? fresh : LIST_CARDS) : []);
+		}, { sleep: async () => {} });
+		const { ctx } = fakeContext(vault, [], { client, settings: SEPARATED });
+
+		await batchCreateCardsFromNotesAction(ctx, ["World/Cities/Lyon.md", "World/Cities/Paris.md"].map((path) => ({ note: vault.note(path), kind: "unlinked" as const })), LIST, "Inbox");
+
+		expect(calls.filter((c) => c.method === "POST").map((c) => new URLSearchParams(c.body).get("pos"))).toEqual(["250", "229376"]);
+	});
 });
