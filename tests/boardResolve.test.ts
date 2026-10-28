@@ -37,8 +37,13 @@ describe("boardForRef", () => {
 		expect(boardForRef({ boardId: null, cardId: "c" }, settings)).toBe("default");
 	});
 
-	test("a prefixed reference keeps its own board, registered or not", () => {
-		expect(boardForRef({ boardId: "elsewhere", cardId: "c" }, settings)).toBe("elsewhere");
+	test("a prefixed reference keeps its own board when it is registered", () => {
+		expect(boardForRef({ boardId: "b2", cardId: "c" }, settings)).toBe("b2");
+		expect(boardForRef({ boardId: "default", cardId: "c" }, settings)).toBe("default");
+	});
+
+	test("a prefix naming a board that is not registered uses the default board (1.25 behaviour)", () => {
+		expect(boardForRef({ boardId: "elsewhere", cardId: "c" }, settings)).toBe("default");
 	});
 });
 

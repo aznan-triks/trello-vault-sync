@@ -1,7 +1,9 @@
+import { boardForRef, type BoardRef } from "../core/boardResolve";
+import type { CustomFieldDefinitionLike } from "../core/customFieldRef";
 import { errorMessage } from "../core/errorMessage";
 import { tallyNoteResult } from "../core/syncTally";
 import { silentReporter, type CardRefStore, type NoteHandle, type Reporter, type VaultGateway } from "../obsidian/gateway";
-import type { TrelloClient } from "../trello/client";
+import type { TrelloCard, TrelloClient } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
 import { handleGoneNotes, isUnderAny, moveNoteToFolder, type GoneNote } from "./noteFate";
 import {
@@ -15,7 +17,10 @@ import {
 export interface VaultSyncScope {
 	/** Folder to restrict the run to; "" walks the whole vault. */
 	scope: string;
+	/** The default board: where a note without (or with an unregistered) board prefix is read. */
 	boardId: string;
+	/** Other registered boards (`settings.boards`); each one a linked note names is read once. */
+	boards?: readonly BoardRef[];
 	/** Folders skipped regardless of link state. */
 	excludedFolders?: string[];
 }
@@ -71,45 +76,71 @@ export async function syncVault(
 	};
 
 	const notes = vault.listNotes(target.scope, target.excludedFolders);
+	const boardSettings = { boardId: target.boardId, boards: target.boards ?? [] };
 	const linked = notes.flatMap((note) => {
 		const ref = vault.getCardRef(note);
-		return ref ? [{ note, ref }] : [];
+		return ref ? [{ note, ref, boardId: boardForRef(ref, boardSettings) }] : [];
 	});
 	stats.unlinked = notes.length - linked.length;
 
 	const noteOptions = { ...options, cardsFetchedAt: Date.now() };
-	const cards = await client.getBoardCards(target.boardId, "visible", signal, cardIncludesFor(options));
-	const byId = new Map(cards.map((card) => [card.id, card]));
-	reporter.log("info", `${cards.length} card(s) on the board, ${linked.length} linked note(s)`);
-	reporter.setTotal(linked.length);
+	// One series of reads per board a linked note names; a card is looked up among the cards of every board read.
+	const boardIds = linked.length === 0 ? [target.boardId] : [...new Set(linked.map((entry) => entry.boardId))];
+	const byId = new Map<string, { card: TrelloCard; boardId: string }>();
+	const directories = new Map<string, { members?: Map<string, string>; customFields?: Map<string, CustomFieldDefinitionLike> }>();
+	const unreadable = new Set<string>();
+	for (const boardId of boardIds) {
+		if (signal?.aborted) break;
+		try {
+			const boardCards = await client.getBoardCards(boardId, "visible", signal, cardIncludesFor(options));
+			for (const card of boardCards) byId.set(card.id, { card, boardId });
+			directories.set(boardId, {
+				members:
+					options.syncMembers === false ? undefined : buildMemberDirectory(await client.getBoardMembers(boardId, signal)),
+				customFields:
+					options.syncCustomFields === false
+						? undefined
+						: buildCustomFieldDefinitions(await client.getBoardCustomFields(boardId, signal)),
+			});
+		} catch (error) {
+			if (boardIds.length === 1) throw error;
+			unreadable.add(boardId);
+			stats.errors++;
+			reporter.log("error", `Board ${boardId} could not be read, its notes are left alone (${errorMessage(error)})`);
+		}
+	}
+	const todo = linked.filter((entry) => !unreadable.has(entry.boardId));
+	reporter.log(
+		"info",
+		`${byId.size} card(s) on ${boardIds.length === 1 ? "the board" : `${boardIds.length} boards`}, ${todo.length} linked note(s)`,
+	);
+	reporter.setTotal(todo.length);
 
 	// A card-link attachment can point anywhere in the vault, not just `target.scope` —
 	// this index always covers the whole vault, built once for the whole run.
 	const cardIndex = options.syncAttachments === false ? undefined : buildCardIndex(vault, vault.listNotes(""));
-	const memberDirectory =
-		options.syncMembers === false
-			? undefined
-			: buildMemberDirectory(await client.getBoardMembers(target.boardId, signal));
-	const customFieldDefinitions =
-		options.syncCustomFields === false
-			? undefined
-			: buildCustomFieldDefinitions(await client.getBoardCustomFields(target.boardId, signal));
 
 	const gone: GoneNote[] = [];
-	for (const { note: listed, ref } of linked) {
+	for (const { note: listed, ref, boardId: expectedBoard } of todo) {
 		if (signal?.aborted) break;
 		reporter.step(listed.basename);
 		let note = listed;
-		const card = byId.get(ref.cardId);
-		if (!card) {
+		const found = byId.get(ref.cardId);
+		if (!found) {
 			stats.phantoms++;
 			reporter.log("warn", `Card not found: ${note.basename}`);
 			gone.push({ note, cardId: ref.cardId });
 			continue;
 		}
+		const { card } = found;
 
 		try {
 			note = await restoreFromArchive(vault, note, card.idList, options, stats, reporter);
+			// The card changed board since the note was linked: the prefix follows it (only a prefix the note already has).
+			if (ref.boardId === expectedBoard && found.boardId !== expectedBoard && !options.dryRun) {
+				await vault.setCardRef(note, { boardId: found.boardId, cardId: ref.cardId });
+			}
+			const directory = directories.get(found.boardId);
 			const result = await syncNoteWithCard(
 				vault,
 				client,
@@ -117,8 +148,8 @@ export async function syncVault(
 				card,
 				noteOptions,
 				cardIndex,
-				memberDirectory,
-				customFieldDefinitions,
+				directory?.members,
+				directory?.customFields,
 				signal,
 			);
 			tallyNoteResult(stats, result, (level, message) => reporter.log(level, message), note.basename);

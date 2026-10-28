@@ -401,3 +401,120 @@ describe("syncVault — a card that is no longer on the board", () => {
 		expect(vault.paths()).toEqual(["WoT/A/a.md"]);
 	});
 });
+
+describe("syncVault — several boards", () => {
+	const linkedOn = (boardId: string, cardId: string, body: string) =>
+		`---\ntrello_board_card_id: "${boardId};${cardId}"\n---\n\n${body}`;
+	const scope = { scope: "WoT", boardId: "board", boards: [{ id: "board2", name: "Second" }] };
+	const detailed = { ...options, syncMembers: true, syncCustomFields: true };
+	const trashingOptions = {
+		...options,
+		cardFate: { onCardMoved: "trash", onCardArchived: "trash", onCardDeleted: "trash", archiveFolder: "" } satisfies CardFateRules,
+		trelloPropertyKeys: [] as string[],
+		mappedFolderByListId: new Map<string, string>(),
+	};
+
+	function twoBoards(second: unknown = [card({ id: "c2", idBoard: "board2", name: "b", desc: "from trello", dateLastActivity: "2026-03-01" })]) {
+		const { transport, requests } = routedTransport({
+			"/boards/board/cards": [card({ id: "c1", name: "a", desc: "from trello", dateLastActivity: "2026-03-01" })],
+			"/boards/board2/cards": second,
+			"/members": [],
+			"/customFields": [],
+		});
+		return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
+	}
+	const readsOf = (requests: { url: string }[], fragment: string) => requests.filter((r) => r.url.includes(fragment)).length;
+
+	test("reads each board once, whatever the number of notes, and syncs the notes of both", async () => {
+		const vault = new FakeVault({
+			"WoT/a.md": { content: linkedOn("board", "c1", "old"), mtime: at("2026-01-01") },
+			"WoT/b.md": { content: linkedOn("board2", "c2", "old"), mtime: at("2026-01-01") },
+			"WoT/b2.md": { content: linkedOn("board2", "c2", "old"), mtime: at("2026-01-01") },
+		});
+		const { client, requests } = twoBoards();
+
+		const stats = await syncVault(vault, client, scope, detailed);
+
+		expect(stats.pulled).toBe(3);
+		for (const board of ["board", "board2"]) {
+			expect(readsOf(requests, `/boards/${board}/cards`)).toBe(1);
+			expect(readsOf(requests, `/boards/${board}/members`)).toBe(1);
+			expect(readsOf(requests, `/boards/${board}/customFields`)).toBe(1);
+		}
+	});
+
+	test("a vault with no second board reads the default board only (1.25 behaviour)", async () => {
+		const vault = new FakeVault({ "WoT/a.md": { content: linkedOn("board", "c1", "old"), mtime: at("2026-01-01") } });
+		const { client, requests } = twoBoards();
+
+		await syncVault(vault, client, { scope: "WoT", boardId: "board" }, detailed);
+
+		expect(readsOf(requests, "/boards/board2")).toBe(0);
+		expect(readsOf(requests, "/boards/board/cards")).toBe(1);
+	});
+
+	test("a card moved to another registered board is found there, and the stale prefix is rewritten", async () => {
+		const vault = new FakeVault({
+			"WoT/a.md": { content: linkedOn("board", "c1", "old"), mtime: at("2026-01-01") },
+			"WoT/b.md": { content: linkedOn("board2", "c2", "old"), mtime: at("2026-01-01") },
+		});
+		const { transport, requests } = routedTransport({
+			"/boards/board/cards": [],
+			"/boards/board2/cards": [
+				card({ id: "c1", idBoard: "board2", name: "a", desc: "from trello", dateLastActivity: "2026-03-01" }),
+				card({ id: "c2", idBoard: "board2", name: "b", desc: "from trello", dateLastActivity: "2026-03-01" }),
+			],
+		});
+
+		const stats = await syncVault(vault, new TrelloClient({ apiKey: "k", token: "t" }, transport), scope, options);
+
+		expect(stats.phantoms).toBe(0);
+		expect(stats.pulled).toBe(2);
+		expect(vault.contentOf("WoT/a.md")).toContain('"board2;c1"');
+		expect(requests.some((r) => r.url.includes("/cards/c1"))).toBe(false);
+	});
+
+	test("a stale prefix is left alone in a dry run", async () => {
+		const vault = new FakeVault({
+			"WoT/a.md": { content: linkedOn("board", "c1", "old"), mtime: at("2026-01-01") },
+			// Names board2, so that board is read too.
+			"WoT/b.md": { content: linkedOn("board2", "c9", "x"), mtime: at("2026-01-01") },
+		});
+		const { transport } = routedTransport({
+			"/boards/board/cards": [],
+			"/boards/board2/cards": [card({ id: "c1", idBoard: "board2", name: "a", desc: "from trello", dateLastActivity: "2026-03-01" })],
+		});
+		await syncVault(vault, new TrelloClient({ apiKey: "k", token: "t" }, transport), scope, { ...options, dryRun: true });
+
+		expect(vault.contentOf("WoT/a.md")).toContain('"board;c1"');
+	});
+
+	test("a prefix naming a board that is not registered keeps its prefix and is read from the default board", async () => {
+		const vault = new FakeVault({ "WoT/a.md": { content: linkedOn("ghost", "c1", "old"), mtime: at("2026-01-01") } });
+		const { client, requests } = twoBoards();
+
+		const stats = await syncVault(vault, client, scope, options);
+
+		expect(stats.pulled).toBe(1);
+		expect(vault.contentOf("WoT/a.md")).toContain('"ghost;c1"');
+		expect(readsOf(requests, "/boards/ghost")).toBe(0);
+	});
+
+	test("a board that cannot be read counts an error and leaves its notes alone, never as phantoms", async () => {
+		const vault = new FakeVault({
+			"WoT/a.md": { content: linkedOn("board", "c1", "old"), mtime: at("2026-01-01") },
+			"WoT/b.md": { content: linkedOn("board2", "c2", "old"), mtime: at("2026-01-01") },
+		});
+		const { transport } = routedTransport({ "/boards/board/cards": [card({ id: "c1", name: "a", desc: "from trello", dateLastActivity: "2026-03-01" })] });
+		const failing = async (request: Parameters<typeof transport>[0]) =>
+			request.url.includes("/boards/board2/") ? { status: 400, text: "boom" } : transport(request);
+
+		const stats = await syncVault(vault, new TrelloClient({ apiKey: "k", token: "t" }, failing), scope, trashingOptions);
+
+		expect(stats.errors).toBe(1);
+		expect(stats.phantoms).toBe(0);
+		expect(stats.pulled).toBe(1);
+		expect(vault.paths().sort()).toEqual(["WoT/a.md", "WoT/b.md"]);
+		expect(vault.contentOf("WoT/b.md")).toContain("old");
+	});
+});

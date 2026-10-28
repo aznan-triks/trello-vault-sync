@@ -400,6 +400,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 				),
 			]),
 			boardId: this.settings.boardId,
+			boards: this.settings.boards,
 			cardRefFrontmatterKey: this.settings.cardRefFrontmatterKey,
 			defaultTemplateName: this.settings.defaultTemplateName,
 		};

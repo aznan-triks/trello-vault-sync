@@ -1,3 +1,4 @@
+import { boardForMapping, type BoardRef, type BoardResolution } from "../core/boardResolve";
 import type { CardFateRules } from "../core/cardFate";
 import { DEFAULT_CARD_REF_KEY } from "../core/cardRef";
 import type { CustomFieldDefinitionLike } from "../core/customFieldRef";
@@ -72,6 +73,8 @@ export interface FolderSyncOptions extends NoteSyncOptions {
 	deletedNotes?: DeletedNotesContext;
 	/** Board the list belongs to. */
 	boardId: string;
+	/** Other registered boards (`settings.boards`); a mapping naming none of them works on `boardId`. */
+	boards?: readonly BoardRef[];
 	/** `undefined` behaves as `DEFAULT_CARD_REF_KEY`. */
 	cardRefFrontmatterKey?: string;
 	/** Fallback template note used when the mapping doesn't specify one. */
@@ -146,6 +149,11 @@ const emptyStats = (): FolderSyncStats => ({
 	errors: 0,
 });
 
+/** The board a mapping works on: its own when registered, otherwise the default one. */
+function mappingBoard(mapping: FolderMapping, options: FolderSyncOptions): BoardResolution {
+	return boardForMapping(mapping, { boardId: options.boardId, boards: options.boards ?? [] });
+}
+
 /**
  * Mirror one Trello list into one vault folder.
  *
@@ -178,6 +186,10 @@ export async function syncFolder(
 		options.force !== "pull" &&
 		resolveOverride(mapping.allowCreateCardOverride, options.allowCreateCards ?? false);
 	const trashAllowed = mapping.allowDeleteOverride !== "off";
+	const { boardId, fellBack } = mappingBoard(mapping, options);
+	if (fellBack) {
+		reporter.log("warn", `${mapping.folder} — board ${mapping.boardId} is not registered under "Additional boards", the default board is used`);
+	}
 	const cardsFetchedAt = Date.now();
 	const cards = await client.getListCards(mapping.listId, signal, cardIncludesFor(options));
 	reporter.log("info", `${cards.length} card(s) in the list`);
@@ -187,12 +199,12 @@ export async function syncFolder(
 	const members =
 		options.syncMembers === false
 			? undefined
-			: (memberDirectory ?? buildMemberDirectory(await client.getBoardMembers(options.boardId, signal)));
+			: (memberDirectory ?? buildMemberDirectory(await client.getBoardMembers(boardId, signal)));
 	const customFields =
 		options.syncCustomFields === false
 			? undefined
 			: (customFieldDefinitions ??
-				buildCustomFieldDefinitions(await client.getBoardCustomFields(options.boardId, signal)));
+				buildCustomFieldDefinitions(await client.getBoardCustomFields(boardId, signal)));
 
 	const handles = noteHandles ?? vault.listNotes(mapping.folder);
 	const planned: PlannedNote[] = handles.map((note) => ({
@@ -353,7 +365,7 @@ export async function syncFolder(
 	const createdCardIds = new Set<string>();
 	const history =
 		allowCreateCards && plan.unlinkedNotes.length > 0 && !signal?.aborted
-			? await readCreationHistory(client, options, boardCards, stats, reporter, signal)
+			? await readCreationHistory(client, boardId, options, boardCards, stats, reporter, signal)
 			: null;
 	if (history) {
 		const { allBoardCards, actions } = history;
@@ -381,7 +393,7 @@ export async function syncFolder(
 		let boardLabels: TrelloLabel[] | null = null;
 		if (unlinkedCandidates.length > 0 && options.syncLabels !== false) {
 			try {
-				boardLabels = await client.getBoardLabels(options.boardId, signal);
+				boardLabels = await client.getBoardLabels(boardId, signal);
 			} catch (error) {
 				// Not a duplicate risk: the cards are still created, and the note's labels reach them on a later sync.
 				boardLabels = [];
@@ -491,6 +503,7 @@ export async function syncFolder(
  */
 async function readCreationHistory(
 	client: TrelloClient,
+	boardId: string,
 	options: FolderSyncOptions,
 	boardCards: TrelloCard[] | undefined,
 	stats: FolderSyncStats,
@@ -499,8 +512,8 @@ async function readCreationHistory(
 ): Promise<{ allBoardCards: TrelloCard[]; actions: TrelloAction[] } | null> {
 	try {
 		return {
-			allBoardCards: boardCards ?? (await client.getBoardCards(options.boardId, "all", signal)),
-			actions: options.boardActions ?? (await client.getActions(options.boardId, {}, signal)),
+			allBoardCards: boardCards ?? (await client.getBoardCards(boardId, "all", signal)),
+			actions: options.boardActions ?? (await client.getActions(boardId, {}, signal)),
 		};
 	} catch (error) {
 		if (!signal?.aborted) {
@@ -599,13 +612,22 @@ async function adoptNoteFromElsewhere(
 	tallyNoteResult(stats, result, (level, message) => reporter.log(level, message), card.name);
 }
 
+/** What one board's mappings share in a run: read once per board, however many mappings use it. */
+interface BoardShare {
+	boardCards?: TrelloCard[];
+	boardActions?: TrelloAction[];
+	memberDirectory?: Map<string, string>;
+	customFieldDefinitions?: Map<string, CustomFieldDefinitionLike>;
+}
+
 /**
  * Mirror every configured list ↔ folder mapping into its folder.
  *
- * One board fetch and one vault scan feed every mapping in the run instead of
- * one each — mirrors the sharing `syncFolder` already does for a single
- * mapping. A mapping that throws (e.g. its list was deleted) is counted as an
- * error and does not stop the mappings after it.
+ * One series of board reads per board and one vault scan feed every mapping in
+ * the run instead of one each — mirrors the sharing `syncFolder` already does
+ * for a single mapping. A mapping that throws (e.g. its list was deleted) is
+ * counted as an error and does not stop the mappings after it; a board that
+ * cannot be read costs its mappings only.
  */
 export async function syncAllMappings(
 	vault: VaultGateway & CardRefStore & TemplateResolver,
@@ -616,50 +638,44 @@ export async function syncAllMappings(
 	signal?: AbortSignal,
 ): Promise<FolderSyncStats> {
 	const total = emptyStats();
-	// One board-wide fetch (archived cards included) when archived cards are to get a note of their own or when mappings create cards.
-	const anyMappingCreatesCards =
-		options.force !== "pull" &&
-		mappings.some((m) => resolveOverride(m.allowCreateCardOverride, options.allowCreateCards ?? false));
 	const wantsArchivedNotes =
 		options.archiveCreateMissing === true &&
 		options.cardFate.onCardArchived === "archive-folder" &&
 		options.cardFate.archiveFolder !== "";
-	const wantsAllCards = wantsArchivedNotes || anyMappingCreatesCards;
-	const boardCards = wantsAllCards ? await client.getBoardCards(options.boardId, "all", signal) : undefined;
-	// A failed read is not "no history": the folders that need it read it again and create nothing if it still fails (see `readCreationHistory`).
-	const boardActions = anyMappingCreatesCards
-		? await client.getActions(options.boardId, {}, signal).catch((error: unknown) => {
-				if (!signal?.aborted) reporter.log("warn", `Could not read the board's action history up front (${errorMessage(error)})`);
-				return undefined;
-			})
-		: undefined;
 	const allNotes = vault.listNotes("");
 	const cardIndex = options.syncAttachments === false ? undefined : buildCardIndex(vault, allNotes);
-	const memberDirectory =
-		options.syncMembers === false
-			? undefined
-			: buildMemberDirectory(await client.getBoardMembers(options.boardId, signal));
-	const customFieldDefinitions =
-		options.syncCustomFields === false
-			? undefined
-			: buildCustomFieldDefinitions(await client.getBoardCustomFields(options.boardId, signal));
+
+	const boardOf = (mapping: FolderMapping) => mappingBoard(mapping, options).boardId;
+	const boardIds = [...new Set(mappings.map(boardOf))];
+	const shares = new Map<string, BoardShare>();
+	for (const boardId of boardIds) {
+		if (signal?.aborted) break;
+		try {
+			shares.set(boardId, await readBoardShare(client, boardId, mappings.filter((m) => boardOf(m) === boardId), options, wantsArchivedNotes, reporter, signal));
+		} catch (error) {
+			total.errors++;
+			reporter.log("error", `Board ${boardId} could not be read, its folders are skipped (${errorMessage(error)})`);
+		}
+	}
 
 	for (const mapping of mappings) {
 		if (signal?.aborted) break;
+		const share = shares.get(boardOf(mapping));
+		if (!share) continue;
 		reporter.log("info", `Folder: ${mapping.folder}`);
 		try {
 			const stats = await syncFolder(
 				vault,
 				client,
 				mapping,
-				{ ...options, boardActions: options.boardActions ?? boardActions },
+				{ ...options, boardActions: options.boardActions ?? share.boardActions },
 				reporter,
-				boardCards,
+				share.boardCards,
 				signal,
 				notesInFolder(allNotes, mapping.folder),
 				cardIndex,
-				memberDirectory,
-				customFieldDefinitions,
+				share.memberDirectory,
+				share.customFieldDefinitions,
 			);
 			addCounts(total, stats);
 		} catch (error) {
@@ -668,10 +684,42 @@ export async function syncAllMappings(
 		}
 	}
 
-	if (boardCards && !signal?.aborted) {
-		await createArchivedCardNotes(vault, mappings, boardCards, options, total, reporter, signal);
+	const archivedSource = [...shares.values()].flatMap((share) => share.boardCards ?? []);
+	if (wantsArchivedNotes && !signal?.aborted) {
+		await createArchivedCardNotes(vault, mappings, archivedSource, options, total, reporter, signal);
 	}
 	return total;
+}
+
+/** The reads one board's mappings share: its cards (archived included) when needed, its action history, its members and custom fields. */
+async function readBoardShare(
+	client: TrelloClient,
+	boardId: string,
+	boardMappings: FolderMapping[],
+	options: FolderSyncOptions,
+	wantsArchivedNotes: boolean,
+	reporter: Reporter,
+	signal?: AbortSignal,
+): Promise<BoardShare> {
+	// One board-wide fetch (archived cards included) when archived cards are to get a note of their own or when mappings create cards.
+	const anyMappingCreatesCards =
+		options.force !== "pull" &&
+		boardMappings.some((m) => resolveOverride(m.allowCreateCardOverride, options.allowCreateCards ?? false));
+	const boardCards = wantsArchivedNotes || anyMappingCreatesCards ? await client.getBoardCards(boardId, "all", signal) : undefined;
+	// A failed read is not "no history": the folders that need it read it again and create nothing if it still fails (see `readCreationHistory`).
+	const boardActions = anyMappingCreatesCards
+		? await client.getActions(boardId, {}, signal).catch((error: unknown) => {
+				if (!signal?.aborted) reporter.log("warn", `Could not read the board's action history up front (${errorMessage(error)})`);
+				return undefined;
+			})
+		: undefined;
+	const memberDirectory =
+		options.syncMembers === false ? undefined : buildMemberDirectory(await client.getBoardMembers(boardId, signal));
+	const customFieldDefinitions =
+		options.syncCustomFields === false
+			? undefined
+			: buildCustomFieldDefinitions(await client.getBoardCustomFields(boardId, signal));
+	return { boardCards, boardActions, memberDirectory, customFieldDefinitions };
 }
 
 /** "Also create notes for archived cards": one note in the archive folder per archived card of a mapped list that no note carries yet. */

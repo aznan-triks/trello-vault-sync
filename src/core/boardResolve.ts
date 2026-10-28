@@ -39,7 +39,8 @@ export function boardForMapping(mapping: { boardId?: string }, settings: BoardSe
 	return { boardId: settings.boardId, fellBack: true };
 }
 
-/** The board a note's card lives on: the one in its reference, otherwise the default board. */
+/** The board a note's card is read from: the one in its reference when registered, otherwise the default board (as before multi-board). */
 export function boardForRef(ref: CardRef, settings: BoardSettings): string {
-	return ref.boardId ?? settings.boardId;
+	const own = ref.boardId;
+	return own !== null && settings.boards.some((board) => board.id === own) ? own : settings.boardId;
 }

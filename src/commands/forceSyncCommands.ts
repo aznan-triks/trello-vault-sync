@@ -83,7 +83,7 @@ async function runForcedVault(ctx: CommandContext, direction: "pull" | "push"): 
 			const stats = await syncVault(
 				vault,
 				ctx.client(reporter),
-				{ scope: ctx.settings.scope, boardId: ctx.settings.boardId, excludedFolders: ctx.settings.excludedFolders },
+				{ scope: ctx.settings.scope, boardId: ctx.settings.boardId, boards: ctx.settings.boards, excludedFolders: ctx.settings.excludedFolders },
 				{ ...ctx.noteOptions(direction, true), onTrelloWrite },
 				reporter,
 				signal,

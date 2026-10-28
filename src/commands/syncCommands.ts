@@ -26,6 +26,7 @@ export async function syncAllLinked(
 				{
 					scope: ctx.settings.scope,
 					boardId: ctx.settings.boardId,
+					boards: ctx.settings.boards,
 					// Auto-sync with both scopes on: the mapped folders were synced just before.
 					excludedFolders: skipMappedFolders
 						? [...ctx.settings.excludedFolders, ...ctx.settings.mappings.map((m) => m.folder)]

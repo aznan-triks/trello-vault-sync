@@ -1413,3 +1413,144 @@ describe("syncFolder — new cards go in their section (separator cards)", () =>
 		expect(requests.filter((r) => r.method === "GET" && r.url.includes("/lists/l1/cards"))).toHaveLength(3); // first read, then one per creation (the mocked Trello renumbers every time)
 	});
 });
+
+describe("syncFolder — several boards", () => {
+	const BOARDS = [{ id: "board2", name: "Second" }];
+	const MAPPING_B: FolderMapping = { listId: "l2", folder: "WoT/Second", templateName: "", boardId: "board2" };
+	const multi = (extra: Partial<FolderSyncOptions> = {}): FolderSyncOptions => ({ ...options, boards: BOARDS, ...extra });
+	const count = (requests: HttpRequest[], fragment: string, method = "GET") =>
+		requests.filter((r) => r.method === method && r.url.includes(fragment)).length;
+
+	/** Two boards, each with its own list, cards, labels, members, fields and history; a created card lands on the board of the list it was posted to. */
+	function twoBoards() {
+		const requests: HttpRequest[] = [];
+		const transport = async (req: HttpRequest): Promise<HttpResponse> => {
+			requests.push(req);
+			if (req.method === "POST" && req.url.includes("/cards")) {
+				const second = req.body?.includes("idList=l2") ?? false;
+				return {
+					status: 200,
+					text: JSON.stringify(card({ id: second ? "n2" : "n1", idBoard: second ? "board2" : "board", idList: second ? "l2" : "l1", name: "x" })),
+				};
+			}
+			if (req.method !== "GET") return { status: 200, text: "{}" };
+			const routes: Array<[string, unknown]> = [
+				["/lists/l1/cards", []],
+				["/lists/l2/cards", []],
+				["/boards/board/cards", []],
+				["/boards/board2/cards", []],
+				["/actions", []],
+				["/labels", []],
+				["/members", []],
+				["/customFields", []],
+			];
+			const hit = routes.find(([fragment]) => req.url.includes(fragment));
+			return hit ? { status: 200, text: JSON.stringify(hit[1]) } : { status: 404, text: "no route" };
+		};
+		return { client: new TrelloClient({ apiKey: "k", token: "t" }, transport), requests };
+	}
+
+	test("two mappings on two boards in one pass: each read and each created card targets its own board", async () => {
+		const vault = new FakeVault({
+			[`${FOLDER}/Fresh A.md`]: { content: "a" },
+			"WoT/Second/Fresh B.md": { content: "b" },
+		});
+		const { client, requests } = twoBoards();
+
+		const stats = await syncAllMappings(
+			vault,
+			client,
+			[MAPPING, MAPPING_B],
+			multi({ allowCreateCards: true, syncLabels: true, syncMembers: true, syncCustomFields: true }),
+		);
+
+		expect(stats.createdCards).toBe(2);
+		expect(stats.errors).toBe(0);
+		const posts = requests.filter((r) => r.method === "POST");
+		expect(posts.map((r) => r.body?.match(/idList=(\w+)/)?.[1]).sort()).toEqual(["l1", "l2"]);
+		for (const board of ["board", "board2"]) {
+			expect(count(requests, `/boards/${board}/cards`)).toBe(1);
+			expect(count(requests, `/boards/${board}/actions`)).toBe(1);
+			expect(count(requests, `/boards/${board}/labels`)).toBe(1);
+			expect(count(requests, `/boards/${board}/members`)).toBe(1);
+			expect(count(requests, `/boards/${board}/customFields`)).toBe(1);
+		}
+		expect(vault.contentOf("WoT/Second/Fresh B.md")).toContain('"board2;n2"');
+		expect(vault.contentOf(`${FOLDER}/Fresh A.md`)).toContain('"board;n1"');
+	});
+
+	test("a single-board pass reads the same as before: one series on the default board", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fresh A.md`]: { content: "a" } });
+		const { client, requests } = twoBoards();
+
+		await syncAllMappings(vault, client, [MAPPING], { ...options, allowCreateCards: true, syncMembers: true });
+
+		expect(requests.some((r) => r.url.includes("/boards/board2"))).toBe(false);
+		expect(count(requests, "/boards/board/members")).toBe(1);
+	});
+
+	test("a mapping naming a board that is no longer registered uses the default board and warns", async () => {
+		const vault = new FakeVault({ "WoT/Second/Fresh B.md": { content: "b" } });
+		const { client, requests } = twoBoards();
+		const reporter = recordingReporter();
+
+		await syncFolder(vault, client, { ...MAPPING_B, boardId: "removed" }, { ...options, allowCreateCards: true }, reporter);
+
+		expect(requests.some((r) => r.url.includes("/boards/removed") || r.url.includes("/boards/board2"))).toBe(false);
+		expect(count(requests, "/boards/board/cards")).toBe(1);
+		expect(reporter.logs.some((l) => l.level === "warn" && l.message.includes("removed"))).toBe(true);
+	});
+
+	test("a card moved from board A to a mapped list of board B: the note follows it", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Voyageuse.md`]: { content: linked("c9", "x") } });
+		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", idBoard: "board2", idList: "l2" }) });
+
+		const stats = await syncFolder(vault, client, MAPPING, {
+			...withFate({}),
+			boards: BOARDS,
+			mappedFolderByListId: new Map([["l2", "WoT/Second"]]),
+		});
+
+		expect(stats.relocated).toBe(1);
+		expect(vault.paths()).toEqual(["WoT/Second/Voyageuse.md"]);
+	});
+
+	test("a card moved to a list of another board that is not mapped: the onCardMoved rule applies", async () => {
+		const run = async (rule: "keep" | "trash") => {
+			const vault = new FakeVault({ [`${FOLDER}/Voyageuse.md`]: { content: linked("c9", "x") } });
+			const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", idBoard: "board2", idList: "l9" }) });
+			const stats = await syncFolder(vault, client, MAPPING, { ...withFate({ onCardMoved: rule }), boards: BOARDS });
+			return { stats, vault };
+		};
+		const kept = await run("keep");
+		expect(kept.stats.moved).toBe(1);
+		expect(kept.vault.paths()).toEqual([`${FOLDER}/Voyageuse.md`]);
+		const trashed = await run("trash");
+		expect(trashed.stats.deleted).toBe(1);
+	});
+
+	test("the duplicate check of a mapping reads the history of its own board", async () => {
+		const vault = new FakeVault({ "WoT/Second/Fresh B.md": { content: "b" } });
+		const { client, requests } = twoBoards();
+
+		await syncFolder(vault, client, MAPPING_B, multi({ allowCreateCards: true }));
+
+		expect(count(requests, "/boards/board2/actions")).toBe(1);
+		expect(count(requests, "/boards/board2/cards")).toBe(1);
+		expect(requests.some((r) => r.url.includes("/boards/board/"))).toBe(false);
+	});
+});
+
+describe("syncAllMappings — archived cards", () => {
+	test("allowCreateCards alone does not give archived cards a note (that is the archive-folder option's job)", async () => {
+		const vault = new FakeVault();
+		const { client } = clientWithCreation(
+			[],
+			[card({ id: "gone", name: "Old", closed: true, idList: "l1" })],
+		);
+
+		await syncAllMappings(vault, client, [MAPPING], { ...options, allowCreateCards: true });
+
+		expect(vault.paths()).toEqual([]);
+	});
+});
