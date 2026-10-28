@@ -383,6 +383,17 @@ describe("syncFolder — a card that left the list", () => {
 		expect(vault.contentOf(`${FOLDER}/Fantôme.md`)).toBe(linked("gone", "x"));
 	});
 
+	test("the base of a card whose note was unlinked by the fate rule is dropped", async () => {
+		const run = async (rule: "unlink") => {
+			const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "corps") } });
+			const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", closed: true }) });
+			const dropped: string[] = [];
+			await syncFolder(vault, client, MAPPING, { ...withFate({ onCardArchived: rule }), syncBase: { get: () => undefined, set: () => {}, drop: (id) => void dropped.push(id) } });
+			return dropped;
+		};
+		expect(await run("unlink")).toEqual(["c9"]);
+	});
+
 	test("an archived card: Trello properties are removed, the body is untouched (default)", async () => {
 		const vault = new FakeVault({ [`${FOLDER}/Archivée.md`]: { content: linked("c9", "corps") } });
 		const { client } = clientWithCards({ "/cards/c9": card({ id: "c9", closed: true }) });

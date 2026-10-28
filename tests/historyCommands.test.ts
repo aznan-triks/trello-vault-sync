@@ -73,7 +73,7 @@ vi.mock("../src/ui/SyncActionPickerModal", () => ({
 
 import { undoLastSyncRun, undoLastSyncForActiveNote, undoSyncRunPicked } from "../src/commands/historyCommands";
 import type { CommandContext } from "../src/commands/context";
-import type { SyncAction, SyncRun } from "../src/core/syncHistory";
+import { fingerprint, type SyncAction, type SyncRun } from "../src/core/syncHistory";
 import { silentReporter } from "../src/obsidian/gateway";
 import { wrapWithHistoryRecorder } from "../src/features/syncHistoryRecorder";
 import { DEFAULT_SETTINGS } from "../src/settings/types";
@@ -383,6 +383,22 @@ describe("historyRevertTrelloWrites", () => {
 });
 
 describe("undo forgets the sync bases of what it reverted", () => {
+	test("a note the undo itself trashes or moves still loses its card's base (the id is read before the undo)", async () => {
+		const content = '---\ntrello_board_card_id: "board;ca"\n---\nsynced';
+		const vault = new FakeVault({ "a.md": { content } });
+		const bases = new Set(["ca", "cc"]);
+		const syncBase = { get: () => undefined, set: () => {}, drop: (id: string) => void bases.delete(id) };
+
+		await undoLastSyncRun(fakeContext({
+			vault,
+			history: [{ timestamp: "t", scope: "", actions: [{ kind: "create", path: "a.md", fingerprint: fingerprint(content) }] }],
+			noteOptions: () => ({ policy: "newer-wins", marginMs: 0, syncTitle: true, dryRun: false, syncBase }),
+		}));
+
+		expect(vault.noteAt("a.md")).toBeNull();
+		expect([...bases]).toEqual(["cc"]);
+	});
+
 	test("a reverted note write drops its card's base; an action the undo skipped keeps it", async () => {
 		const vault = new FakeVault({
 			"a.md": { content: '---\ntrello_board_card_id: "board;ca"\n---\noriginal' },

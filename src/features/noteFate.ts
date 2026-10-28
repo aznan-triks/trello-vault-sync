@@ -135,7 +135,7 @@ export async function handleGoneNotes(
 				dryRun: context.dryRun,
 				reporter,
 			});
-			if (!context.dryRun && change !== "moved") context.syncBase?.drop(cardId);
+			if (!context.dryRun && (change !== "moved" || outcome.result === "detached")) context.syncBase?.drop(cardId);
 			if (outcome.result === "detached") stats.detached++;
 			else if (outcome.result === "deleted") stats.deleted++;
 			else if (outcome.result === "relocated") stats.relocated++;

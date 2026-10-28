@@ -64,6 +64,9 @@ export async function syncNoteAt(
 
 /** A link made by hand is not an edit: with `manualLinkCardWins` the card's content is pulled into the note, like an adopted note in a folder sync. */
 async function pullAfterManualLink(ctx: CommandContext, note: NoteHandle): Promise<void> {
+	// A base left from an earlier link of this card describes a pair that no longer exists: decide by the clocks until a sync records a fresh one.
+	const cardId = ctx.vault.getCardRef(note)?.cardId;
+	if (cardId) ctx.noteOptions().syncBase?.drop(cardId);
 	if (ctx.settings.manualLinkCardWins) await syncNoteAt(ctx, note, "pull");
 }
 
@@ -128,8 +131,10 @@ export async function linkActivePick(ctx: CommandContext): Promise<void> {
 	await ctx.run(`Pick a card — ${note.basename}`, async (reporter, signal) => {
 		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId, undefined, signal);
 		new CardPickerModal(ctx.app, cards, (card) => {
+			const previous = ctx.vault.getCardRef(note)?.cardId;
 			void linkNoteToCard(ctx.vault, note, card).then(
 				async () => {
+					if (previous && previous !== card.id) ctx.noteOptions().syncBase?.drop(previous);
 					if (ctx.settings.showSuccessNotices) new Notice(`Linked to "${card.name}".`);
 					await pullAfterManualLink(ctx, note);
 				},
