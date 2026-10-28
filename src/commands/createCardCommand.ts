@@ -10,8 +10,6 @@ import {
 	type PhantomCandidate,
 } from "../core/phantomCardDestination";
 import {
-	insertCard,
-	isSeparatorCard,
 	mappingFolderFor,
 	missingSectionMessage,
 	sectionOfNote,
@@ -22,7 +20,7 @@ import {
 } from "../core/sections";
 import { fetchBoardIndex } from "../features/boardIndex";
 import { createCardFromNote } from "../features/createCardFromNote";
-import { readSections } from "../features/listSections";
+import { fileCreatedCard, readSections } from "../features/listSections";
 import type { NoteHandle, Reporter } from "../obsidian/gateway";
 import { TrelloError, type TrelloCard, type TrelloLabel, type TrelloList } from "../trello/client";
 import { ListPickerModal } from "../ui/ListPickerModal";
@@ -163,7 +161,10 @@ export async function batchCreateCardsFromNotesAction(
 						signal,
 					);
 					// The next note of the batch counts this card, by the pos Trello returned.
-					if (placed?.sections && !ctx.settings.dryRun) insertCard(placed.sections, card, (other) => isSeparatorCard(other, ctx.settings.separatorLabelName));
+					const rules = sectionRulesFrom(ctx.settings);
+					if (rules && placed?.sections && !ctx.settings.dryRun) {
+						lists.set(dest.listId, Promise.resolve(await fileCreatedCard(ctx.client(reporter), dest.listId, rules, placed.sections, card, target?.pos, reporter, signal)));
+					}
 					created++;
 					reporter.log("create", target?.section ? `${candidate.note.basename} — section "${target.section}"` : candidate.note.basename);
 				} catch (error) {

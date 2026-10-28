@@ -19,7 +19,6 @@ import {
 import type { TrelloAction } from "../core/auditAction";
 import { extractCardNamesFromActions, hasMatchingCardInBoardOrHistory } from "../core/cardHistoryMatch";
 import {
-	insertCard,
 	isSeparatorCard,
 	missingSectionMessage,
 	sectionTarget,
@@ -31,6 +30,7 @@ import type { TrelloCard, TrelloClient, TrelloLabel } from "../trello/client";
 import { buildCardIndex } from "./attachmentSync";
 import { createCardFromNote } from "./createCardFromNote";
 import { createNoteFromCard } from "./createNoteFromCard";
+import { fileCreatedCard } from "./listSections";
 import { handleGoneNotes, isUnderAny, moveNoteToFolder } from "./noteFate";
 import {
 	buildCustomFieldDefinitions,
@@ -387,7 +387,7 @@ export async function syncFolder(
 
 		// The list's cards are already loaded: cut into sections once, then each created card is filed in so the next one counts it.
 		const sectionRules = options.sections;
-		const sections = sectionRules ? splitSections(cards, (card) => isSeparatorCard(card, sectionRules.labelName)) : [];
+		let sections = sectionRules ? splitSections(cards, (card) => isSeparatorCard(card, sectionRules.labelName)) : [];
 
 		for (const unlinked of unlinkedCandidates) {
 			if (signal?.aborted) break;
@@ -432,7 +432,7 @@ export async function syncFolder(
 				knownNames.add(unlinked.basename);
 				if (!options.dryRun) {
 					createdCardIds.add(result.card.id);
-					if (sectionRules) insertCard(sections, result.card, (other) => isSeparatorCard(other, sectionRules.labelName));
+					if (sectionRules) sections = await fileCreatedCard(client, mapping.listId, sectionRules, sections, result.card, target?.pos, reporter, signal);
 				}
 			} catch (error) {
 				stats.createdCards--;

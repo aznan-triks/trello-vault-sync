@@ -719,4 +719,29 @@ describe("create a card in its section (separator cards)", () => {
 
 		expect(posOfPosts()).toEqual(["250"]);
 	});
+
+	test("a batch reads the list again when Trello renumbers it, so the next note counts the new numbers", async () => {
+		const vault = new FakeVault({ "World/Cities/Lyon.md": { content: "l" }, "World/Cities/Paris.md": { content: "p" } });
+		const calls: HttpRequest[] = [];
+		let renumbered = false;
+		const fresh = [
+			card({ id: "s1", name: "Cities", pos: 65536, labels: [{ id: "x", name: "Separator", color: null }] }),
+			card({ id: "a", name: "a", pos: 131072 }),
+			card({ id: "new", name: "Lyon", pos: 196608 }),
+			card({ id: "s2", name: "Races", pos: 262144, labels: [{ id: "x", name: "Separator", color: null }] }),
+		];
+		const client = () => new TrelloClient({ apiKey: "k", token: "t" }, async (req) => {
+			calls.push(req);
+			if (req.method === "POST") {
+				renumbered = true;
+				return ok(card({ id: "new", idBoard: "board-1", name: "Lyon", pos: 196608 }));
+			}
+			return ok(req.url.includes("/lists/") ? (renumbered ? fresh : LIST_CARDS) : []);
+		}, { sleep: async () => {} });
+		const { ctx } = fakeContext(vault, [], { client, settings: SEPARATED });
+
+		await batchCreateCardsFromNotesAction(ctx, ["World/Cities/Lyon.md", "World/Cities/Paris.md"].map((path) => ({ note: vault.note(path), kind: "unlinked" as const })), LIST, "Inbox");
+
+		expect(calls.filter((c) => c.method === "POST").map((c) => new URLSearchParams(c.body).get("pos"))).toEqual(["250", "229376"]);
+	});
 });
