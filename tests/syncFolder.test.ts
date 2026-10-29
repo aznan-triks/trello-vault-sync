@@ -1489,16 +1489,66 @@ describe("syncFolder — several boards", () => {
 		expect(count(requests, "/boards/board/members")).toBe(1);
 	});
 
-	test("a mapping naming a board that is no longer registered uses the default board and warns", async () => {
+	test("a mapping naming a board that is not registered is skipped: an error, no request, no note touched", async () => {
 		const vault = new FakeVault({ "WoT/Second/Fresh B.md": { content: "b" } });
 		const { client, requests } = twoBoards();
 		const reporter = recordingReporter();
 
-		await syncFolder(vault, client, { ...MAPPING_B, boardId: "removed" }, { ...options, allowCreateCards: true }, reporter);
+		const stats = await syncFolder(vault, client, { ...MAPPING_B, boardId: "removed" }, { ...options, allowCreateCards: true }, reporter);
 
-		expect(requests.some((r) => r.url.includes("/boards/removed") || r.url.includes("/boards/board2"))).toBe(false);
-		expect(count(requests, "/boards/board/cards")).toBe(1);
-		expect(reporter.logs.some((l) => l.level === "warn" && l.message.includes("removed"))).toBe(true);
+		expect(requests).toEqual([]);
+		expect(stats.errors).toBe(1);
+		expect(stats.createdCards).toBe(0);
+		expect(reporter.logs.some((l) => l.level === "error" && l.message.includes("removed") && l.message.includes("not registered"))).toBe(true);
+		expect(vault.contentOf("WoT/Second/Fresh B.md")).toBe("b");
+	});
+
+	test("syncAllMappings skips the mapping of an unregistered board, counts it once, and still syncs the others", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fresh A.md`]: { content: "a" }, "WoT/Second/Fresh B.md": { content: "b" } });
+		const { client, requests } = twoBoards();
+
+		const stats = await syncAllMappings(vault, client, [MAPPING, { ...MAPPING_B, boardId: "removed" }], multi({ allowCreateCards: true }));
+
+		expect(stats.errors).toBe(1);
+		expect(stats.createdCards).toBe(1);
+		expect(requests.some((r) => r.url.includes("/lists/l2"))).toBe(false);
+	});
+
+	test("a list whose cards belong to another board than the mapping's is skipped with an error", async () => {
+		const vault = new FakeVault({ [`${FOLDER}/Fresh A.md`]: { content: "a" } });
+		const { transport, requests } = routedTransport({ "/lists/l1/cards": [card({ id: "x1", idBoard: "board2", idList: "l1" })] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+		const reporter = recordingReporter();
+
+		const stats = await syncFolder(vault, client, MAPPING, { ...options, boards: BOARDS, allowCreateCards: true }, reporter);
+
+		expect(stats.errors).toBe(1);
+		expect(requests).toHaveLength(1);
+		expect(reporter.logs.some((l) => l.level === "error" && l.message.includes("board2"))).toBe(true);
+		expect(vault.paths()).toEqual([`${FOLDER}/Fresh A.md`]);
+	});
+
+	test("an unreadable board is an error for its folders only with several boards, and fails the pass with one", async () => {
+		const failing = (failId: string) => {
+			const transport = async (req: HttpRequest): Promise<HttpResponse> =>
+				req.url.includes(`/boards/${failId}/`) ? { status: 500, text: "boom" } : { status: 200, text: "[]" };
+			return new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+		};
+		const vault = new FakeVault({});
+		const withAll = await syncAllMappings(vault, failing("board2"), [MAPPING, MAPPING_B], multi({ allowCreateCards: true }));
+		expect(withAll.errors).toBe(1);
+		await expect(syncAllMappings(vault, failing("board"), [MAPPING], { ...options, allowCreateCards: true })).rejects.toThrow();
+	});
+
+	test("an aborted board read is not counted as an error", async () => {
+		const controller = new AbortController();
+		const transport = async (): Promise<HttpResponse> => {
+			controller.abort();
+			throw new Error("aborted");
+		};
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport, { maxRetries: 0 });
+		const stats = await syncAllMappings(new FakeVault({}), client, [MAPPING, MAPPING_B], multi({ allowCreateCards: true }), silentReporter, controller.signal);
+		expect(stats.errors).toBe(0);
 	});
 
 	test("a card moved from board A to a mapped list of board B: the note follows it", async () => {

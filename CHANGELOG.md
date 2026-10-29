@@ -72,6 +72,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Review fixes, renumbering: when the `pos` Trello returns for a created card differs from the one asked (Trello renumbered the list), `features/listSections.ts::fileCreatedCard` reads the list again and cuts it anew before the next placement (a failed re-read logs a `warn` and files the card in by its returned `pos`). `shortcut:` only a renumbering is noticed, not a card moved by someone else during the run, nor positions running out after many bisections without a renumbering; upgrade by reading before every placement if reported.
   - Tests: `tests/sections.test.ts`, `tests/settings.test.ts`, `tests/createCardFromNote.test.ts` (default `pos=bottom`, explicit `pos`, dry run), `tests/syncFolder.test.ts` (two notes of one subfolder in one pass, first placement, property over subfolder, renamed separator, off, dry run), `tests/createCardCommand.test.ts` (no list read when off, one read per list, batch, unknown section, failed read).
 
+### Fixed
+
+- **Plain words:** A folder whose mapping names a board you removed (or mistyped) is now skipped with a clear error, instead of being synced as if it belonged to the default board, which could erase members and custom fields from the notes, create duplicates and use the wrong labels. Changing a mapping's board empties its list (a list belongs to one board), and a list whose cards belong to another board than the mapping's is refused before anything is written. A cancelled sync no longer counts its interrupted board read as an error, and with a single board a failed read fails the sync again, as before.
+  **Technical:**
+  - `features/syncFolder.ts`: `syncFolder` returns right after `skipUnregisteredMapping` (one error, no request); `syncAllMappings` filters such mappings out before the shared reads. After `getListCards`, a card whose `idBoard` differs from the expected board is an error and the folder is skipped (no extra request). A failed board read is left silently when the signal is aborted, rethrown when only one board is read, counted otherwise. Same abort/ rethrow order in `features/syncVault.ts`.
+  - `core/boardResolve.ts::setMappingBoard` (used by both inputs of the Mappings tab): empties `listId` when the effective board changes. The "no longer registered" hint now says the folder is skipped.
+  - Tests: `tests/syncFolder.test.ts` ("several boards": unregistered board, foreign list, unreadable board, abort), `tests/boardResolve.test.ts`.
+
 ## [1.25.1] — 2026-10-23
 
 ### Fixed

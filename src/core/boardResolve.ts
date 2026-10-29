@@ -70,3 +70,17 @@ export function boardForFolder(
 	const mapping = settings.mappings.find((candidate) => candidate.folder === folder);
 	return mapping ? boardForMapping(mapping, settings).boardId : null;
 }
+
+/**
+ * Point a mapping at a board (empty or the default board = no own board). A list belongs to one board, so when the board
+ * really changes the list is emptied. Returns whether it changed.
+ */
+export function setMappingBoard(mapping: { listId: string; boardId?: string }, boardId: string, defaultBoardId: string): boolean {
+	const effective = (id: string | undefined) => (id?.trim() ? id.trim() : defaultBoardId);
+	const next = effective(boardId);
+	const changed = effective(mapping.boardId) !== next;
+	if (next === defaultBoardId) delete mapping.boardId;
+	else mapping.boardId = next;
+	if (changed) mapping.listId = "";
+	return changed;
+}

@@ -154,6 +154,13 @@ function mappingBoard(mapping: FolderMapping, options: FolderSyncOptions): Board
 	return boardForMapping(mapping, { boardId: options.boardId, boards: options.boards ?? [] });
 }
 
+/** A mapping naming a board that is not registered cannot be read safely (its list lives on that board): counted as an error, nothing is requested or written. */
+function skipUnregisteredMapping(mapping: FolderMapping, stats: FolderSyncStats, reporter: Reporter): FolderSyncStats {
+	stats.errors++;
+	reporter.log("error", `${mapping.folder} — board ${mapping.boardId} is not registered under "Additional boards", the folder is skipped`);
+	return stats;
+}
+
 /**
  * Mirror one Trello list into one vault folder.
  *
@@ -187,11 +194,16 @@ export async function syncFolder(
 		resolveOverride(mapping.allowCreateCardOverride, options.allowCreateCards ?? false);
 	const trashAllowed = mapping.allowDeleteOverride !== "off";
 	const { boardId, fellBack } = mappingBoard(mapping, options);
-	if (fellBack) {
-		reporter.log("warn", `${mapping.folder} — board ${mapping.boardId} is not registered under "Additional boards", the default board is used`);
-	}
+	if (fellBack) return skipUnregisteredMapping(mapping, stats, reporter);
 	const cardsFetchedAt = Date.now();
 	const cards = await client.getListCards(mapping.listId, signal, cardIncludesFor(options));
+	// A list of another board than the one expected would be read with that board's members, fields and labels: nothing is written.
+	const foreign = cards.find((candidate) => candidate.idBoard && candidate.idBoard !== boardId);
+	if (foreign) {
+		stats.errors++;
+		reporter.log("error", `${mapping.folder} — the list holds cards of board ${foreign.idBoard}, not of board ${boardId}; fix the mapping's board, the folder is skipped`);
+		return stats;
+	}
 	reporter.log("info", `${cards.length} card(s) in the list`);
 
 	const attachmentsCardIndex =
@@ -645,6 +657,12 @@ export async function syncAllMappings(
 	const allNotes = vault.listNotes("");
 	const cardIndex = options.syncAttachments === false ? undefined : buildCardIndex(vault, allNotes);
 
+	const runnable = mappings.filter((mapping) => {
+		if (!mappingBoard(mapping, options).fellBack) return true;
+		skipUnregisteredMapping(mapping, total, reporter);
+		return false;
+	});
+	mappings = runnable;
 	const boardOf = (mapping: FolderMapping) => mappingBoard(mapping, options).boardId;
 	const boardIds = [...new Set(mappings.map(boardOf))];
 	const shares = new Map<string, BoardShare>();
@@ -653,6 +671,8 @@ export async function syncAllMappings(
 		try {
 			shares.set(boardId, await readBoardShare(client, boardId, mappings.filter((m) => boardOf(m) === boardId), options, wantsArchivedNotes, reporter, signal));
 		} catch (error) {
+			if (signal?.aborted) break;
+			if (boardIds.length === 1) throw error;
 			total.errors++;
 			reporter.log("error", `Board ${boardId} could not be read, its folders are skipped (${errorMessage(error)})`);
 		}

@@ -5,7 +5,7 @@ import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_COVER_KEY, DEFAULT_LINKED_CARDS_KEY } 
 import { DEFAULT_CUSTOM_FIELDS_KEY } from "../core/customFieldRef";
 import { DEFAULT_MEMBERS_KEY } from "../core/memberRef";
 import { DEFAULT_CARD_REF_KEY, DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY, parseCardRef } from "../core/cardRef";
-import { boardForMapping, DEFAULT_BOARD_LABEL, registeredBoards } from "../core/boardResolve";
+import { boardForMapping, DEFAULT_BOARD_LABEL, registeredBoards, setMappingBoard } from "../core/boardResolve";
 import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
@@ -2394,7 +2394,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 				.setName("Trello board")
 				.setDesc(
 					resolution.fellBack
-						? `⚠ This board is no longer registered under "Additional boards": the default board is used instead.`
+						? `⚠ This board is no longer registered under "Additional boards": this folder is skipped by every sync until you register it again or pick another board.`
 						: mapping.boardId
 							? `→ ${ownBoard?.name || mapping.boardId}`
 							: "Empty = the default board. Start typing to pick one of your registered boards.",
@@ -2404,9 +2404,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						.setPlaceholder("Default board")
 						.setValue(mapping.boardId ?? "")
 						.onChange((value) => {
-							const id = value.trim();
-							if (id === "") delete mapping.boardId;
-							else mapping.boardId = id;
+							setMappingBoard(mapping, value, settings.boardId);
 							void this.save();
 						});
 					new TrelloPickerSuggest(
@@ -2414,8 +2412,7 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 						text.inputEl,
 						() => Promise.resolve(registeredBoards(settings).map((board) => ({ id: board.id, name: board.name || board.id }))),
 						(board) => {
-							if (board.id === settings.boardId) delete mapping.boardId;
-							else mapping.boardId = board.id;
+							setMappingBoard(mapping, board.id, settings.boardId);
 							void this.save();
 							this.display();
 						},

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { boardForFolder, boardForList, boardForMapping, boardForRef, registeredBoards } from "../src/core/boardResolve";
+import { boardForFolder, boardForList, boardForMapping, boardForRef, registeredBoards, setMappingBoard } from "../src/core/boardResolve";
 
 const settings = {
 	boardId: "default",
@@ -82,5 +82,28 @@ describe("boardForList / boardForFolder", () => {
 		expect(boardForFolder("B", withMappings)).toBe("b2");
 		expect(boardForFolder("A", withMappings)).toBe("default");
 		expect(boardForFolder("Elsewhere", withMappings)).toBeNull();
+	});
+});
+
+describe("setMappingBoard", () => {
+	test("changing the board empties the list, which belonged to the old board", () => {
+		const mapping: { listId: string; boardId?: string } = { listId: "l1" };
+		expect(setMappingBoard(mapping, "b2", "b1")).toBe(true);
+		expect(mapping).toEqual({ listId: "", boardId: "b2" });
+	});
+
+	test("choosing the default board removes the key and empties the list when the board changes", () => {
+		const mapping: { listId: string; boardId?: string } = { listId: "l2", boardId: "b2" };
+		expect(setMappingBoard(mapping, "b1", "b1")).toBe(true);
+		expect(mapping).toEqual({ listId: "" });
+	});
+
+	test("the same board, spelled the same or as the default, keeps the list", () => {
+		const own = { listId: "l2", boardId: "b2" };
+		expect(setMappingBoard(own, " b2 ", "b1")).toBe(false);
+		const dflt: { listId: string; boardId?: string } = { listId: "l1" };
+		expect(setMappingBoard(dflt, "", "b1")).toBe(false);
+		expect(setMappingBoard(dflt, "b1", "b1")).toBe(false);
+		expect(own.listId + dflt.listId).toBe("l2l1");
 	});
 });

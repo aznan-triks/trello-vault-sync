@@ -103,6 +103,7 @@ export async function syncVault(
 						: buildCustomFieldDefinitions(await client.getBoardCustomFields(boardId, signal)),
 			});
 		} catch (error) {
+			if (signal?.aborted) break;
 			if (boardIds.length === 1) throw error;
 			unreadable.add(boardId);
 			stats.errors++;
