@@ -1,4 +1,5 @@
 import { Notice } from "obsidian";
+import { listChoices, registeredBoardIds } from "./boardPick";
 import { confirmIfEnabled } from "./confirmAction";
 import type { CommandContext } from "./context";
 import { batchCreateCardsFromNotesAction } from "./createCardCommand";
@@ -13,7 +14,7 @@ import {
 import { resolveOrphanCardDestination } from "../core/orphanCardDestination";
 import { resolvePhantomCardDestination, type PhantomCandidate } from "../core/phantomCardDestination";
 import { buildCardIndex } from "../features/attachmentSync";
-import { fetchBoardIndex } from "../features/boardIndex";
+import { fetchBoardIndexes } from "../features/boardIndex";
 import { unlinkedCards } from "../features/createNoteFromCard";
 import type { NoteHandle } from "../obsidian/gateway";
 import type { TrelloCard } from "../trello/client";
@@ -26,6 +27,7 @@ interface ResolvedSelection {
 	notes: PhantomCandidate<NoteHandle>[];
 	skipped: number;
 	listNames: Map<string, string>;
+	listBoards?: Map<string, string>;
 }
 
 function groupLabel(group: ReportGroup): string {
@@ -68,7 +70,7 @@ async function resolveAgainstLiveData(
 	let resolved: ResolvedSelection | null = null;
 	await ctx.run("Check audit report items", async (reporter, signal) => {
 		const { cardKeys, noteKeys } = selectUncheckedKeys(groups, selection);
-		const { cards, listNames } = await fetchBoardIndex(ctx.client(reporter), ctx.settings.boardId, signal);
+		const { cards, listNames, listBoards } = await fetchBoardIndexes(ctx.client(reporter), registeredBoardIds(ctx), signal);
 		const linkedCardIds = new Set(buildCardIndex(ctx.vault, ctx.vault.listNotes("")).keys());
 		const orphanByUrl = new Map(
 			unlinkedCards(
@@ -94,6 +96,7 @@ async function resolveAgainstLiveData(
 			notes: noteMatch.matched.map((note) => ({ note, kind: "unlinked" as const })),
 			skipped,
 			listNames,
+			listBoards,
 		};
 		return `${cardMatch.matched.length} card(s) and ${noteMatch.matched.length} note(s) still to create from · ${skipped} skipped`;
 	});
@@ -107,10 +110,11 @@ async function createBoth(
 	promptedFolder: string | undefined,
 	listId: string,
 	listName: string | undefined,
+	boardId?: string,
 ): Promise<void> {
 	// A cancelled (or refused) notes batch stops here — Cancel means stop everything, not skip to the cards batch.
 	if (resolved.cards.length > 0 && !(await batchCreateNotesFromCardsAction(ctx, resolved.cards, promptedFolder))) return;
-	if (resolved.notes.length > 0) await batchCreateCardsFromNotesAction(ctx, resolved.notes, listId, listName);
+	if (resolved.notes.length > 0) await batchCreateCardsFromNotesAction(ctx, resolved.notes, listId, listName, boardId);
 }
 
 /** Asks for a fallback folder / list only when some item has no configured destination — same rule as the individual pickers. */
@@ -134,12 +138,13 @@ function promptThenCreate(ctx: CommandContext, resolved: ResolvedSelection): voi
 			void createBoth(ctx, resolved, folder, settings.phantomCardListId, resolved.listNames.get(settings.phantomCardListId));
 			return;
 		}
-		const lists = [...resolved.listNames.entries()].map(([id, name]) => ({ id, name }));
+		const choices = listChoices(ctx, resolved.listNames, resolved.listBoards);
+		const { lists } = choices;
 		if (lists.length === 0) {
 			new Notice("No lists found on the Trello board.");
 			return;
 		}
-		new ListPickerModal(ctx.app, lists, (list) => void createBoth(ctx, resolved, folder, list.id, list.name)).open();
+		new ListPickerModal(ctx.app, lists, (list) => void createBoth(ctx, resolved, folder, list.id, list.name, choices.boardOf(list.id))).open();
 	};
 
 	if (needsFolder) {

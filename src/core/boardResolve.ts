@@ -44,3 +44,21 @@ export function boardForRef(ref: CardRef, settings: BoardSettings): string {
 	const own = ref.boardId;
 	return own !== null && settings.boards.some((board) => board.id === own) ? own : settings.boardId;
 }
+
+/** The board a list belongs to: the board of the mapping on that list, otherwise the default board. */
+export function boardForList(
+	listId: string,
+	settings: BoardSettings & { mappings: readonly { listId: string; boardId?: string }[] },
+): string {
+	const mapping = settings.mappings.find((candidate) => candidate.listId === listId);
+	return mapping ? boardForMapping(mapping, settings).boardId : settings.boardId;
+}
+
+/** The board of the mapping on exactly this folder, or `null` when the folder is not mapped. */
+export function boardForFolder(
+	folder: string,
+	settings: BoardSettings & { mappings: readonly { folder: string; boardId?: string }[] },
+): string | null {
+	const mapping = settings.mappings.find((candidate) => candidate.folder === folder);
+	return mapping ? boardForMapping(mapping, settings).boardId : null;
+}

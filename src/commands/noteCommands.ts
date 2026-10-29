@@ -1,12 +1,14 @@
 import { Notice } from "obsidian";
 import type { NoteHandle } from "../obsidian/gateway";
 import type { CommandContext } from "./context";
+import { boardIdsForNote } from "./boardPick";
 import { withHistoryRecording } from "./syncHistoryHelper";
 import { parseDueRef } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
 import { parseLabelsRef } from "../core/labelRef";
 import { extractBody } from "../core/noteBody";
 import { describeSyncOutcome, tallyNoteResult } from "../core/syncTally";
+import { fetchBoardsCards } from "../features/boardIndex";
 import { linkActiveNote, linkNoteToCard } from "../features/linkNote";
 import { unlinkNote } from "../features/unlinkNote";
 import { confirmIfEnabled } from "./confirmAction";
@@ -81,7 +83,7 @@ export async function linkActive(ctx: CommandContext): Promise<void> {
 			ctx.client(reporter),
 			note,
 			{
-				boardId: ctx.settings.boardId,
+				boardIds: boardIdsForNote(ctx, note),
 				threshold: ctx.settings.similarityThreshold,
 				containmentScore: ctx.settings.nameContainmentScore,
 			},
@@ -129,7 +131,7 @@ export async function linkActivePick(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true) || !note) return;
 
 	await ctx.run(`Pick a card — ${note.basename}`, async (reporter, signal) => {
-		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId, undefined, signal);
+		const cards = await fetchBoardsCards(ctx.client(reporter), boardIdsForNote(ctx, note), signal);
 		new CardPickerModal(ctx.app, cards, (card) => {
 			const previous = ctx.vault.getCardRef(note)?.cardId;
 			void linkNoteToCard(ctx.vault, note, card).then(

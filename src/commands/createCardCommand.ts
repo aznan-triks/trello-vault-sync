@@ -1,4 +1,5 @@
 import { Notice } from "obsidian";
+import { listChoices, registeredBoardIds, registeredListChoices, type ListChoices } from "./boardPick";
 import { confirmIfEnabled } from "./confirmAction";
 import type { CommandContext } from "./context";
 import { withHistoryRecording } from "./syncHistoryHelper";
@@ -18,11 +19,12 @@ import {
 	type Section,
 	type SectionTarget,
 } from "../core/sections";
-import { fetchBoardIndex } from "../features/boardIndex";
+import { boardForList } from "../core/boardResolve";
+import { fetchBoardIndexes } from "../features/boardIndex";
 import { createCardFromNote } from "../features/createCardFromNote";
 import { fileCreatedCard, readSections } from "../features/listSections";
 import type { NoteHandle, Reporter } from "../obsidian/gateway";
-import { TrelloError, type TrelloCard, type TrelloLabel, type TrelloList } from "../trello/client";
+import { TrelloError, type TrelloCard, type TrelloLabel } from "../trello/client";
 import { ListPickerModal } from "../ui/ListPickerModal";
 import { MultiSelectPickerModal } from "../ui/MultiSelectPickerModal";
 import { PhantomNotePickerModal } from "../ui/PhantomNotePickerModal";
@@ -66,12 +68,14 @@ export async function createCardFromNoteAction(
 	note: NoteHandle,
 	listId: string,
 	listName?: string,
+	/** The list's board when the caller picked it; otherwise the board of the mapping on that list, else the default board. */
+	boardId: string = boardForList(listId, ctx.settings),
 ): Promise<void> {
 	await ctx.run(
 		`Create card — ${note.basename}`,
 		async (reporter, signal) => {
 			const boardLabels: TrelloLabel[] = ctx.settings.syncLabels
-				? await ctx.client(reporter).getBoardLabels(ctx.settings.boardId, signal)
+				? await ctx.client(reporter).getBoardLabels(boardId, signal)
 				: [];
 			const target = (await sectionTargetFor(ctx, reporter, signal, new Map(), note, listId))?.target;
 			const result = await createCardFromNote(
@@ -106,6 +110,8 @@ export async function batchCreateCardsFromNotesAction(
 	candidates: readonly PhantomCandidate<NoteHandle>[],
 	fallbackListId: string,
 	listName?: string,
+	/** Board of `fallbackListId` when the caller picked it. */
+	fallbackBoardId?: string,
 ): Promise<void> {
 	await ctx.run("Recreate the missing cards of notes", async (reporter, signal) => {
 		// Wrapped so every card this batch creates on Trello — and the note-side
@@ -114,9 +120,17 @@ export async function batchCreateCardsFromNotesAction(
 		// "trello-card-create" kind).
 		return withHistoryRecording(ctx, "", async (vault, onTrelloWrite) => {
 			reporter.setTotal(candidates.length);
-			const boardLabels: TrelloLabel[] = ctx.settings.syncLabels
-				? await ctx.client(reporter).getBoardLabels(ctx.settings.boardId, signal)
-				: [];
+			// Labels are read once per board the batch creates cards on.
+			const labelsByBoard = new Map<string, Promise<TrelloLabel[]>>();
+			const labelsOf = (boardId: string): Promise<TrelloLabel[]> => {
+				if (!ctx.settings.syncLabels) return Promise.resolve([]);
+				let pending = labelsByBoard.get(boardId);
+				if (!pending) {
+					pending = ctx.client(reporter).getBoardLabels(boardId, signal);
+					labelsByBoard.set(boardId, pending);
+				}
+				return pending;
+			};
 			let created = 0;
 			let errors = 0;
 			const lists: ListSections = new Map();
@@ -138,6 +152,8 @@ export async function batchCreateCardsFromNotesAction(
 				}
 
 				try {
+					const boardId = dest.listId === fallbackListId && fallbackBoardId ? fallbackBoardId : boardForList(dest.listId, ctx.settings);
+					const boardLabels = await labelsOf(boardId);
 					const placed = await sectionTargetFor(ctx, reporter, signal, lists, candidate.note, dest.listId);
 					const target = placed?.target;
 					const { card } = await createCardFromNote(
@@ -217,21 +233,21 @@ export async function createCardFromActiveNote(ctx: CommandContext): Promise<voi
 		return;
 	}
 
-	let lists: TrelloList[];
+	let choices: ListChoices;
 	try {
-		lists = await ctx.client().getBoardLists(ctx.settings.boardId);
+		choices = await registeredListChoices(ctx, ctx.client());
 	} catch (error) {
 		new Notice(`❌ ${errorMessage(error)}`);
 		return;
 	}
 
-	if (lists.length === 0) {
+	if (choices.lists.length === 0) {
 		new Notice("No lists found on the Trello board.");
 		return;
 	}
 
-	new ListPickerModal(ctx.app, lists, (list) => {
-		void createCardFromNoteAction(ctx, note, list.id, list.name);
+	new ListPickerModal(ctx.app, choices.lists, (list) => {
+		void createCardFromNoteAction(ctx, note, list.id, list.name, choices.boardOf(list.id));
 	}).open();
 }
 
@@ -240,7 +256,7 @@ export async function createCardsFromPhantomNotes(ctx: CommandContext): Promise<
 	if (!ctx.ready(true)) return;
 
 	await ctx.run("Scan for phantom notes", async (reporter, signal) => {
-		const { cards, listNames } = await fetchBoardIndex(ctx.client(reporter), ctx.settings.boardId, signal);
+		const { cards, listNames, listBoards } = await fetchBoardIndexes(ctx.client(reporter), registeredBoardIds(ctx), signal);
 		const aliveCardIds = new Set(cards.map((c) => c.id));
 		const notes = ctx.vault.listNotes(ctx.settings.scope, ctx.settings.excludedFolders);
 		const mappedFolders = new Set(ctx.settings.mappings.map((m) => m.folder));
@@ -281,7 +297,8 @@ export async function createCardsFromPhantomNotes(ctx: CommandContext): Promise<
 			})
 			.filter((c): c is PhantomCandidate<NoteHandle> => c !== null);
 
-		const lists = Array.from(listNames.entries()).map(([id, name]) => ({ id, name }));
+		const choices = listChoices(ctx, listNames, listBoards);
+		const { lists } = choices;
 
 		/** Runs the batch card-creation for exactly `chosen` — prompting for a destination list first when at least one of them needs it. Shared by "Create for ALL" and "Select several…". */
 		const runBatchCreateCards = (chosen: readonly PhantomCandidate<NoteHandle>[]): void => {
@@ -307,7 +324,7 @@ export async function createCardsFromPhantomNotes(ctx: CommandContext): Promise<
 					return;
 				}
 				new ListPickerModal(ctx.app, lists, (list) => {
-					void batchCreateCardsFromNotesAction(ctx, chosen, list.id, list.name);
+					void batchCreateCardsFromNotesAction(ctx, chosen, list.id, list.name, choices.boardOf(list.id));
 				}).open();
 			}
 		};
@@ -348,7 +365,7 @@ export async function createCardsFromPhantomNotes(ctx: CommandContext): Promise<
 						return;
 					}
 					new ListPickerModal(ctx.app, lists, (list) => {
-						void createCardFromNoteAction(ctx, single.note, list.id, list.name);
+						void createCardFromNoteAction(ctx, single.note, list.id, list.name, choices.boardOf(list.id));
 					}).open();
 				}
 			}

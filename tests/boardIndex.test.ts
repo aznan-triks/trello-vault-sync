@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fetchBoardIndex } from "../src/features/boardIndex";
+import { fetchBoardIndex, fetchBoardIndexes } from "../src/features/boardIndex";
 import { TrelloClient, type HttpRequest, type HttpResponse } from "../src/trello/client";
 import { card, routedTransport } from "./fakes";
 
@@ -36,5 +36,24 @@ describe("fetchBoardIndex", () => {
 		await expect(fetchBoardIndex(client, "board", controller.signal)).rejects.toThrow();
 
 		expect(requests).toHaveLength(0);
+	});
+});
+
+describe("fetchBoardIndexes", () => {
+	test("merges the boards, one series of reads per board, and remembers each list's board", async () => {
+		const { transport, requests } = routedTransport({
+			"/boards/b1/lists": [{ id: "l1", name: "Idées" }],
+			"/boards/b1/cards": [card({ id: "c1", idBoard: "b1", idList: "l1" })],
+			"/boards/b2/lists": [{ id: "l2", name: "Todo" }],
+			"/boards/b2/cards": [card({ id: "c2", idBoard: "b2", idList: "l2" })],
+		});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+
+		const index = await fetchBoardIndexes(client, ["b1", "b2"]);
+
+		expect(index.cards.map((c) => c.id)).toEqual(["c1", "c2"]);
+		expect([...index.listNames]).toEqual([["l1", "Idées"], ["l2", "Todo"]]);
+		expect(index.listBoards?.get("l2")).toBe("b2");
+		expect(requests).toHaveLength(4);
 	});
 });

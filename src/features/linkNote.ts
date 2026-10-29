@@ -1,9 +1,11 @@
+import { fetchBoardsCards } from "./boardIndex";
 import { bestMatch } from "../core/similarity";
 import type { CardRefStore, NoteHandle, VaultGateway } from "../obsidian/gateway";
 import type { TrelloCard, TrelloClient } from "../trello/client";
 
 export interface LinkOptions {
-	boardId: string;
+	/** Boards whose cards are candidates, read one after the other. */
+	boardIds: readonly string[];
 	/** Minimum title similarity, 0 to 1, below which nothing is linked. */
 	threshold: number;
 	/** Lowest score given to a title that appears whole inside the other. Default: `DEFAULT_CONTAINMENT_SCORE`. */
@@ -29,7 +31,7 @@ export async function linkActiveNote(
 		return { linked: false, score: 0, card: null, reason: "already-linked" };
 	}
 
-	const cards = await client.getBoardCards(options.boardId, undefined, signal);
+	const cards = await fetchBoardsCards(client, options.boardIds, signal);
 	const match = bestMatch(note.basename, cards, (card) => card.name, options.threshold, options.containmentScore);
 	if (!match) return { linked: false, score: 0, card: null, reason: "no-match" };
 

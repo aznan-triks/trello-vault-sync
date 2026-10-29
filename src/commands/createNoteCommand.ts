@@ -1,3 +1,4 @@
+import { registeredBoardIds } from "./boardPick";
 import { confirmIfEnabled } from "./confirmAction";
 import type { CommandContext } from "./context";
 import { withHistoryRecording } from "./syncHistoryHelper";
@@ -9,6 +10,7 @@ import {
 } from "../core/orphanCardDestination";
 import { templateMissingCardRefKey } from "../core/template";
 import { buildCardIndex } from "../features/attachmentSync";
+import { fetchBoardsCards } from "../features/boardIndex";
 import { createNoteFromCard, unlinkedCards } from "../features/createNoteFromCard";
 import type { TrelloCard } from "../trello/client";
 import { FolderPickerModal } from "../ui/FolderPickerModal";
@@ -183,7 +185,7 @@ export async function createNoteFromOrphanCard(ctx: CommandContext): Promise<voi
 	if (!ctx.ready(true)) return;
 
 	await ctx.run("Load Trello cards", async (reporter, signal) => {
-		const cards = await ctx.client(reporter).getBoardCards(ctx.settings.boardId, undefined, signal);
+		const cards = await fetchBoardsCards(ctx.client(reporter), registeredBoardIds(ctx), signal);
 		const linkedCardIds = new Set(buildCardIndex(ctx.vault, ctx.vault.listNotes("")).keys());
 		const ignored = ctx.ignoredCardIds?.();
 		const allOrphans = unlinkedCards(cards, linkedCardIds).filter((card) => !ignored?.has(card.id));

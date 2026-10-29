@@ -1,4 +1,5 @@
 import { alignNotesWithSettings } from "./alignCommand";
+import { addBoardToReferences } from "./boardPrefixCommand";
 import * as auditCommands from "./auditCommands";
 import { createFromAuditReport } from "./auditReportCreateCommand";
 import type { CommandContext } from "./context";
@@ -261,6 +262,15 @@ export const COMMANDS: CommandDescriptor[] = [
 		description: "Prune obsolete frontmatter properties and sync artifacts that are disabled in settings.",
 		tone: "default",
 		run: (ctx) => alignNotesWithSettings(ctx),
+	},
+	{
+		id: "add-board-to-note-references",
+		name: "Add the board id to note references",
+		icon: "tag",
+		section: "Vault",
+		description: "Write the board id in front of the card id in each linked note (needed by nothing; makes the board explicit). Notes whose card is on no registered board are left alone.",
+		tone: "link",
+		run: (ctx) => addBoardToReferences(ctx),
 	},
 	{
 		id: "create-note-from-card",

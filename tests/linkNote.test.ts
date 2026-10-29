@@ -12,7 +12,7 @@ describe("linkActiveNote", () => {
 		const { client } = clientFor(cards);
 
 		const result = await linkActiveNote(vault, client, vault.note("WoT/Sagondo.md"), {
-			boardId: "board",
+			boardIds: ["board"],
 			threshold: 0.45,
 		});
 
@@ -25,7 +25,7 @@ describe("linkActiveNote", () => {
 		const { client } = clientFor(cards);
 
 		const result = await linkActiveNote(vault, client, vault.note("WoT/zzzzzz.md"), {
-			boardId: "board",
+			boardIds: ["board"],
 			threshold: 0.9,
 		});
 
@@ -38,7 +38,7 @@ describe("linkActiveNote", () => {
 		const { client } = clientFor(cards);
 
 		const result = await linkActiveNote(vault, client, vault.note("WoT/Sagondo.md"), {
-			boardId: "board",
+			boardIds: ["board"],
 			threshold: 0.45,
 		});
 
@@ -75,5 +75,26 @@ describe("linkNoteToCard", () => {
 		await linkNoteToCard(vault, vault.note("WoT/Sagondo.md"), picked);
 
 		expect(vault.contentOf("WoT/Sagondo.md")).toContain('trello_board_card_id: "board9;c9"');
+	});
+});
+
+describe("linkActiveNote — several boards", () => {
+	test("looks for the closest card on every board it is given, and writes the board of the card it found", async () => {
+		const { routedTransport } = await import("./fakes");
+		const { TrelloClient } = await import("../src/trello/client");
+		const { transport, requests } = routedTransport({
+			"/boards/b1/cards": [card({ id: "c1", idBoard: "b1", name: "Other thing" })],
+			"/boards/b2/cards": [card({ id: "c2", idBoard: "b2", name: "Sagondo" })],
+		});
+		const vault = new FakeVault({ "WoT/Sagondo.md": { content: "body" } });
+
+		const result = await linkActiveNote(vault, new TrelloClient({ apiKey: "k", token: "t" }, transport), vault.note("WoT/Sagondo.md"), {
+			boardIds: ["b1", "b2"],
+			threshold: 0.45,
+		});
+
+		expect(result.linked).toBe(true);
+		expect(vault.getCardRef(vault.note("WoT/Sagondo.md"))).toEqual({ boardId: "b2", cardId: "c2" });
+		expect(requests).toHaveLength(2);
 	});
 });
