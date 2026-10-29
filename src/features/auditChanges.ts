@@ -3,19 +3,17 @@ import { describeAction, type AuditEntry } from "../core/auditAction";
 import { DEFAULT_REPORT_LABELS, buildChangesReport, type ReportLabels, mergeReport } from "../core/auditReport";
 import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
-import { requireReportNote } from "./auditShared";
+import { fetchChangesActions, requireReportNote, type ChangesSource } from "./auditShared";
 
 /**
  * Board-only audit: no vault notes are scanned, so this doesn't reuse
  * `AuditOptions` (`scope`/`excludedFolders` don't apply here).
  */
-export interface ChangesAuditOptions {
-	boardId: string;
+export interface ChangesAuditOptions extends ChangesSource {
 	/** Note the report is written into. Must already exist. */
 	reportPath: string;
 	timestamp: string;
-	/** Cursor from the previous run (an action id), "" for a first run. */
-	since: string;
+	// `since` (from `ChangesSource`) is the cursor from the previous run (an action id), "" for a first run.
 	/** Create the report note when missing instead of throwing. */
 	autoCreateReportNote?: boolean;
 	/** Report headings (Settings -> Audit output); absent = the built-in ones. */
@@ -26,6 +24,8 @@ export interface ChangesAuditResult {
 	entries: number;
 	/** Id of the most recent action seen — the caller persists this as the next `since`, unless dry-running. `null` when nothing was fetched. */
 	cursor: string | null;
+	/** The newest action id seen on each board that had any: what the caller persists as that board's next `since`. */
+	cursors: Record<string, string>;
 	markdown: string;
 }
 
@@ -39,7 +39,7 @@ export async function auditChanges(
 ): Promise<ChangesAuditResult> {
 	const reportNote = await requireReportNote(vault, options.reportPath, options.autoCreateReportNote);
 
-	const actions = await client.getActions(options.boardId, { since: options.since || undefined }, signal);
+	const { actions, boardOf, cursors, qualify } = await fetchChangesActions(client, options, signal);
 	reporter.setTotal(actions.length);
 
 	const entries: AuditEntry[] = [];
@@ -48,7 +48,7 @@ export async function auditChanges(
 		reporter.step(action.type);
 		const entry = describeAction(action);
 		if (entry) {
-			entries.push(entry);
+			entries.push({ ...entry, cardName: entry.cardName === "" ? "" : qualify(boardOf.get(action) ?? options.boardId, entry.cardName) });
 			reporter.log("info", `${entry.cardName || entry.type} — ${entry.detail}`);
 		}
 		await yieldPeriodically(i);
@@ -58,5 +58,5 @@ export async function auditChanges(
 	const existing = await vault.read(reportNote);
 	await vault.write(reportNote, mergeReport(existing, markdown, (options.reportLabels ?? DEFAULT_REPORT_LABELS).changesHeading));
 
-	return { entries: entries.length, cursor: actions[0]?.id ?? null, markdown };
+	return { entries: entries.length, cursor: cursors[options.boardId] ?? null, cursors, markdown };
 }

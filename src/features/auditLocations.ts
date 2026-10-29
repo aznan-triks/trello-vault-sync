@@ -7,8 +7,8 @@ import {
 } from "../core/auditReport";
 import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
-import { requireReportNote, type AuditOptions } from "./auditShared";
-import { fetchBoardIndex } from "./boardIndex";
+import { auditBoards, boardQualifier, requireReportNote, type AuditOptions } from "./auditShared";
+import { fetchBoardIndexes } from "./boardIndex";
 
 export interface LocationAuditResult {
 	rows: number;
@@ -25,7 +25,10 @@ export async function auditLocations(
 ): Promise<LocationAuditResult> {
 	const reportNote = await requireReportNote(vault, options.reportPath, options.autoCreateReportNote);
 
-	const { cards, listNames } = await fetchBoardIndex(client, options.boardId, signal);
+	const boards = auditBoards(options);
+	const qualify = boardQualifier(boards);
+	const { cards, listNames } = await fetchBoardIndexes(client, boards.map((board) => board.id), signal);
+	const only = options.onlyBoardId || undefined;
 	const byId = new Map(cards.map((card) => [card.id, card]));
 
 	const notes = vault.listNotes(options.scope, options.excludedFolders);
@@ -39,8 +42,8 @@ export async function auditLocations(
 		const ref = vault.getCardRef(note);
 		if (ref) {
 			const card = byId.get(ref.cardId);
-			if (card) {
-				const listName = listNames.get(card.idList ?? "") ?? "Unknown list";
+			if (card && (only === undefined || card.idBoard === only)) {
+				const listName = qualify(card.idBoard, listNames.get(card.idList ?? "") ?? "Unknown list");
 				rows.push({ listName, cardName: card.name, folder: note.folder, notePath: note.path });
 			}
 		}

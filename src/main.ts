@@ -4,6 +4,7 @@ import * as noteCommands from "./commands/noteCommands";
 import { COMMANDS, type CommandDescriptor } from "./commands/registry";
 import * as syncCommands from "./commands/syncCommands";
 import { decideAutoSync, type AutoSyncEvent } from "./core/autoSyncSchedule";
+import { registeredBoards } from "./core/boardResolve";
 import { ConcurrencyGate } from "./core/concurrencyGate";
 import { excludeFolders, notesInFolder } from "./core/fileName";
 import { errorMessage } from "./core/errorMessage";
@@ -415,9 +416,12 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 		} else if (kind === "changes") {
 			reportPath = this.settings.changesReportPath || this.settings.reportPath;
 		}
+		const filter = this.settings.auditBoardFilter;
 		return {
 			scope: this.settings.scope,
 			boardId: this.settings.boardId,
+			boards: this.settings.boards,
+			onlyBoardId: registeredBoards(this.settings).some((board) => board.id === filter) ? filter : "",
 			reportPath,
 			timestamp: new Date().toLocaleString("en-CA", { hour12: false }),
 			excludedFolders: this.settings.excludedFolders,

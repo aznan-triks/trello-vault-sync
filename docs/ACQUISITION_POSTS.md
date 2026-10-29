@@ -75,7 +75,7 @@ Here is what the plugin does:
 4. **Nothing to configure to start**:
    - You only need your Trello API Key/Token (from `trello.com/app-key`) and to pick your board with an inline search picker. Default settings work out of the box.
 
-What it does not do: it syncs one board per vault (the board you pick in settings), it needs network access to Trello, it never deletes a card, comment, checklist item or attachment on Trello, and it does not make Trello work offline.
+What it does not do: it syncs the boards you register in settings (one default board, plus any others you add), it needs network access to Trello, it never deletes a card, comment, checklist item or attachment on Trello, and it does not make Trello work offline.
 
 - **Install via Obsidian**: Settings → Community plugins → Browse → search `Trello Vault Sync`
 - **Plugin page**: https://community.obsidian.md/plugins/trello-vault-sync

@@ -5,7 +5,7 @@ import { DEFAULT_ATTACHMENTS_KEY, DEFAULT_COVER_KEY, DEFAULT_LINKED_CARDS_KEY } 
 import { DEFAULT_CUSTOM_FIELDS_KEY } from "../core/customFieldRef";
 import { DEFAULT_MEMBERS_KEY } from "../core/memberRef";
 import { DEFAULT_CARD_REF_KEY, DEFAULT_TRELLO_PLUGIN_NOTE_ID_KEY, parseCardRef } from "../core/cardRef";
-import { boardForMapping, registeredBoards } from "../core/boardResolve";
+import { boardForMapping, DEFAULT_BOARD_LABEL, registeredBoards } from "../core/boardResolve";
 import { DEFAULT_CHECKLIST_HEADING } from "../core/checklistRef";
 import { DEFAULT_DUE_KEY } from "../core/dueRef";
 import { errorMessage } from "../core/errorMessage";
@@ -1093,6 +1093,34 @@ export class TrelloVaultSyncSettingsTab extends PluginSettingTab {
 			cls: "setting-item-description",
 			text: "Where the report-producing commands write their results.",
 		});
+
+		if (this.plugin.settings.boards.length > 0) {
+			const boards = registeredBoards(this.plugin.settings);
+			this.track(new Setting(root)
+				.setName("Audit one board only")
+				.setDesc(
+					"Link and location reports, and the change log, cover every registered board by default, each list or card named after its board. " +
+						"Pick one board to report on it alone (a broken link is still judged against all of them).",
+				)
+				.addDropdown((dropdown) => {
+					dropdown.addOption("", "All boards");
+					for (const board of boards) dropdown.addOption(board.id, board.name || DEFAULT_BOARD_LABEL);
+					dropdown.setValue(this.plugin.settings.auditBoardFilter).onChange((value) => {
+						this.plugin.settings.auditBoardFilter = value;
+						void this.save();
+					});
+				}), "auditBoardFilter");
+
+			this.track(new Setting(root)
+				.setName("Ask which board to audit")
+				.setDesc("Each audit starts by asking for a board (or all of them), instead of using the choice above.")
+				.addToggle((toggle) =>
+					toggle.setValue(this.plugin.settings.auditAskBoard).onChange((value) => {
+						this.plugin.settings.auditAskBoard = value;
+						void this.save();
+					}),
+				), "auditAskBoard");
+		}
 
 		this.track(new Setting(root)
 			.setName("Auto-create report notes")

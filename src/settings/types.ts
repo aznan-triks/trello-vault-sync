@@ -162,6 +162,12 @@ export interface TrelloVaultSyncSettings {
 
 	/** "Audit changes" cursor: id of the last processed Trello action, "" before a first run. No settings-tab field — internal bookkeeping. */
 	auditChangesCursor: string;
+	/** The same cursor for each board other than the default one, by board id. Internal bookkeeping. */
+	auditChangesCursors: Record<string, string>;
+	/** Audits report this board only ("" = every registered board). Only matters once a second board is registered. */
+	auditBoardFilter: string;
+	/** Ask which board to audit each time an audit starts (several boards only). */
+	auditAskBoard: boolean;
 
 	/**
 	 * Frontmatter keys — every one is user-editable, none is a hidden constant
@@ -376,6 +382,9 @@ export const DEFAULT_SETTINGS: TrelloVaultSyncSettings = {
 	ribbonCommandIds: ["open-sidebar", "sync-active-note", "sync-vault", "sync-all-mappings", "audit-links"],
 	ribbonIconColors: {},
 	auditChangesCursor: "",
+	auditChangesCursors: {},
+	auditBoardFilter: "",
+	auditAskBoard: false,
 	cardRefFrontmatterKey: DEFAULT_CARD_REF_KEY,
 	dueFrontmatterKey: DEFAULT_DUE_KEY,
 	labelsFrontmatterKey: DEFAULT_LABELS_KEY,
@@ -641,6 +650,13 @@ export function normalizeSettings(raw: unknown): TrelloVaultSyncSettings {
 		),
 		changesHtmlPath: normalizeVaultPath(safeString(input.changesHtmlPath, DEFAULT_SETTINGS.changesHtmlPath)),
 		auditChangesCursor: safeString(input.auditChangesCursor, DEFAULT_SETTINGS.auditChangesCursor),
+		auditChangesCursors: Object.fromEntries(
+			Object.entries(input.auditChangesCursors && typeof input.auditChangesCursors === "object" ? input.auditChangesCursors : {}).filter(
+				([id, cursor]) => id !== "" && typeof cursor === "string",
+			),
+		),
+		auditBoardFilter: safeString(input.auditBoardFilter, DEFAULT_SETTINGS.auditBoardFilter).trim(),
+		auditAskBoard: input.auditAskBoard === true,
 		marginSeconds: safeNonNegativeNumber(input.marginSeconds, DEFAULT_SETTINGS.marginSeconds),
 		labelPropertySync: input.labelPropertySync !== false,
 		labelPropertyDirection: LABEL_PROPERTY_DIRECTIONS.includes(input.labelPropertyDirection as LabelPropertyDirection)

@@ -2,6 +2,11 @@ import { describe, expect, test, vi } from "vitest";
 
 const notices: string[] = [];
 vi.mock("obsidian", () => ({
+	FuzzySuggestModal: class FuzzySuggestModal {
+		constructor(_app: unknown) {}
+		setPlaceholder(_text: string): void {}
+		open(): void {}
+	},
 	Notice: class Notice {
 		constructor(message?: string) {
 			notices.push(message ?? "");

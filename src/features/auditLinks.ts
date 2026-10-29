@@ -11,8 +11,9 @@ import { filterOrphanCardsByScope, type MappingLookup, type OrphanCardScope } fr
 import { isUnlinkedNoteInScope, type PhantomNoteScope } from "../core/phantomCardDestination";
 import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
-import { requireReportNote, type AuditOptions } from "./auditShared";
-import { fetchBoardIndex } from "./boardIndex";
+import { auditBoards, boardQualifier, requireReportNote, type AuditOptions } from "./auditShared";
+import { fetchBoardIndexes } from "./boardIndex";
+import { boardForRef } from "../core/boardResolve";
 
 export interface LinkAuditOptions extends AuditOptions {
 	/**
@@ -45,8 +46,14 @@ export async function auditLinks(
 ): Promise<LinkAuditResult> {
 	const reportNote = await requireReportNote(vault, options.reportPath, options.autoCreateReportNote);
 
-	const { cards, listNames } = await fetchBoardIndex(client, options.boardId, signal);
+	const boards = auditBoards(options);
+	const qualify = boardQualifier(boards);
+	const index = await fetchBoardIndexes(client, boards.map((board) => board.id), signal);
+	const { cards } = index;
+	const listNames = new Map([...index.listNames].map(([listId, name]) => [listId, qualify(index.listBoards?.get(listId) ?? options.boardId, name)]));
 	const cardIds = new Set(cards.map((card) => card.id));
+	const only = options.onlyBoardId || undefined;
+	const boardSettings = { boardId: options.boardId, boards: options.boards ?? [] };
 
 	const notes = vault.listNotes(options.scope, options.excludedFolders);
 	reporter.setTotal(notes.length);
@@ -67,12 +74,14 @@ export async function auditLinks(
 		};
 		if (!ref) unlinkedNotes.push(entry);
 		else if (cardIds.has(ref.cardId)) linkedCardIds.add(ref.cardId);
-		else phantomNotes.push(entry);
+		else if (only === undefined || boardForRef(ref, boardSettings) === only) phantomNotes.push(entry);
 		await yieldPeriodically(i);
 	}
 
 	const scopes = options.creationScopes;
-	const allOrphans = cards.filter((card) => !linkedCardIds.has(card.id) && !card.closed && !options.ignoredCardIds?.has(card.id));
+	const allOrphans = cards.filter(
+		(card) => !linkedCardIds.has(card.id) && !card.closed && !options.ignoredCardIds?.has(card.id) && (only === undefined || card.idBoard === only),
+	);
 	const orphanCards: ReportCard[] = (
 		scopes ? filterOrphanCardsByScope(allOrphans, scopes.mappings, scopes.orphanCardScope) : allOrphans
 	).map((card) => ({

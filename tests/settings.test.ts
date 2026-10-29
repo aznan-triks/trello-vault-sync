@@ -748,3 +748,25 @@ describe("normalizeSettings: boards (multi-board)", () => {
 		expect(normalizeSettings({ boards: "nope" } as never).boards).toEqual([]);
 	});
 });
+
+describe("normalizeSettings: multi-board audits", () => {
+	test("defaults: every board, no prompt, no extra cursors; a 1.25 payload reloads the same", () => {
+		const settings = normalizeSettings({ auditChangesCursor: "a9" });
+		expect(settings.auditBoardFilter).toBe("");
+		expect(settings.auditAskBoard).toBe(false);
+		expect(settings.auditChangesCursors).toEqual({});
+		expect(settings.auditChangesCursor).toBe("a9");
+	});
+
+	test("keeps a board filter, the prompt choice and string cursors, drops anything else", () => {
+		const settings = normalizeSettings({
+			auditBoardFilter: " b2 ",
+			auditAskBoard: true,
+			auditChangesCursors: { b2: "x1", b3: 7, "": "y" },
+		} as never);
+		expect(settings.auditBoardFilter).toBe("b2");
+		expect(settings.auditAskBoard).toBe(true);
+		expect(settings.auditChangesCursors).toEqual({ b2: "x1" });
+		expect(normalizeSettings({ auditChangesCursors: "nope" } as never).auditChangesCursors).toEqual({});
+	});
+});

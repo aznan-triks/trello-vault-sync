@@ -1,5 +1,13 @@
 import type { CardRef } from "./cardRef";
 
+/** Label for the default board, whose name the settings do not keep. */
+export const DEFAULT_BOARD_LABEL = "Default board";
+
+/** "Board › text": how a list, card or entry says which board it belongs to once several are in play. */
+export function qualifyWithBoard(boardName: string, text: string): string {
+	return `${boardName || DEFAULT_BOARD_LABEL} › ${text}`;
+}
+
 /** A Trello board the user registered in the settings. */
 export interface BoardRef {
 	id: string;

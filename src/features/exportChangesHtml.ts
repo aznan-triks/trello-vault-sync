@@ -4,15 +4,14 @@ import { buildChangesHtml, type ChangesHtmlEntry } from "../core/changesHtml";
 import { yieldPeriodically } from "../core/asyncUtil";
 import { silentReporter, type Reporter, type VaultGateway } from "../obsidian/gateway";
 import type { TrelloClient } from "../trello/client";
+import { fetchChangesActions, type ChangesSource } from "./auditShared";
 
 /** Board-only, like `ChangesAuditOptions` — no vault notes are scanned. */
-export interface ChangesHtmlOptions {
-	boardId: string;
+export interface ChangesHtmlOptions extends ChangesSource {
 	/** Vault-relative path of the page to write. Created if missing, overwritten if present. */
 	htmlPath: string;
 	timestamp: string;
-	/** Cursor from the last "Audit changes" run — this command never advances it. */
-	since: string;
+	// `since` (from `ChangesSource`) is the cursor from the last "Audit changes" run — this command never advances it.
 	/** Avatar size Trello serves: "30", "50", "170" or "original". Default "50". */
 	avatarSize?: string;
 	/** Appended to the page's built-in CSS. */
@@ -50,7 +49,7 @@ export async function exportChangesHtml(
 ): Promise<ChangesHtmlResult> {
 	const htmlPath = requireHtmlPath(options.htmlPath);
 
-	const actions = await client.getActions(options.boardId, { since: options.since || undefined }, signal);
+	const { actions, boardOf, qualify } = await fetchChangesActions(client, options, signal);
 	reporter.setTotal(actions.length);
 
 	const avatarCache = new Map<string, string | null>();
@@ -70,7 +69,7 @@ export async function exportChangesHtml(
 		const entry = describeAction(action);
 		if (entry) {
 			const avatarDataUri = entry.authorAvatarUrl ? await resolveAvatar(entry.authorAvatarUrl) : null;
-			entries.push({ ...entry, avatarDataUri });
+			entries.push({ ...entry, cardName: entry.cardName === "" ? "" : qualify(boardOf.get(action) ?? options.boardId, entry.cardName), avatarDataUri });
 			reporter.log("info", `${entry.cardName || entry.type} — ${entry.detail}`);
 		}
 		await yieldPeriodically(i);

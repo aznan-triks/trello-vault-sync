@@ -146,7 +146,7 @@ Every command below is in both the right sidebar panel and the command palette.
 Nothing here has to be changed to sync a note. All of it lives in the plugin's own
 panel, never in a vault note; each heading below matches a section of the settings tab:
 
-- **Trello connection** — API key and token (stored in the plugin's own `data.json`), board id with a name-search picker, and "Test connection".
+- **Trello connection** — API key and token (stored in the plugin's own `data.json`), board id (the default board) with a name-search picker, "Test connection", and an optional list of extra boards. Each folder mapping can name its own board; a note can say which board its card is on with `board;card` in its reference property. Sync, card creation, linking and audits then follow the board. Nothing changes until you add a second board.
 - **Scope** — synced folder for vault-wide commands (empty = whole vault), and excluded folders.
 - **Audit output** — the report note audits write into, and the path of the standalone HTML change log page.
 - **Arbitration & safety** — who wins on conflict (newer side, Obsidian always, or Trello always), clock margin, Dry run toggle, and automatic note cleanup during sync.
