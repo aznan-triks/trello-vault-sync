@@ -10,9 +10,10 @@ export class ListPickerModal extends FuzzySuggestModal<TrelloList> {
 		app: App,
 		private readonly lists: TrelloList[],
 		private readonly onPick: (list: TrelloList) => void,
+		placeholder = "Choose a Trello list…",
 	) {
 		super(app);
-		this.setPlaceholder("Choose a Trello list…");
+		this.setPlaceholder(placeholder);
 	}
 
 	getItems(): TrelloList[] {

@@ -54,6 +54,7 @@ export type CardViewEditableField =
 	| "labels"
 	| "members"
 	| "list"
+	| "board"
 	| "checklists"
 	| "comments"
 	| "customFields"
@@ -67,6 +68,7 @@ export const ALL_CARD_VIEW_EDITABLE_FIELDS: readonly CardViewEditableField[] = [
 	"labels",
 	"members",
 	"list",
+	"board",
 	"checklists",
 	"comments",
 	"customFields",
@@ -122,7 +124,8 @@ export const DEFAULT_CARD_VIEW_SETTINGS: CardViewSettings = {
 	sectionOrder: [...ALL_CARD_VIEW_SECTIONS],
 	perCard: {},
 	allowEditing: true,
-	editable: Object.fromEntries(ALL_CARD_VIEW_EDITABLE_FIELDS.map((f) => [f, true])) as Record<CardViewEditableField, boolean>,
+	// Moving to another board is off until asked for: Trello may drop labels and custom fields the target board lacks.
+	editable: Object.fromEntries(ALL_CARD_VIEW_EDITABLE_FIELDS.map((f) => [f, f !== "board"])) as Record<CardViewEditableField, boolean>,
 	cacheSeconds: 60,
 	boardCacheSeconds: 600,
 	commentsLimit: 20,

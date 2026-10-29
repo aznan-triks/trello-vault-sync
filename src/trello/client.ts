@@ -450,6 +450,8 @@ export class TrelloClient {
 			idLabels?: string[];
 			idMembers?: string[];
 			idList?: string;
+			/** Moves the card to another board; send with `idList`, a list of that board. */
+			idBoard?: string;
 			pos?: "top" | "bottom";
 			closed?: boolean;
 		},
@@ -459,6 +461,7 @@ export class TrelloClient {
 		if (fields.dueComplete !== undefined) body.append("dueComplete", String(fields.dueComplete));
 		if (fields.idMembers !== undefined) body.append("idMembers", fields.idMembers.join(","));
 		if (fields.idList !== undefined) body.append("idList", fields.idList);
+		if (fields.idBoard !== undefined) body.append("idBoard", fields.idBoard);
 		if (fields.pos !== undefined) body.append("pos", fields.pos);
 		if (fields.name !== undefined) body.append("name", fields.name);
 		if (fields.desc !== undefined) body.append("desc", fields.desc);

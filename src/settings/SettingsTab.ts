@@ -129,6 +129,7 @@ const CARD_VIEW_EDITABLE_LABELS: Record<CardViewEditableField, string> = {
 	labels: "the labels",
 	members: "the members",
 	list: "the list (move the card)",
+	board: "the board (move the card to another board; Trello may drop labels and custom fields the board lacks)",
 	checklists: "the checklists",
 	comments: "the comments",
 	customFields: "the custom fields",

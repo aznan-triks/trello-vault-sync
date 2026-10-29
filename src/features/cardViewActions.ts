@@ -72,6 +72,11 @@ export class CardViewActions {
 		return this.write("list", cardId, (c) => c.updateCard(cardId, { idList: listId, pos: this.settings().movedCardPosition }));
 	}
 
+	/** Moves the card to a list of another board; Trello may drop the labels and custom fields that board lacks. */
+	moveToBoard(cardId: string, boardId: string, listId: string): Promise<void> {
+		return this.write("board", cardId, (c) => c.updateCard(cardId, { idBoard: boardId, idList: listId, pos: this.settings().movedCardPosition }));
+	}
+
 	setLabels(cardId: string, labelIds: string[]): Promise<void> {
 		return this.write("labels", cardId, (c) => c.updateCard(cardId, { idLabels: labelIds }));
 	}

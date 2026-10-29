@@ -2373,3 +2373,19 @@ describe("syncNoteWithCard — labels to properties", () => {
 		expect(requests).toEqual([]);
 	});
 });
+
+describe("a card moved to another board (labels do not flap)", () => {
+	test("a note label the target board does not have is neither pushed nor lost, and a second pass writes nothing", async () => {
+		const vault = new FakeVault({ [PATH]: { content: '---\ntrello_board_card_id: "board;c1"\ntrello_labels:\n  - Hot\n---\n\nsame', mtime: at("2026-01-01") } });
+		const { transport, requests } = routedTransport({ "/boards/board2/labels": [{ id: "other", name: "Cold", color: "blue" }] });
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const moved = card({ id: "c1", idBoard: "board2", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", labels: [] });
+
+		for (let pass = 0; pass < 2; pass++) {
+			await syncNoteWithCard(vault, client, vault.note(PATH), moved, { ...options, syncLabels: true, labelsSyncMode: "merge" });
+		}
+
+		expect(requests.filter((r) => r.method !== "GET")).toEqual([]);
+		expect(vault.contentOf(PATH)).toContain("Hot");
+	});
+});

@@ -11,6 +11,7 @@ import {
 	type CardViewEditableField,
 	type CardViewSection,
 } from "../core/cardViewModel";
+import { registeredBoards, type BoardRef } from "../core/boardResolve";
 import { resolveCustomFields } from "../core/customFieldRef";
 import { errorMessage } from "../core/errorMessage";
 import { CardViewActions, customFieldValueFromInput } from "../features/cardViewActions";
@@ -286,6 +287,32 @@ export class CardView extends ItemView {
 		el.addEventListener("click", run);
 	}
 
+	/** Board, then list of that board, then a warning, then the move. A prefix the note already holds follows the card. */
+	private pickBoardThenList(card: TrelloCardView, boards: BoardRef[], sourcePath: string): void {
+		const named = boards.map((board) => ({ id: board.id, name: board.name || board.id }));
+		new ListPickerModal(this.app, named, (board) => {
+			void this.data.lists(board.id).then(
+				(lists) =>
+					new ListPickerModal(this.app, lists, (list) =>
+						new ConfirmModal(
+							this.app,
+							`Move "${card.name}" to "${list.name}" on "${board.name}"? Trello may remove the labels and custom fields that board does not have. The card is not deleted.`,
+							() => void this.edit(card.id, () => this.moveToBoard(card, board.id, list.id, sourcePath)),
+							"Move",
+						).open(),
+					"Choose a list on that board…").open(),
+				(error: unknown) => this.reportError(error),
+			);
+		}, "Choose a Trello board…").open();
+	}
+
+	private async moveToBoard(card: TrelloCardView, boardId: string, listId: string, sourcePath: string): Promise<void> {
+		await this.actions.moveToBoard(card.id, boardId, listId);
+		const note = this.ctx.vault.noteAt(sourcePath);
+		const ref = note ? this.ctx.vault.getCardRef(note) : null;
+		if (note && ref?.boardId === card.idBoard) await this.ctx.vault.setCardRef(note, { boardId, cardId: card.id });
+	}
+
 	/** Save and Cancel buttons under a form. */
 	private formButtons(form: HTMLElement, save: () => void, saveLabel = "Save"): void {
 		const row = form.createDiv({ cls: "tvs-card-view__buttons" });
@@ -348,6 +375,10 @@ export class CardView extends ItemView {
 				const b = block("list", "List", "No list", card.list !== undefined, "list");
 				if (!b) return;
 				if (card.list) b.el.createSpan({ text: card.list.name });
+				if (b.editable && this.actions.canEdit("board")) {
+					const others = registeredBoards(this.ctx.settings).filter((board) => board.id !== card.idBoard);
+					if (others.length > 0) this.pencil(b.head, "Move the card to another board", () => this.pickBoardThenList(card, others, sourcePath));
+				}
 				this.pencil(b.editable ? b.head : null, "Move the card to another list", () => {
 					void this.data.lists(card.idBoard).then(
 						(lists) =>

@@ -51,6 +51,15 @@ describe("normalizeCardViewSettings", () => {
 		expect(s.commentsLimit).toBe(20);
 	});
 
+	test("moving a card to another board is off by default, also for settings saved before it existed", () => {
+		expect(normalizeCardViewSettings(undefined).editable.board).toBe(false);
+		const saved = { editable: { title: true, list: true } };
+		const s = normalizeCardViewSettings(saved);
+		expect(s.editable.board).toBe(false);
+		expect(s.editable.list).toBe(true);
+		expect(normalizeCardViewSettings({ editable: { board: true } }).editable.board).toBe(true);
+	});
+
 	test("an unknown section is ignored and an incomplete order is completed at the end", () => {
 		expect(normalizeSectionOrder(["comments", "bogus", "title", "comments"]).slice(0, 2)).toEqual(["comments", "title"]);
 		expect(normalizeSectionOrder(["comments"])).toHaveLength(ALL_CARD_VIEW_SECTIONS.length);

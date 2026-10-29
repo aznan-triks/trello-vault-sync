@@ -51,6 +51,27 @@ describe("CardViewActions", () => {
 		expect(bodyOf(requests[0]!).get("pos")).toBe("bottom");
 	});
 
+	test("moving to another board is one request carrying the board, the list and the position", async () => {
+		const editable = { ...DEFAULT_CARD_VIEW_SETTINGS.editable, board: true };
+		const { actions, requests } = setup({ editable, movedCardPosition: "bottom" });
+		await actions.moveToBoard("c1", "b2", "l9");
+		expect(requests).toHaveLength(1);
+		expect(requests[0]!.method).toBe("PUT");
+		expect(requests[0]!.url).toContain("/cards/c1");
+		expect(bodyOf(requests[0]!).get("idBoard")).toBe("b2");
+		expect(bodyOf(requests[0]!).get("idList")).toBe("l9");
+		expect(bodyOf(requests[0]!).get("pos")).toBe("bottom");
+	});
+
+	test("moving to another board is refused without a request unless it is turned on, or when editing is off", async () => {
+		const off = setup();
+		await expect(off.actions.moveToBoard("c1", "b2", "l9")).rejects.toThrow(/turned off/);
+		expect(off.requests).toHaveLength(0);
+		const readOnly = setup({ allowEditing: false, editable: { ...DEFAULT_CARD_VIEW_SETTINGS.editable, board: true } });
+		await expect(readOnly.actions.moveToBoard("c1", "b2", "l9")).rejects.toThrow();
+		expect(readOnly.requests).toHaveLength(0);
+	});
+
 	test("clearing the due date also clears done", async () => {
 		const { actions, requests } = setup();
 		await actions.setDue("c1", null, true);
