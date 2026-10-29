@@ -7,6 +7,7 @@ import {
 	dueState,
 	dueToInputValue,
 	inputValueToDue,
+	lostOnBoardMove,
 	visibleSections,
 	type CardViewEditableField,
 	type CardViewSection,
@@ -294,16 +295,37 @@ export class CardView extends ItemView {
 			void this.data.lists(board.id).then(
 				(lists) =>
 					new ListPickerModal(this.app, lists, (list) =>
-						new ConfirmModal(
-							this.app,
-							`Move "${card.name}" to "${list.name}" on "${board.name}"? Trello may remove the labels and custom fields that board does not have. The card is not deleted.`,
-							() => void this.edit(card.id, () => this.moveToBoard(card, board.id, list.id, sourcePath)),
-							"Move",
-						).open(),
+						void this.confirmBoardMove(card, board, list.name, () => this.moveToBoard(card, board.id, list.id, sourcePath)),
 					"Choose a list on that board…").open(),
 				(error: unknown) => this.reportError(error),
 			);
 		}, "Choose a Trello board…").open();
+	}
+
+	/** The warning names what this card would lose on the target board (cached data); a read that fails falls back to a general sentence. */
+	private async confirmBoardMove(card: TrelloCardView, board: { id: string; name: string }, listName: string, move: () => Promise<void>): Promise<void> {
+		let warning = "Trello may remove the labels and custom fields that board does not have.";
+		try {
+			const [labels, customFields, sourceFields] = await Promise.all([
+				this.data.labels(board.id),
+				this.data.customFields(board.id),
+				this.data.customFields(card.idBoard),
+			]);
+			const lost = lostOnBoardMove(card, sourceFields, { labels, customFields });
+			const parts = [
+				lost.labels.length > 0 ? `labels ${lost.labels.join(", ")}` : "",
+				lost.customFields.length > 0 ? `custom fields ${lost.customFields.join(", ")}` : "",
+			].filter((part) => part !== "");
+			warning = parts.length > 0 ? `Likely lost on Trello (that board has no namesake): ${parts.join("; ")}.` : "That board has the same labels and custom fields.";
+		} catch (error) {
+			this.reportError(error);
+		}
+		new ConfirmModal(
+			this.app,
+			`Move "${card.name}" to "${listName}" on "${board.name}"? ${warning} The card is not deleted.`,
+			() => void this.edit(card.id, move),
+			"Move",
+		).open();
 	}
 
 	private async moveToBoard(card: TrelloCardView, boardId: string, listId: string, sourcePath: string): Promise<void> {

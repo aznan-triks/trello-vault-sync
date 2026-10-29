@@ -80,6 +80,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `core/boardResolve.ts::setMappingBoard` (used by both inputs of the Mappings tab): empties `listId` when the effective board changes. The "no longer registered" hint now says the folder is skipped.
   - Tests: `tests/syncFolder.test.ts` ("several boards": unregistered board, foreign list, unreadable board, abort), `tests/boardResolve.test.ts`.
 
+- **Plain words:** The "label <-> property" rules (a label on the card becomes a property in the note, and back) now apply only to cards of the default board, whose labels they were written for. Before, a card of another board could get a wrong label or a wrong property. The warning before moving a card to another board now names the labels and custom fields it will probably lose there (from cached data), and no longer promises anything about the note.
+  **Technical:**
+  - `features/syncNote.ts`: `NoteSyncOptions.labelProperties.boardId` (set by `main.ts` to `settings.boardId`); `labelRules` is `undefined` for a card whose `idBoard` differs, which turns off the property pull/push and the merge's property ownership. Absent `boardId` = every card, as before.
+  - `core/cardViewModel.ts::lostOnBoardMove` (pure, by name); `ui/CardView.ts::confirmBoardMove` reads the target board's labels and custom fields through `CardViewData` and falls back to a general sentence if the read fails.
+  - Tests: `tests/syncNote.test.ts` (pull and push with a card of another board), `tests/cardViewModel.test.ts`.
+
 ## [1.25.1] — 2026-10-23
 
 ### Fixed

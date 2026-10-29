@@ -336,6 +336,7 @@ export default class TrelloVaultSyncPlugin extends Plugin implements CommandCont
 							direction: this.settings.labelPropertyDirection,
 							removeValues: this.settings.labelPropertyRemoveValues,
 							mappings: activeMappings(this.settings.labelPropertyMappings),
+							boardId: this.settings.boardId,
 						},
 					}
 				: {}),

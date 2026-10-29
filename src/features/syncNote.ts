@@ -107,7 +107,7 @@ export interface NoteSyncOptions {
 	/** `undefined` behaves as `DEFAULT_LABELS_KEY`. */
 	labelsFrontmatterKey?: string;
 	/** Label -> property mappings (already narrowed to the active rows); absent = the feature is off. */
-	labelProperties?: { direction: LabelPropertyDirection; removeValues: boolean; mappings: LabelPropertyMapping[] };
+	labelProperties?: { direction: LabelPropertyDirection; removeValues: boolean; mappings: LabelPropertyMapping[]; /** The board the label ids belong to (the default board): a card of another board is left out. Absent = every card. */ boardId?: string };
 	/** Pull-only, on by default (`undefined` behaves as `true`) — see `DEFAULT_SYNC_ATTACHMENTS` for its request cost. */
 	syncAttachments?: boolean;
 	/** `undefined` behaves as `DEFAULT_ATTACHMENTS_KEY`. */
@@ -987,6 +987,11 @@ async function syncNoteWithCardUnguarded(
 	 * without this, taking a mapped value out of the note was re-added from the card and the label never
 	 * left it, whatever command was run.
 	 */
+	// The label ids of the rules are the default board's: another board's cards (whose ids differ) are left out.
+	const labelRules =
+		options.labelProperties && (options.labelProperties.boardId === undefined || card.idBoard === options.labelProperties.boardId)
+			? options.labelProperties
+			: undefined;
 	const labelDirection = direction === "skip" ? (options.force ?? "skip") : direction;
 
 	// Independent of the direction decided above for title/body/due — each step
@@ -1004,7 +1009,7 @@ async function syncNoteWithCardUnguarded(
 	if (syncLabels && writesAllowed && !signal?.aborted) {
 		if (labelsSyncMode === "merge") {
 			// Properties that flow to Trello own their mapped labels; with "to-note" only, the merge is still the way in.
-			const propertyOwned = options.labelProperties && options.labelProperties.direction !== "to-note" ? mappedLabelIds(options.labelProperties.mappings) : new Set<string>();
+			const propertyOwned = labelRules && labelRules.direction !== "to-note" ? mappedLabelIds(labelRules.mappings) : new Set<string>();
 			const merged = await convergeLabelsOnMerge(vault, client, note, card, localLabels, remoteLabels, labelsKey, propertyOwned, signal);
 			stale = stale || merged.wroteLocal;
 			nextLabelIds = merged.ids;
@@ -1015,9 +1020,9 @@ async function syncNoteWithCardUnguarded(
 	}
 
 	// shortcut: on a merge (some fields pulled, others pushed) mapped properties and the card's labels only grow towards each other, as on a skip; a removal travels on a plain pull or push, upgrade by taking the labels' own side.
-	if (options.labelProperties && writesAllowed && !signal?.aborted) {
+	if (labelRules && writesAllowed && !signal?.aborted) {
 		const currentIds = (card.labels ?? []).map((label) => label.id);
-		const props = await convergeLabelProperties(vault, note, card, options.labelProperties, labelDirection, nextLabelIds ?? currentIds, signal);
+		const props = await convergeLabelProperties(vault, note, card, labelRules, labelDirection, nextLabelIds ?? currentIds, signal);
 		stale = stale || props.wroteNote;
 		nextLabelIds = props.ids ?? nextLabelIds;
 	}

@@ -5,6 +5,7 @@ import {
 	cardLink,
 	checklistProgress,
 	dueState,
+	lostOnBoardMove,
 	normalizeCardViewSettings,
 	normalizeSectionOrder,
 	sectionOverride,
@@ -93,5 +94,28 @@ describe("per-card section overrides", () => {
 		setSectionOverride(perCard, "c1", "comments", "default");
 		setSectionOverride(perCard, "c1", "cover", "default");
 		expect(perCard).toEqual({});
+	});
+});
+
+describe("lostOnBoardMove", () => {
+	const label = (id: string, name: string) => ({ id, name, color: "green" });
+	const field = (id: string, name: string) => ({ id, name });
+
+	test("lists the card's labels and valued custom fields the target board lacks, by name", () => {
+		const lost = lostOnBoardMove(
+			{ labels: [label("a", "Hot"), label("b", "NPC")], customFieldItems: [{ idCustomField: "f1" }, { idCustomField: "f2" }] },
+			[field("f1", "Level"), field("f2", "Mood")],
+			{ labels: [label("z", "NPC")], customFields: [field("g1", "Level")] },
+		);
+		expect(lost).toEqual({ labels: ["Hot"], customFields: ["Mood"] });
+	});
+
+	test("nothing is lost when the target board has everything, and unnamed labels are ignored", () => {
+		const lost = lostOnBoardMove(
+			{ labels: [label("a", "")], customFieldItems: [] },
+			[],
+			{ labels: [], customFields: [] },
+		);
+		expect(lost).toEqual({ labels: [], customFields: [] });
 	});
 });

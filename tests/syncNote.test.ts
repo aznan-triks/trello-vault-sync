@@ -2363,6 +2363,22 @@ describe("syncNoteWithCard — labels to properties", () => {
 		expect(requests.filter((r) => r.method !== "GET")).toEqual([]);
 	});
 
+	test("the rules belong to the default board: a card of another board neither writes a property nor gets a label", async () => {
+		const onDefault = { ...options, ...lp(), labelProperties: { ...lp().labelProperties, boardId: "board" } };
+		const pull = setup("same", at("2026-01-01"));
+		const foreign = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", idBoard: "board2", labels: [npcLabel] });
+		await syncNoteWithCard(pull.vault, pull.client, pull.vault.note(PATH), foreign, onDefault);
+		expect(pull.vault.readFrontmatter(pull.vault.note(PATH))?.kind).toBeUndefined();
+
+		const vault = new FakeVault({ [PATH]: { content: FRONTMATTER.replace("---\n\n", "kind: npc\n---\n\n") + "same", mtime: at("2026-03-01") } });
+		const { transport, requests } = routedTransport({});
+		const client = new TrelloClient({ apiKey: "k", token: "t" }, transport);
+		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-01-01", idBoard: "board2", labels: [] });
+		await syncNoteWithCard(vault, client, vault.note(PATH), remote, onDefault);
+		const put = requests.find((r) => r.method === "PUT");
+		expect(decodeURIComponent(put?.url ?? "") + String(put?.body)).not.toContain("L1");
+	});
+
 	test("dry-run writes nothing", async () => {
 		const { vault, client, requests } = setup("same", at("2026-01-01"));
 		const remote = card({ id: "c1", name: "Sagondo", desc: "same", dateLastActivity: "2026-02-01", labels: [npcLabel] });

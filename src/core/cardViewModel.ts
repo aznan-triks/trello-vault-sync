@@ -264,3 +264,21 @@ export function inputValueToDue(value: string): string | null {
 export function cardLink(url: string, target: "browser" | "desktop-app"): string {
 	return target === "desktop-app" ? url.replace(/^https:\/\//, "trello://") : url;
 }
+
+/**
+ * What moving a card to another board is likely to drop: its labels and the custom fields it has a value for that the
+ * target board has no namesake of (Trello matches them by name). Built from cached data, so indicative only.
+ */
+export function lostOnBoardMove(
+	card: { labels?: readonly { name: string }[]; customFieldItems?: readonly { idCustomField: string }[] },
+	sourceFields: readonly { id: string; name: string }[],
+	target: { labels: readonly { name: string }[]; customFields: readonly { name: string }[] },
+): { labels: string[]; customFields: string[] } {
+	const targetLabels = new Set(target.labels.map((label) => label.name));
+	const targetFields = new Set(target.customFields.map((field) => field.name));
+	const valued = new Set((card.customFieldItems ?? []).map((item) => item.idCustomField));
+	return {
+		labels: (card.labels ?? []).map((label) => label.name).filter((name) => name !== "" && !targetLabels.has(name)),
+		customFields: sourceFields.filter((field) => valued.has(field.id) && !targetFields.has(field.name)).map((field) => field.name),
+	};
+}
