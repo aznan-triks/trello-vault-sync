@@ -65,6 +65,18 @@ describe("addBoardToReferences", () => {
 		expect(summary()).toBe("Added the board id to 1 note(s).");
 	});
 
+	test("reads each board's cards once, archived included, and never the lists", async () => {
+		const { vault, ctx, requests } = setup({ "a.md": { content: '---\ntrello_board_card_id: "old"\n---\nx' } });
+
+		await addBoardToReferences(ctx);
+
+		expect(requests.some((r) => r.url.includes("/lists"))).toBe(false);
+		const reads = requests.filter((r) => r.url.includes("/cards"));
+		expect(reads).toHaveLength(2);
+		expect(reads.every((r) => r.url.includes("filter=all"))).toBe(true);
+		expect(vault.contentOf("a.md")).toContain('"old"');
+	});
+
 	test("a card on no registered board leaves its note alone and is counted", async () => {
 		const { vault, ctx, summary } = setup({ "a.md": { content: '---\ntrello_board_card_id: "ghost"\n---\nx' } });
 

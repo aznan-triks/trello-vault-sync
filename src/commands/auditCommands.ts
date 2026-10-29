@@ -54,7 +54,7 @@ async function linkAudit(ctx: CommandContext, onlyBoardId: string): Promise<void
 		const result = await auditLinks(
 			ctx.vault,
 			ctx.client(reporter),
-			{ ...ctx.auditOptions("links"), onlyBoardId, creationScopes },
+			{ ...ctx.auditOptions("links"), onlyBoardId, creationScopes, mappings: settings.mappings },
 			reporter,
 			signal,
 		);

@@ -73,6 +73,20 @@ describe("auditLinks — several boards", () => {
 		expect(reads(requests, "/boards/board/cards")).toBe(1);
 	});
 
+	test("a phantom note without a board prefix is attributed to the board of its folder's mapping first", async () => {
+		const vault = new FakeVault({ [REPORT]: { content: "" }, "B/ghost.md": { content: '---\ntrello_board_card_id: "gone"\n---\n\nbody' } });
+		const scoped = {
+			...options,
+			mappings: [{ listId: "l2", folder: "B", boardId: "board2" }],
+		};
+
+		const onSecond = await auditLinks(vault, twoBoards().client, { ...scoped, onlyBoardId: "board2" });
+		const onDefault = await auditLinks(vault, twoBoards().client, { ...scoped, onlyBoardId: "board" });
+
+		expect(onSecond.phantomNotes).toBe(1);
+		expect(onDefault.phantomNotes).toBe(0);
+	});
+
 	test("the filter on the default board drops the other board's phantom note", async () => {
 		const vault = vaultWith();
 		const { client } = twoBoards();

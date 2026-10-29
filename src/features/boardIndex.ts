@@ -31,9 +31,9 @@ export async function fetchBoardIndexes(client: TrelloClient, boardIds: readonly
 	return merged;
 }
 
-/** The cards of each board in turn, merged: one read per board. */
-export async function fetchBoardsCards(client: TrelloClient, boardIds: readonly string[], signal?: AbortSignal): Promise<TrelloCard[]> {
+/** The cards of each board in turn, merged: one read per board (`filter` "all" = archived included). */
+export async function fetchBoardsCards(client: TrelloClient, boardIds: readonly string[], signal?: AbortSignal, filter?: "visible" | "all"): Promise<TrelloCard[]> {
 	const cards: TrelloCard[] = [];
-	for (const boardId of boardIds) cards.push(...(await client.getBoardCards(boardId, undefined, signal)));
+	for (const boardId of boardIds) cards.push(...(await client.getBoardCards(boardId, filter, signal)));
 	return cards;
 }

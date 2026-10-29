@@ -13,7 +13,8 @@ import { silentReporter, type CardRefStore, type Reporter, type VaultGateway } f
 import type { TrelloClient } from "../trello/client";
 import { auditBoards, boardQualifier, requireReportNote, type AuditOptions } from "./auditShared";
 import { fetchBoardIndexes } from "./boardIndex";
-import { boardForRef } from "../core/boardResolve";
+import { boardForFolder, boardForRef } from "../core/boardResolve";
+import type { CardRef } from "../core/cardRef";
 
 export interface LinkAuditOptions extends AuditOptions {
 	/**
@@ -22,6 +23,8 @@ export interface LinkAuditOptions extends AuditOptions {
 	 * "Recreate the missing cards of notes"), so its counts match theirs.
 	 * Omitted = every orphan card and unlinked note (the historical behavior).
 	 */
+	/** The folder mappings, to tell which board a note without a board prefix belongs to. */
+	mappings?: readonly MappingLookup[];
 	creationScopes?: {
 		mappings: readonly MappingLookup[];
 		orphanCardScope: OrphanCardScope;
@@ -54,6 +57,10 @@ export async function auditLinks(
 	const cardIds = new Set(cards.map((card) => card.id));
 	const only = options.onlyBoardId || undefined;
 	const boardSettings = { boardId: options.boardId, boards: options.boards ?? [] };
+	// A note without a board prefix is first judged on the board of its folder's mapping, then on the default board.
+	const mappings = options.mappings ?? [];
+	const phantomBoard = (ref: CardRef, folder: string) =>
+		ref.boardId === null ? (boardForFolder(folder, { ...boardSettings, mappings }) ?? boardForRef(ref, boardSettings)) : boardForRef(ref, boardSettings);
 
 	const notes = vault.listNotes(options.scope, options.excludedFolders);
 	reporter.setTotal(notes.length);
@@ -74,7 +81,7 @@ export async function auditLinks(
 		};
 		if (!ref) unlinkedNotes.push(entry);
 		else if (cardIds.has(ref.cardId)) linkedCardIds.add(ref.cardId);
-		else if (only === undefined || boardForRef(ref, boardSettings) === only) phantomNotes.push(entry);
+		else if (only === undefined || phantomBoard(ref, note.folder) === only) phantomNotes.push(entry);
 		await yieldPeriodically(i);
 	}
 

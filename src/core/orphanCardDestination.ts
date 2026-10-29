@@ -2,6 +2,8 @@
 export interface MappingLookup {
 	listId: string;
 	folder: string;
+	/** Board of the list; absent = the default board. */
+	boardId?: string;
 }
 
 export type OrphanCardDestination = { needsPrompt: false; folder: string } | { needsPrompt: true };

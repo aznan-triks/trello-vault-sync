@@ -2,7 +2,7 @@ import { registeredBoardIds } from "./boardPick";
 import type { CommandContext } from "./context";
 import { withHistoryRecording } from "./syncHistoryHelper";
 import { formatCardRef } from "../core/cardRef";
-import { fetchBoardIndexes } from "../features/boardIndex";
+import { fetchBoardsCards } from "../features/boardIndex";
 
 /**
  * "Add the board id to note references": rewrites `<cardId>` as `<boardId>;<cardId>` in the notes whose
@@ -12,7 +12,7 @@ import { fetchBoardIndexes } from "../features/boardIndex";
 export async function addBoardToReferences(ctx: CommandContext): Promise<void> {
 	if (!ctx.ready(true)) return;
 	await ctx.run("Add the board id to note references", async (reporter, signal) => {
-		const { cards } = await fetchBoardIndexes(ctx.client(reporter), registeredBoardIds(ctx), signal);
+		const cards = await fetchBoardsCards(ctx.client(reporter), registeredBoardIds(ctx), signal, "all");
 		const boardOfCard = new Map(cards.map((card) => [card.id, card.idBoard]));
 		const key = ctx.settings.cardRefFrontmatterKey;
 

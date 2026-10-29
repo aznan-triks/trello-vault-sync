@@ -86,6 +86,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `core/cardViewModel.ts::lostOnBoardMove` (pure, by name); `ui/CardView.ts::confirmBoardMove` reads the target board's labels and custom fields through `CardViewData` and falls back to a general sentence if the read fails.
   - Tests: `tests/syncNote.test.ts` (pull and push with a card of another board), `tests/cardViewModel.test.ts`.
 
+- **Plain words:** "Add the board id to note references" now reads only the cards of each registered board (no more list reads) and also looks at archived cards, so a note whose card was archived still gets its board. The link audit now judges a note without a board prefix on the board of its folder's mapping before falling back to the default board, so the board filter shows it under the right board.
+  **Technical:**
+  - `features/boardIndex.ts::fetchBoardsCards` takes an optional `filter` (`"all"` = archived included); `commands/boardPrefixCommand.ts` uses it instead of `fetchBoardIndexes`.
+  - `features/auditLinks.ts`: `LinkAuditOptions.mappings` (passed by `commands/auditCommands.ts`), `phantomBoard` = prefix, else `boardForFolder`, else the default board; `MappingLookup.boardId`.
+  - Tests: `tests/boardPrefixCommand.test.ts`, `tests/auditMultiBoard.test.ts`.
+
 ## [1.25.1] — 2026-10-23
 
 ### Fixed
